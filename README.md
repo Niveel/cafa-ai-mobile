@@ -1,10 +1,12 @@
 # Cafa AI
 
-Starter template with:
-- Expo Router (tabs)
-- NativeWind
-- TypeScript
-- Common project scaffolding (`components`, `data`, `config`, `context`, `hooks`, `lib`, `types`)
+Mobile scaffold aligned to `cafa_ai_web` with:
+- Expo Router (`(auth)` + `(drawer)` route groups)
+- Typed feature modules (`features/auth`, `features/chat`, `features/images`, `features/videos`, `features/voice`, `features/billing`, `features/settings`)
+- API layer (`services/api`) with endpoints + auth interceptor foundation
+- Session storage foundation (`expo-secure-store`)
+- Accessible custom drawer shell with chat search, top actions, and account card
+- TypeScript and NativeWind utilities
 
 ## Run
 
@@ -15,8 +17,6 @@ npm run start
 
 ## Notes
 
-- `app/(tabs)` contains blank starter tabs.
-- `components/ui/AppScreen.tsx` is a base screen wrapper.
-- Keep dependencies in `package.json` as your shared package baseline for future projects.
-"# cafa-ai-mobile" 
-"# cafa-ai-mobile" 
+- `app/(drawer)` is the main product shell (Chat, Images, Videos, Voice, Plans, Settings).
+- `app/(auth)` contains auth flow scaffolds (login, signup, verify OTP, forgot/reset password).
+- `docs/CAFA_AI_MOBILE_BUILD_GUIDE.md` is the implementation blueprint for feature-by-feature parity with web.

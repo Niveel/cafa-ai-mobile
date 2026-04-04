@@ -7,33 +7,42 @@ export type ThemeColors = {
   textSecondary: string;
   border: string;
   primary: string;
+  secondary: string;
+  accent: string;
+  accent2: string;
   success: string;
   warning: string;
   danger: string;
 };
 
 export const lightColors: ThemeColors = {
-  background: '#F8FAFC',
+  background: '#FFFFFF',
   surface: '#FFFFFF',
-  textPrimary: '#0F172A',
-  textSecondary: '#475569',
-  border: '#E2E8F0',
-  primary: '#0EA5E9',
-  success: '#22C55E',
-  warning: '#F59E0B',
-  danger: '#EF4444',
+  textPrimary: '#171717',
+  textSecondary: '#525252',
+  border: 'rgba(0, 0, 0, 0.15)',
+  primary: '#7C3AED',
+  secondary: '#8B5CF6',
+  accent: '#6D28D9',
+  accent2: '#A78BFA',
+  success: '#78A50F',
+  warning: '#F9C70F',
+  danger: '#DC2626',
 };
 
 export const darkColors: ThemeColors = {
-  background: '#020617',
-  surface: '#0F172A',
-  textPrimary: '#E2E8F0',
-  textSecondary: '#94A3B8',
-  border: '#1E293B',
-  primary: '#38BDF8',
-  success: '#4ADE80',
-  warning: '#FBBF24',
-  danger: '#F87171',
+  background: '#000000',
+  surface: '#0A0A0A',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#B3B3B3',
+  border: 'rgba(255, 255, 255, 0.2)',
+  primary: '#8B5CF6',
+  secondary: '#7C3AED',
+  accent: '#A78BFA',
+  accent2: '#6D28D9',
+  success: '#CDDC39',
+  warning: '#F9C70F',
+  danger: '#FB7185',
 };
 
 export const colorsByMode: Record<ThemeMode, ThemeColors> = {

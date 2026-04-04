@@ -26,6 +26,9 @@ export default function SettingsTab() {
             onValueChange={toggleThemeMode}
             trackColor={{ false: colors.border, true: colors.primary }}
             thumbColor={colors.surface}
+            accessibilityLabel="Dark mode"
+            accessibilityHint="Switch app appearance between light and dark mode."
+            accessibilityState={{ checked: isDark }}
           />
         </View>
       </View>

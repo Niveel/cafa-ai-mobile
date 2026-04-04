@@ -11,6 +11,10 @@ type AppContextValue = {
   toggleThemeMode: () => void;
   isDark: boolean;
   colors: ThemeColors;
+  isAuthenticated: boolean;
+  login: () => void;
+  signup: () => void;
+  signOut: () => void;
 };
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -23,6 +27,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const systemColorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(true);
   const [themeMode, setThemeMode] = useState<ThemeMode>(systemColorScheme === 'dark' ? 'dark' : 'light');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
 
@@ -35,8 +40,12 @@ export function AppProvider({ children }: AppProviderProps) {
       toggleThemeMode: () => setThemeMode((prevMode) => (prevMode === 'dark' ? 'light' : 'dark')),
       isDark,
       colors,
+      isAuthenticated,
+      login: () => setIsAuthenticated(true),
+      signup: () => setIsAuthenticated(true),
+      signOut: () => setIsAuthenticated(false),
     }),
-    [colors, isDark, isReady, themeMode],
+    [colors, isAuthenticated, isDark, isReady, themeMode],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
