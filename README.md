@@ -19,3 +19,4 @@ npm run start
 - `components/ui/AppScreen.tsx` is a base screen wrapper.
 - Keep dependencies in `package.json` as your shared package baseline for future projects.
 "# cafa-ai-mobile" 
+"# cafa-ai-mobile" 
