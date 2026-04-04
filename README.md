@@ -1,4 +1,4 @@
-# Expo NativeWind Template
+# Cafa AI
 
 Starter template with:
 - Expo Router (tabs)
