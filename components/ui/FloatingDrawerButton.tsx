@@ -13,7 +13,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useAppTheme, useReducedMotionPreference } from '@/hooks';
+import { useAppTheme, useI18n, useReducedMotionPreference } from '@/hooks';
 import { MOTION, hapticImpact } from '@/utils';
 
 function FancyMenuGlyph() {
@@ -39,6 +39,7 @@ export function FloatingDrawerButton() {
   const navigation = useNavigation();
   const drawerStatus = useDrawerStatus();
   const { isDark, colors } = useAppTheme();
+  const { t } = useI18n();
   const prefersReducedMotion = useReducedMotionPreference();
   const isDrawerOpen = drawerStatus === 'open';
   const pulse = useSharedValue(1);
@@ -83,10 +84,10 @@ export function FloatingDrawerButton() {
     <Animated.View style={[shadowStyle, animatedStyle]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={isDrawerOpen ? 'Close navigation menu' : 'Open navigation menu'}
-        accessibilityHint="Opens the app navigation drawer."
+        accessibilityLabel={isDrawerOpen ? t('drawer.closeMenu') : t('drawer.openMenu')}
+        accessibilityHint={t('drawer.openMenuHint')}
         accessibilityState={{ expanded: isDrawerOpen }}
-        accessibilityActions={[{ name: 'activate', label: 'Toggle navigation menu' }]}
+        accessibilityActions={[{ name: 'activate', label: t('drawer.toggleMenu') }]}
         onAccessibilityAction={() => {
           hapticImpact();
           navigation.dispatch(DrawerActions.toggleDrawer());

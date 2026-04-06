@@ -33,9 +33,9 @@ export const GUEST_TTS_RATE = Platform.select({
   default: 0.78,
 });
 
-export function getPromptTitle(prompt: string) {
+export function getPromptTitle(prompt: string, fallbackTitle = 'New guest chat') {
   const trimmed = prompt.trim();
-  if (!trimmed) return 'New guest chat';
+  if (!trimmed) return fallbackTitle;
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed;
 }
 

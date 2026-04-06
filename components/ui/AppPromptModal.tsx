@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { MOTION, hapticImpact } from '@/utils';
 
 type AppPromptModalProps = {
@@ -28,14 +28,17 @@ export function AppPromptModal({
   visible,
   title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   onConfirm,
   onCancel,
   confirmTone = 'primary',
   iconName = 'help-circle-outline',
 }: AppPromptModalProps) {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
+  const resolvedConfirmLabel = confirmLabel ?? t('common.confirm');
+  const resolvedCancelLabel = cancelLabel ?? t('common.cancel');
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const cardAnim = useRef(new Animated.Value(0.96)).current;
 
@@ -82,7 +85,7 @@ export function AppPromptModal({
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close confirmation dialog"
+          accessibilityLabel={t('modal.closeDialog')}
           onPress={onCancel}
           style={{ position: 'absolute', inset: 0 }}
         />
@@ -123,7 +126,7 @@ export function AppPromptModal({
           <View className="mt-5 flex-row justify-end gap-2">
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel={cancelLabel}
+              accessibilityLabel={resolvedCancelLabel}
               onPress={() => {
                 hapticImpact();
                 onCancel();
@@ -137,13 +140,13 @@ export function AppPromptModal({
               }}
             >
               <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>
-                {cancelLabel}
+                {resolvedCancelLabel}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel={confirmLabel}
+              accessibilityLabel={resolvedConfirmLabel}
               onPress={() => {
                 hapticImpact();
                 onConfirm();
@@ -153,7 +156,7 @@ export function AppPromptModal({
               style={{ backgroundColor: confirmBackground }}
             >
               <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
-                {confirmLabel}
+                {resolvedConfirmLabel}
               </Text>
             </TouchableOpacity>
           </View>

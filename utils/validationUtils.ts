@@ -2,17 +2,17 @@ import * as Yup from 'yup';
 
 export const passwordValidation = (label = 'Password') =>
   Yup.string()
-    .required(`${label} is required`)
-    .min(8, `${label} must be at least 8 characters long`)
-    .matches(/[A-Z]/, `${label} must contain at least one uppercase letter`)
-    .matches(/[a-z]/, `${label} must contain at least one lowercase letter`)
-    .matches(/\d/, `${label} must contain at least one number`)
+    .required('validation.passwordRequired')
+    .min(8, 'validation.passwordMin')
+    .matches(/[A-Z]/, 'validation.passwordUpper')
+    .matches(/[a-z]/, 'validation.passwordLower')
+    .matches(/\d/, 'validation.passwordNumber')
     .label(label);
 
 export const fullNameValidation = () =>
   Yup.string()
-    .required('Full name is required')
-    .min(2, 'Name must be at least 2 characters long')
-    .max(50, 'Name cannot exceed 50 characters')
-    .matches(/^[a-zA-Z\s-]+$/, 'Name can only contain letters, spaces, and hyphens')
+    .required('validation.fullNameRequired')
+    .min(2, 'validation.fullNameMin')
+    .max(50, 'validation.fullNameMax')
+    .matches(/^[a-zA-Z\s-]+$/, 'validation.fullNamePattern')
     .label('Full Name');

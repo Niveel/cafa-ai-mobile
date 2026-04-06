@@ -3,15 +3,16 @@ import { Text, View } from 'react-native';
 
 import { AppButton, AppForm, AppFormField, AppScreen, SubmitButton } from '@/components';
 import { PasswordResetFormValues, PasswordResetValidationSchema } from '@/data';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 export default function ResetPasswordScreen() {
   const { colors } = useAppTheme();
+  const { t } = useI18n();
 
   return (
-    <AppScreen title="Reset Password" subtitle="Set a new password for your account." showTopChrome={false}>
+    <AppScreen title={t('auth.resetPassword')} subtitle={t('auth.resetPasswordSubtitle')} showTopChrome={false}>
       <View className="gap-3">
-        <Text style={{ color: colors.textSecondary }}>Set your new password and confirm it.</Text>
+        <Text style={{ color: colors.textSecondary }}>{t('auth.resetPasswordBlurb')}</Text>
         <AppForm<PasswordResetFormValues>
           initialValues={{ password: '', confirmPassword: '' }}
           validationSchema={PasswordResetValidationSchema}
@@ -19,21 +20,21 @@ export default function ResetPasswordScreen() {
         >
           <AppFormField<PasswordResetFormValues>
             name="password"
-            label="New Password"
-            placeholder="Enter new password"
+            label={t('field.newPassword')}
+            placeholder={t('placeholder.newPassword')}
             type="password"
             required
           />
           <AppFormField<PasswordResetFormValues>
             name="confirmPassword"
-            label="Confirm Password"
-            placeholder="Re-enter new password"
+            label={t('field.confirmPassword')}
+            placeholder={t('placeholder.confirmNewPassword')}
             type="password"
             required
           />
-          <SubmitButton title="Reset password" />
+          <SubmitButton title={t('auth.resetPassword')} />
         </AppForm>
-        <AppButton label="Back to login" variant="outline" onPress={() => router.push('/(auth)/login')} />
+        <AppButton label={t('auth.backToLogin')} variant="outline" onPress={() => router.push('/(auth)/login')} />
       </View>
     </AppScreen>
   );

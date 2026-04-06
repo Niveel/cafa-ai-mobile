@@ -31,12 +31,9 @@ import {
   AppScreen,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
-  IMAGE_MODE_PROMPTS,
   MessageActionsRow,
-  QUICK_PROMPTS,
   RecordingWaves,
   UserPromptActionsRow,
-  VIDEO_MODE_PROMPTS,
   createIdempotencyKey,
   getPromptTitle,
   isMediaGenerationPrompt,
@@ -69,11 +66,14 @@ export default function ChatScreen() {
     (): UiMessage => ({
       id: 'welcome-1',
       role: 'assistant',
-      content: `Hi, I am ${t('app.name')}. Ask me anything or start with a task.`,
+      content: t('chat.welcome'),
       createdAt: Date.now(),
     }),
     [t],
   );
+  const quickPrompts = [t('chat.prompt.quick1'), t('chat.prompt.quick2'), t('chat.prompt.quick3')];
+  const imageModePrompts = [t('chat.prompt.image1'), t('chat.prompt.image2'), t('chat.prompt.image3'), t('chat.prompt.image4')];
+  const videoModePrompts = [t('chat.prompt.video1'), t('chat.prompt.video2'), t('chat.prompt.video3'), t('chat.prompt.video4')];
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -219,7 +219,7 @@ export default function ChatScreen() {
             lastEndpoint = `${API_BASE_URL}/guest/session`;
             await ensureGuestSession();
             lastEndpoint = `${API_BASE_URL}/guest/chat`;
-            const created = await createGuestConversation(getPromptTitle(trimmed));
+            const created = await createGuestConversation(getPromptTitle(trimmed, t('drawer.newChat')));
             conversationId = created.conversationId;
             setGuestConversationId(conversationId);
           }
@@ -252,7 +252,7 @@ export default function ChatScreen() {
         let conversationId = authConversationId;
         if (!conversationId) {
           lastEndpoint = `${API_BASE_URL}/chat`;
-          const created = await createAuthenticatedConversation(getPromptTitle(trimmed));
+          const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
           conversationId = created.conversationId;
           setAuthConversationId(conversationId);
         }
@@ -319,7 +319,7 @@ export default function ChatScreen() {
   };
 
   const applyRandomPrompt = (kind: 'image' | 'video') => {
-    const pool = kind === 'image' ? IMAGE_MODE_PROMPTS : VIDEO_MODE_PROMPTS;
+    const pool = kind === 'image' ? imageModePrompts : videoModePrompts;
     const picked = pool[Math.floor(Math.random() * pool.length)];
     setInput(picked);
   };
@@ -741,7 +741,7 @@ export default function ChatScreen() {
   }, [messages]);
 
   return (
-    <AppScreen title="Cafa AI" showHeading={false}>
+    <AppScreen title={t('app.name')} showHeading={false}>
       <KeyboardAvoidingView
         className="flex-1"
         behavior="padding"
@@ -820,6 +820,7 @@ export default function ChatScreen() {
                   >
                     {CHAT_MODEL_OPTIONS.map((model) => {
                       const active = activeModel === model.key;
+                      const modelDescription = t(`chat.model.desc.${model.key}`);
                       return (
                         <Pressable
                           key={model.key}
@@ -831,14 +832,14 @@ export default function ChatScreen() {
                           className="rounded-lg px-3 py-2"
                           style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
                           accessibilityRole="button"
-                          accessibilityLabel={`${t(`chat.model.label.${model.key}`)} model`}
-                          accessibilityHint={model.description}
+                          accessibilityLabel={t('chat.model.accessibility', { model: t(`chat.model.label.${model.key}`) })}
+                          accessibilityHint={modelDescription}
                         >
                           <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
                             {t(`chat.model.label.${model.key}`)}
                           </Text>
                           <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
-                            {model.description}
+                            {modelDescription}
                           </Text>
                         </Pressable>
                       );
@@ -851,7 +852,7 @@ export default function ChatScreen() {
             {!hasStartedChat ? (
               <View className="mb-2">
                 <FlatList
-                  data={QUICK_PROMPTS}
+                  data={quickPrompts}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   keyExtractor={(item) => item}

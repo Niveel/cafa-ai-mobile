@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput as RNTextInput, TextInputProps as RNTextInputProps, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 type Props = {
   name: string;
@@ -35,6 +35,7 @@ export function TextInput({
   ...otherProps
 }: Props) {
   const { colors } = useAppTheme();
+  const { t } = useI18n();
   const [showPassword, setShowPassword] = useState(false);
 
   const isPasswordField = !multiline && type === 'password';
@@ -81,7 +82,7 @@ export function TextInput({
         {isPasswordField ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+            accessibilityLabel={showPassword ? t('form.hidePassword') : t('form.showPassword')}
             onPress={() => setShowPassword((prev) => !prev)}
             className="absolute right-0 top-0 h-11 w-11 items-center justify-center"
           >
@@ -92,7 +93,7 @@ export function TextInput({
         {iconName && !isPasswordField ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={iconAria || 'Input action'}
+            accessibilityLabel={iconAria || t('form.inputAction')}
             onPress={onIconPress}
             className="absolute right-0 top-0 h-11 w-11 items-center justify-center"
           >

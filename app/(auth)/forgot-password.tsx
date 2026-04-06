@@ -4,17 +4,18 @@ import { Text, View } from 'react-native';
 
 import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { ForgotPasswordFormValues, ForgotPasswordValidationSchema } from '@/data';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 export default function ForgotPasswordScreen() {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const cardBackground = isDark ? 'rgba(20, 20, 20, 0.92)' : 'rgba(255, 255, 255, 0.95)';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
 
   return (
-    <AppScreen title="Forgot Password" subtitle="Request a reset code for your account." showTopChrome={false} showHeading={false}>
+    <AppScreen title={t('auth.forgotPassword')} subtitle={t('auth.forgotPasswordSubtitle')} showTopChrome={false} showHeading={false}>
       <View className="flex-1">
-        <SecondaryNav title="Forgot password" />
+        <SecondaryNav title={t('auth.forgotPassword')} />
         <LinearGradient
           colors={[`${colors.primary}20`, `${colors.secondary}14`, 'transparent']}
           start={{ x: 0, y: 0 }}
@@ -37,9 +38,9 @@ export default function ForgotPasswordScreen() {
               gap: 12,
             }}
           >
-            <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>Reset password</Text>
+            <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.resetPassword')}</Text>
             <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
-              Enter your email and we will send a 6-digit reset code.
+              {t('auth.resetCodeBlurb')}
             </Text>
             <AppForm<ForgotPasswordFormValues>
               initialValues={{ email: '' }}
@@ -53,14 +54,14 @@ export default function ForgotPasswordScreen() {
             >
               <AppFormField<ForgotPasswordFormValues>
                 name="email"
-                label="Email"
-                placeholder="you@example.com"
+                label={t('field.email')}
+                placeholder={t('placeholder.email')}
                 type="email"
                 required
               />
-              <SubmitButton title="Send reset code" />
+              <SubmitButton title={t('auth.sendResetCode')} />
             </AppForm>
-            <AppButton label="Back to login" variant="outline" onPress={() => router.push('/(auth)/login')} />
+            <AppButton label={t('auth.backToLogin')} variant="outline" onPress={() => router.push('/(auth)/login')} />
           </View>
         </LinearGradient>
       </View>

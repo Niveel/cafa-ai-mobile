@@ -145,7 +145,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                     accessibilityRole="tab"
                     accessibilityState={{ selected }}
                     accessibilityLabel={tabLabel}
-                    accessibilityHint={selected ? `${tabLabel} selected.` : `Open ${tabLabel}.`}
+                    accessibilityHint={selected ? t('settings.tabSelected', { tab: tabLabel }) : t('settings.tabOpen', { tab: tabLabel })}
                     onPress={() => {
                       setLanguageMenuOpen(false);
                       setActiveTab(tab.key);

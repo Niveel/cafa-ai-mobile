@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { View } from 'react-native';
 import { Formik, FormikConfig, FormikValues } from 'formik';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { FormLoader } from './FormLoader';
 
 type AppFormProps<Values extends FormikValues> = {
@@ -19,6 +19,7 @@ export function AppForm<Values extends FormikValues>({
   ...rest
 }: AppFormProps<Values>) {
   const { isDark } = useAppTheme();
+  const { t } = useI18n();
 
   return (
     <Formik initialValues={initialValues} onSubmit={onSubmit} validationSchema={validationSchema} {...rest}>
@@ -28,7 +29,7 @@ export function AppForm<Values extends FormikValues>({
           {isSubmitting ? (
             <View
               accessibilityRole="progressbar"
-              accessibilityLabel="Submitting form"
+              accessibilityLabel={t('form.submittingForm')}
               style={{
                 position: 'absolute',
                 top: 0,

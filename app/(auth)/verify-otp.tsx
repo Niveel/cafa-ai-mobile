@@ -5,7 +5,7 @@ import * as Yup from 'yup';
 import { Text, TouchableOpacity, View } from 'react-native';
 
 import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { useAppContext } from '@/context';
 import { setAccessToken, setRefreshToken } from '@/services';
 import { verifyOtp as verifyOtpRequest } from '@/features';
@@ -17,14 +17,15 @@ type VerifyOtpScreenValues = {
 
 const VerifyOtpScreenValidationSchema = Yup.object().shape({
   email: Yup.string()
-    .required('Email is required')
-    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'Please enter a valid email address')
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
     .label('Email'),
-  otp: Yup.string().required('OTP is required').matches(/^\d{6}$/, 'OTP must be exactly 6 digits').label('OTP'),
+  otp: Yup.string().required('validation.otpRequired').matches(/^\d{6}$/, 'validation.otpExact').label('OTP'),
 });
 
 export default function VerifyOtpScreen() {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const { login } = useAppContext();
   const params = useLocalSearchParams<{ email?: string; flow?: string }>();
   const [notice, setNotice] = useState('');
@@ -35,12 +36,12 @@ export default function VerifyOtpScreen() {
   const initialEmail = typeof params.email === 'string' ? params.email : '';
   const flow = typeof params.flow === 'string' ? params.flow : 'signup';
   const flowMessage =
-    flow === 'login' ? 'Confirm your email to finish logging in.' : 'Confirm your email to activate your new account.';
+    flow === 'login' ? t('auth.verifyLoginBlurb') : t('auth.verifySignupBlurb');
 
   return (
-    <AppScreen title="Verify OTP" subtitle="Confirm your email with the one-time passcode." showTopChrome={false} showHeading={false}>
+    <AppScreen title={t('auth.verifyOtp')} subtitle={t('auth.verifyOtpSubtitle')} showTopChrome={false} showHeading={false}>
       <View className="flex-1">
-        <SecondaryNav title="Verify code" />
+        <SecondaryNav title={t('auth.verifyCode')} />
         <LinearGradient
           colors={[`${colors.primary}20`, `${colors.secondary}14`, 'transparent']}
           start={{ x: 0, y: 0 }}
@@ -63,7 +64,7 @@ export default function VerifyOtpScreen() {
               gap: 12,
             }}
           >
-            <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>Verify your email</Text>
+            <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.verifyEmail')}</Text>
             <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>{flowMessage}</Text>
             <AppForm<VerifyOtpScreenValues>
               initialValues={{ email: initialEmail, otp: '' }}
@@ -86,22 +87,22 @@ export default function VerifyOtpScreen() {
                   router.replace('/(drawer)');
                 } catch (error) {
                   const mapped = error as { message?: string };
-                  setAuthError(mapped.message ?? 'Could not verify code right now.');
+                  setAuthError(mapped.message ?? t('auth.verifyFailed'));
                 }
               }}
               enableReinitialize
             >
               <AppFormField<{ email: string; otp: string }>
                 name="email"
-                label="Email"
-                placeholder="you@example.com"
+                label={t('field.email')}
+                placeholder={t('placeholder.email')}
                 type="email"
                 required
               />
               <AppFormField<{ email: string; otp: string }>
                 name="otp"
-                label="Verification code"
-                placeholder="123456"
+                label={t('field.verificationCode')}
+                placeholder={t('placeholder.verificationCode')}
                 required
                 maxLength={6}
                 keyboardType="number-pad"
@@ -142,16 +143,16 @@ export default function VerifyOtpScreen() {
               <View className="flex-row items-center justify-between">
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel="Resend verification code"
-                  onPress={() => setNotice('A new verification code has been sent to your email.')}
+                  accessibilityLabel={t('auth.resendCode')}
+                  onPress={() => setNotice(t('auth.resendNotice'))}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={{ color: colors.primary, fontWeight: '600' }}>Resend code</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '600' }}>{t('auth.resendCode')}</Text>
                 </TouchableOpacity>
-                <SubmitButton title="Verify and continue" forceEnable />
+                <SubmitButton title={t('auth.verifyAndContinue')} forceEnable />
               </View>
             </AppForm>
-            <AppButton label="Back to login" variant="outline" onPress={() => router.push('/(auth)/login')} />
+            <AppButton label={t('auth.backToLogin')} variant="outline" onPress={() => router.push('/(auth)/login')} />
           </View>
         </LinearGradient>
       </View>

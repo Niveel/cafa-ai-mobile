@@ -1,6 +1,7 @@
 import { useFormikContext } from 'formik';
 
 import { AppButton } from '@/components/ui/AppButton';
+import { useI18n } from '@/hooks';
 
 type Props = {
   title: string;
@@ -9,12 +10,13 @@ type Props = {
 
 export function SubmitButton({ title, forceEnable = false }: Props) {
   const { handleSubmit, isValid, dirty, isSubmitting } = useFormikContext();
+  const { t } = useI18n();
 
   const isDisabled = !(isValid && (dirty || forceEnable)) || isSubmitting;
 
   return (
     <AppButton
-      label={isSubmitting ? 'Submitting...' : title}
+      label={isSubmitting ? t('form.submitting') : title}
       variant="solid"
       onPress={() => {
         if (!isDisabled) handleSubmit();

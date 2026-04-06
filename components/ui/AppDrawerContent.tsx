@@ -195,8 +195,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
 
-  const userName = isAuthenticated ? 'Cafa User' : 'Guest User';
-  const currentPlan = isAuthenticated ? 'Cafa Pro' : 'Free Plan';
+  const userName = isAuthenticated ? t('drawer.userName.auth') : t('drawer.userName.guest');
+  const currentPlan = isAuthenticated ? t('drawer.plan.pro') : t('drawer.plan.free');
 
   const loadChats = useCallback(async () => {
     setLoadingChats(true);
@@ -310,10 +310,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       const chat = chats.find((item) => item.id === chatId);
       if (!chat) return;
       await Share.share({
-        message: `Cafa AI chat\n\n${customTitles[chat.id] || chat.title}\n${chat.preview}`,
+        message: `${t('app.name')} ${t('drawer.newChat').toLowerCase()}\n\n${customTitles[chat.id] || chat.title}\n${chat.preview}`,
       });
     },
-    [chats, customTitles],
+    [chats, customTitles, t],
   );
 
   const onRenameChat = useCallback((chatId: string) => {
@@ -509,7 +509,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           keyboardShouldPersistTaps="handled"
           removeClippedSubviews
           showsVerticalScrollIndicator={false}
-          accessibilityLabel="Chat conversations list"
+          accessibilityLabel={t('drawer.chatList')}
           ListEmptyComponent={
             <View className="rounded-xl border px-3 py-3" style={{ borderColor: colors.border }}>
               <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
@@ -595,7 +595,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           >
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
-                <Image source={require('../../assets/images/logo.png')} className="h-10 w-10 rounded-full" accessibilityLabel="User avatar" />
+                <Image source={require('../../assets/images/logo.png')} className="h-10 w-10 rounded-full" accessibilityLabel={t('drawer.userAvatar')} />
                 <View className="ml-3">
                   <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{currentPlan}</Text>

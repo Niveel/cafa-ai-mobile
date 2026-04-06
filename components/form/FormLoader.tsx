@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, View } from 'react-native';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 export function FormLoader() {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const rotate = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0.8)).current;
 
@@ -56,8 +57,8 @@ export function FormLoader() {
     <View
       className="items-center justify-center py-2"
       accessibilityRole="progressbar"
-      accessibilityLabel="Loading"
-      accessibilityHint="Processing form action"
+      accessibilityLabel={t('form.loading')}
+      accessibilityHint={t('form.processing')}
     >
       <View
         style={{

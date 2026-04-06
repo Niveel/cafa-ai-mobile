@@ -28,7 +28,7 @@ export default function LoginScreen() {
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
 
   return (
-    <AppScreen title={t('auth.login')} subtitle="Sign in to continue your Cafa AI conversations." showTopChrome={false} showHeading={false}>
+    <AppScreen title={t('auth.login')} subtitle={t('auth.loginSubtitle')} showTopChrome={false} showHeading={false}>
       <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
@@ -63,7 +63,7 @@ export default function LoginScreen() {
                 >
                   <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.login')}</Text>
                   <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
-                    Use your email or username and password to continue.
+                    {t('auth.loginBlurb')}
                   </Text>
                   <AppForm<LoginFormValues>
                     initialValues={{ emailOrUsername: '', password: '' }}
@@ -87,7 +87,7 @@ export default function LoginScreen() {
                         router.replace('/(drawer)');
                       } catch (error) {
                         const mapped = error as { code?: string; message?: string };
-                        const message = mapped?.message ?? 'Could not sign in right now.';
+                        const message = mapped?.message ?? t('auth.signinFailed');
                         const code = mapped?.code ?? '';
 
                         if (code === 'EMAIL_NOT_VERIFIED') {
@@ -107,24 +107,24 @@ export default function LoginScreen() {
                   >
                     <AppFormField<LoginFormValues>
                       name="emailOrUsername"
-                      label="Email or Username"
-                      placeholder="you@example.com or username"
+                      label={t('field.emailOrUsername')}
+                      placeholder={t('placeholder.emailOrUsername')}
                       required
                     />
                     <AppFormField<LoginFormValues>
                       name="password"
-                      label="Password"
-                      placeholder="Enter password"
+                      label={t('field.password')}
+                      placeholder={t('placeholder.enterPassword')}
                       type="password"
                       required
                     />
                     <TouchableOpacity
                       accessibilityRole="button"
-                      accessibilityLabel="Forgot password"
+                      accessibilityLabel={t('auth.forgotPassword')}
                       onPress={() => router.push('/(auth)/forgot-password')}
                       style={{ alignSelf: 'flex-end', marginTop: -4 }}
                     >
-                      <Text style={{ color: colors.primary, fontWeight: '600' }}>Forgot password?</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '600' }}>{t('auth.forgotPasswordCta')}</Text>
                     </TouchableOpacity>
                     {authError ? (
                       <View
@@ -137,7 +137,7 @@ export default function LoginScreen() {
                         <Text style={{ color: isDark ? '#FCA5A5' : '#B91C1C', fontSize: 12 }}>{authError}</Text>
                       </View>
                     ) : null}
-                    <SubmitButton title="Continue" />
+                    <SubmitButton title={t('common.continue')} />
                   </AppForm>
                   <AppButton
                     label={t('auth.signup')}
@@ -149,7 +149,7 @@ export default function LoginScreen() {
               </LinearGradient>
               <View className="mt-4 px-2">
                 <Text style={{ color: colors.textSecondary, textAlign: 'center', fontSize: 12 }}>
-                  By continuing, you agree to Cafa AI terms and privacy policy.
+                  {t('auth.termsNotice')}
                 </Text>
               </View>
             </View>

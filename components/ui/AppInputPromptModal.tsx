@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 type AppInputPromptModalProps = {
   visible: boolean;
@@ -21,13 +21,16 @@ export function AppInputPromptModal({
   title,
   message,
   initialValue = '',
-  confirmLabel = 'Save',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   placeholder = '',
   onCancel,
   onConfirm,
 }: AppInputPromptModalProps) {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
+  const resolvedConfirmLabel = confirmLabel ?? t('common.save');
+  const resolvedCancelLabel = cancelLabel ?? t('common.cancel');
   const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
@@ -82,22 +85,22 @@ export function AppInputPromptModal({
             <TouchableOpacity
               onPress={onCancel}
               accessibilityRole="button"
-              accessibilityLabel={cancelLabel}
+              accessibilityLabel={resolvedCancelLabel}
               className="h-10 items-center justify-center rounded-full px-4"
               style={{ borderWidth: 1.5, borderColor: colors.primary }}
             >
-              <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>{cancelLabel}</Text>
+              <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>{resolvedCancelLabel}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => onConfirm(value.trim())}
               accessibilityRole="button"
-              accessibilityLabel={confirmLabel}
+              accessibilityLabel={resolvedConfirmLabel}
               className="h-10 items-center justify-center rounded-full px-4"
               style={{ backgroundColor: colors.primary }}
               disabled={!value.trim()}
             >
-              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>{confirmLabel}</Text>
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>{resolvedConfirmLabel}</Text>
             </TouchableOpacity>
           </View>
         </View>

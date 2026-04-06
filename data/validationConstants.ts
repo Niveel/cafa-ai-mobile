@@ -5,8 +5,8 @@ import { fullNameValidation, passwordValidation } from '@/utils';
 
 export const LoginValidationSchema = Yup.object().shape({
   emailOrUsername: Yup.string()
-    .required('Email or username is required')
-    .test('email-or-username', 'Please enter a valid email or username', (value) => {
+    .required('validation.emailOrUsernameRequired')
+    .test('email-or-username', 'validation.emailOrUsernameInvalid', (value) => {
       if (!value) return false;
 
       const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -14,70 +14,70 @@ export const LoginValidationSchema = Yup.object().shape({
       return emailRegex.test(value) || usernameRegex.test(value);
     })
     .label('Email or Username'),
-  password: Yup.string().required('Password is required').label('Password'),
+  password: Yup.string().required('validation.passwordRequired').label('Password'),
 });
 export type LoginFormValues = InferType<typeof LoginValidationSchema>;
 
 export const SignupValidationSchema = Yup.object().shape({
   username: Yup.string()
-    .required('Username is required')
-    .min(3, 'Username must be at least 3 characters')
-    .max(20, 'Username must not exceed 20 characters')
-    .matches(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores')
+    .required('validation.usernameRequired')
+    .min(3, 'validation.usernameMin')
+    .max(20, 'validation.usernameMax')
+    .matches(/^[a-zA-Z0-9_]+$/, 'validation.usernamePattern')
     .label('Username'),
   email: Yup.string()
-    .required('Email is required')
-    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'Please enter a valid email address')
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
     .label('Email'),
   password: passwordValidation(),
   confirmPassword: Yup.string()
-    .required('Please confirm your password')
-    .oneOf([Yup.ref('password')], 'Passwords must match')
+    .required('validation.confirmPasswordRequired')
+    .oneOf([Yup.ref('password')], 'validation.passwordsMatch')
     .label('Confirm Password'),
 });
 export type SignupFormValues = InferType<typeof SignupValidationSchema>;
 
 export const ForgotPasswordValidationSchema = Yup.object().shape({
   email: Yup.string()
-    .required('Email is required')
-    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'Please enter a valid email address')
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
     .label('Email'),
 });
 export type ForgotPasswordFormValues = InferType<typeof ForgotPasswordValidationSchema>;
 
 export const VerifyOtpValidationSchema = Yup.object().shape({
   otp: Yup.string()
-    .required('OTP is required')
-    .matches(/^\d{6}$/, 'OTP must be exactly 6 digits')
+    .required('validation.otpRequired')
+    .matches(/^\d{6}$/, 'validation.otpExact')
     .label('OTP'),
 });
 export type VerifyOtpFormValues = InferType<typeof VerifyOtpValidationSchema>;
 
 export const PasswordResetValidationSchema = Yup.object().shape({
   password: passwordValidation(),
-  confirmPassword: Yup.string().oneOf([Yup.ref('password')], 'Passwords must match').required('Please confirm your password'),
+  confirmPassword: Yup.string().oneOf([Yup.ref('password')], 'validation.passwordsMatch').required('validation.confirmPasswordRequired'),
 });
 export type PasswordResetFormValues = InferType<typeof PasswordResetValidationSchema>;
 
 export const ContactFormGuestValidationSchema = Yup.object().shape({
   name: fullNameValidation(),
   email: Yup.string()
-    .required('Email is required')
-    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'Please enter a valid email address')
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
     .label('Email'),
   phone: Yup.string()
-    .required('Phone number is required')
-    .matches(/^0[0-9]{9}$/, 'Phone number must be 10 digits starting with 0')
+    .required('validation.phoneRequired')
+    .matches(/^0[0-9]{9}$/, 'validation.phonePattern')
     .label('Phone'),
   subject: Yup.string()
-    .required('Subject is required')
-    .min(5, 'Subject must be at least 5 characters')
-    .max(200, 'Subject must not exceed 200 characters')
+    .required('validation.subjectRequired')
+    .min(5, 'validation.subjectMin')
+    .max(200, 'validation.subjectMax')
     .label('Subject'),
   message: Yup.string()
-    .required('Message is required')
-    .min(10, 'Message must be at least 10 characters')
-    .max(2000, 'Message must not exceed 2000 characters')
+    .required('validation.messageRequired')
+    .min(10, 'validation.messageMin')
+    .max(2000, 'validation.messageMax')
     .label('Message'),
 });
 export type ContactFormGuestValues = InferType<typeof ContactFormGuestValidationSchema>;
