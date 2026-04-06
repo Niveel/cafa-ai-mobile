@@ -27,6 +27,26 @@ export const CHAT_MODEL_OPTIONS: { key: ChatModelKey; label: string; description
   { key: 'swift', label: 'Cafa Swift', description: 'Light tasks and fast' },
 ];
 
+export const CAFA_MODEL_LABELS: Record<ChatModelKey, string> = {
+  ultra: 'Cafa Ultra',
+  smart: 'Cafa Smart',
+  swift: 'Cafa Swift',
+};
+
+export function mapUiModelToBackendModel(model: ChatModelKey) {
+  if (model === 'ultra') return 'gpt-4o';
+  return 'gpt-4o-mini';
+}
+
+export function resolveModelBadgeLabel(backendModel: string | undefined, requestedModel: ChatModelKey) {
+  if (backendModel === 'gpt-4o') return CAFA_MODEL_LABELS.ultra;
+  if (backendModel === 'gpt-4o-mini') return CAFA_MODEL_LABELS[requestedModel] ?? CAFA_MODEL_LABELS.smart;
+  if (backendModel === 'cafa_ultra') return CAFA_MODEL_LABELS.ultra;
+  if (backendModel === 'cafa_smart') return CAFA_MODEL_LABELS.smart;
+  if (backendModel === 'cafa_swift') return CAFA_MODEL_LABELS.swift;
+  return CAFA_MODEL_LABELS[requestedModel] ?? CAFA_MODEL_LABELS.smart;
+}
+
 export const GUEST_TTS_RATE = Platform.select({
   ios: 0.46,
   android: 0.78,

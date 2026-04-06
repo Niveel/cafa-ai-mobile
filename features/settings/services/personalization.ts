@@ -3,6 +3,7 @@ import { AxiosResponse } from 'axios';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 
 export type PersonalizationPayload = {
+  language?: 'en' | 'fr' | 'es' | 'pt';
   tone?: 'balanced' | 'friendly' | 'direct';
   responseLength?: 'short' | 'medium' | 'long';
   memoryEnabled?: boolean;

@@ -243,6 +243,7 @@ export async function sendGuestMessageStream(
   message: string,
   onEvent: (event: GuestStreamEvent) => void,
   idempotencyKey: string,
+  language: 'en' | 'fr' | 'es' | 'pt' = 'en',
 ) {
   const sendNonStreamFallback = async () => {
     const nonStreamResponse = await withGuestAuth(
@@ -257,6 +258,7 @@ export async function sendGuestMessageStream(
           message,
           stream: false,
           model: GUEST_MODEL,
+          language,
         }),
       },
       true,
@@ -320,6 +322,7 @@ export async function sendGuestMessageStream(
         message,
         stream: true,
         model: GUEST_MODEL,
+        language,
       }),
     },
     true,

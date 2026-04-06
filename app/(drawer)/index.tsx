@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
   type GestureResponderEvent,
   Dimensions,
@@ -33,6 +34,7 @@ import {
   GUEST_TTS_RATE,
   MessageActionsRow,
   RecordingWaves,
+  resolveModelBadgeLabel,
   UserPromptActionsRow,
   createIdempotencyKey,
   getPromptTitle,
@@ -61,7 +63,7 @@ export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 4;
   const { colors, isDark } = useAppTheme();
   const { isAuthenticated } = useAppContext();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
       id: 'welcome-1',
@@ -93,9 +95,11 @@ export default function ChatScreen() {
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
   const [streamingDots, setStreamingDots] = useState('.');
+  const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const messagesListRef = useRef<FlatList<UiMessage>>(null);
+  const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const composerInputRef = useRef<TextInput>(null);
+  const inputValueRef = useRef('');
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,17 +151,33 @@ export default function ChatScreen() {
   const queueAssistantDelta = (assistantId: string, delta: string) => {
     pendingAssistantIdRef.current = assistantId;
     pendingDeltaRef.current += delta;
-
     if (deltaFlushTimerRef.current) return;
     deltaFlushTimerRef.current = setTimeout(() => {
-      flushPendingAssistantDelta();
+      const targetId = pendingAssistantIdRef.current;
+      const pending = pendingDeltaRef.current;
+      if (!targetId || !pending) {
+        deltaFlushTimerRef.current = null;
+        return;
+      }
+
+      const chunk = pending.slice(0, 2);
+      pendingDeltaRef.current = pending.slice(chunk.length);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === targetId ? { ...message, content: `${message.content}${chunk}` } : message,
+        ),
+      );
+
       deltaFlushTimerRef.current = null;
-    }, 44);
+      if (pendingDeltaRef.current) {
+        queueAssistantDelta(targetId, '');
+      }
+    }, 12);
   };
 
   const handleSend = () => {
     const run = async () => {
-      const trimmed = input.trim();
+      const trimmed = inputValueRef.current.trim();
       if (!trimmed || isSending) return;
       let lastEndpoint = `${API_BASE_URL}/chat`;
 
@@ -169,6 +189,7 @@ export default function ChatScreen() {
       };
 
       const assistantId = `assistant-${Date.now()}`;
+      let activeAssistantId = assistantId;
 
       hapticImpact();
       assistantFirstDeltaRef.current = false;
@@ -181,9 +202,11 @@ export default function ChatScreen() {
       setAttachmentMenuOpen(false);
       setModelMenuOpen(false);
       Keyboard.dismiss();
+      inputValueRef.current = '';
       setInput('');
       setIsSending(true);
       setStatusNotice('');
+      setStreamingModelLabel(t(`chat.model.label.${activeModel}`));
       setMessages((prev) => [
         ...prev,
         userMessage,
@@ -229,6 +252,11 @@ export default function ChatScreen() {
             conversationId,
             trimmed,
             (event) => {
+              if (event.type === 'meta') {
+                setStreamingModelLabel(
+                  resolveModelBadgeLabel(event.model, activeModel),
+                );
+              }
               if (event.type === 'delta') {
                 if (!assistantFirstDeltaRef.current) {
                   assistantFirstDeltaRef.current = true;
@@ -239,12 +267,14 @@ export default function ChatScreen() {
               if (event.type === 'done') {
                 flushPendingAssistantDelta();
                 hapticSuccess();
+                setStreamingModelLabel(null);
               }
               if (event.type === 'error') {
                 throw new Error(event.message || 'Guest chat stream failed.');
               }
             },
             createIdempotencyKey(conversationId),
+            language,
           );
           return;
         }
@@ -259,38 +289,54 @@ export default function ChatScreen() {
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
         await sendAuthenticatedMessageStream(conversationId, trimmed, (event) => {
+          if (event.type === 'meta') {
+            setStreamingModelLabel(
+              resolveModelBadgeLabel(event.model, activeModel),
+            );
+            if (event.messageId) {
+              const previousAssistantId = activeAssistantId;
+              activeAssistantId = event.messageId;
+              pendingAssistantIdRef.current = event.messageId;
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === previousAssistantId ? { ...message, id: event.messageId! } : message,
+                ),
+              );
+            }
+            return;
+          }
+
           if (event.type === 'delta') {
             if (!assistantFirstDeltaRef.current) {
               assistantFirstDeltaRef.current = true;
               hapticSelection();
             }
-            queueAssistantDelta(assistantId, event.content);
-            return;
-          }
-
-          if (event.type === 'meta' && event.messageId) {
-            setMessages((prev) =>
-              prev.map((message) => (message.id === assistantId ? { ...message, id: event.messageId! } : message)),
-            );
+            queueAssistantDelta(activeAssistantId, event.content);
             return;
           }
 
           if (event.type === 'done') {
             flushPendingAssistantDelta();
             hapticSuccess();
+            setStreamingModelLabel(null);
             if (event.messageId) {
+              const previousAssistantId = activeAssistantId;
+              activeAssistantId = event.messageId;
               setMessages((prev) =>
                 prev.map((message) =>
-                  message.id === assistantId ? { ...message, id: event.messageId!, tokens: event.tokens } : message,
+                  message.id === previousAssistantId
+                    ? { ...message, id: event.messageId!, tokens: event.tokens }
+                    : message,
                 ),
               );
             }
           }
-        });
+        }, language, activeModel);
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
         hapticError();
+        setStreamingModelLabel(null);
 
         setStatusNotice(message);
         setMessages((prev) =>
@@ -311,6 +357,7 @@ export default function ChatScreen() {
           clearTimeout(deltaFlushTimerRef.current);
           deltaFlushTimerRef.current = null;
         }
+        setStreamingModelLabel(null);
         setIsSending(false);
       }
     };
@@ -321,6 +368,7 @@ export default function ChatScreen() {
   const applyRandomPrompt = (kind: 'image' | 'video') => {
     const pool = kind === 'image' ? imageModePrompts : videoModePrompts;
     const picked = pool[Math.floor(Math.random() * pool.length)];
+    inputValueRef.current = picked;
     setInput(picked);
   };
 
@@ -464,6 +512,7 @@ export default function ChatScreen() {
   const editPrompt = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return;
+    inputValueRef.current = trimmed;
     setInput(trimmed);
     hapticSelection();
     requestAnimationFrame(() => {
@@ -525,7 +574,9 @@ export default function ChatScreen() {
     if (!transcript) {
       return;
     }
-    setInput((prev) => `${prev}${prev ? '\n' : ''}${transcript}`);
+    const nextValue = `${inputValueRef.current}${inputValueRef.current ? '\n' : ''}${transcript}`;
+    inputValueRef.current = nextValue;
+    setInput(nextValue);
     hapticSuccess();
   });
 
@@ -774,80 +825,94 @@ export default function ChatScreen() {
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{statusNotice}</Text>
               </Animated.View>
             ) : null}
-
-            <View className="mb-2 flex-row items-center justify-end">
-              <View
-                className="relative"
-                style={{
-                  zIndex: modelMenuOpen ? 120 : 1,
-                  elevation: modelMenuOpen ? 30 : 0,
-                }}
+            {!!streamingModelLabel ? (
+              <Animated.View
+                entering={FadeInDown.duration(MOTION.duration.quick)}
+                exiting={FadeOutDown.duration(MOTION.duration.quick)}
+                className="mb-2 self-start rounded-full border px-3 py-1.5"
+                style={{ borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }}
               >
-                <Pressable
-                  onPress={() => {
-                    hapticSelection();
-                    setModelMenuOpen((prev) => !prev);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('chat.model.select')}
-                  className="h-8 flex-row items-center rounded-full border px-3"
-                  style={{ borderColor: colors.border, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                    {t(`chat.model.label.${activeModel}`)}
-                  </Text>
-                  <Ionicons
-                    name={modelMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
-                    size={14}
-                    color={colors.textSecondary}
-                    style={{ marginLeft: 6 }}
-                  />
-                </Pressable>
+                <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '600' }}>
+                  {`${streamingModelLabel}: ${streamingDots}`}
+                </Text>
+              </Animated.View>
+            ) : null}
 
-                {modelMenuOpen ? (
-                  <Animated.View
-                    entering={FadeInDown.duration(MOTION.duration.normal)}
-                    className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
-                    style={{
-                      zIndex: 80,
-                      elevation: 24,
-                      borderColor: colors.border,
-                      backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+            {isAuthenticated ? (
+              <View className="mb-2 flex-row items-center justify-end">
+                <View
+                  className="relative"
+                  style={{
+                    zIndex: modelMenuOpen ? 120 : 1,
+                    elevation: modelMenuOpen ? 30 : 0,
+                  }}
+                >
+                  <Pressable
+                    onPress={() => {
+                      hapticSelection();
+                      setModelMenuOpen((prev) => !prev);
                     }}
-                    onTouchStart={() => {
-                      menuTouchRef.current = true;
-                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('chat.model.select')}
+                    className="h-8 flex-row items-center rounded-full border px-3"
+                    style={{ borderColor: colors.border, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
                   >
-                    {CHAT_MODEL_OPTIONS.map((model) => {
-                      const active = activeModel === model.key;
-                      const modelDescription = t(`chat.model.desc.${model.key}`);
-                      return (
-                        <Pressable
-                          key={model.key}
-                          onPress={() => {
-                            hapticSelection();
-                            setActiveModel(model.key as 'ultra' | 'smart' | 'swift');
-                            setModelMenuOpen(false);
-                          }}
-                          className="rounded-lg px-3 py-2"
-                          style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
-                          accessibilityRole="button"
-                          accessibilityLabel={t('chat.model.accessibility', { model: t(`chat.model.label.${model.key}`) })}
-                          accessibilityHint={modelDescription}
-                        >
-                          <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                            {t(`chat.model.label.${model.key}`)}
-                          </Text>
-                          <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
-                            {modelDescription}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </Animated.View>
-                ) : null}
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                      {t(`chat.model.label.${activeModel}`)}
+                    </Text>
+                    <Ionicons
+                      name={modelMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                      size={14}
+                      color={colors.textSecondary}
+                      style={{ marginLeft: 6 }}
+                    />
+                  </Pressable>
+
+                  {modelMenuOpen ? (
+                    <Animated.View
+                      entering={FadeInDown.duration(MOTION.duration.normal)}
+                      className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
+                      style={{
+                        zIndex: 80,
+                        elevation: 24,
+                        borderColor: colors.border,
+                        backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+                      }}
+                      onTouchStart={() => {
+                        menuTouchRef.current = true;
+                      }}
+                    >
+                      {CHAT_MODEL_OPTIONS.map((model) => {
+                        const active = activeModel === model.key;
+                        const modelDescription = t(`chat.model.desc.${model.key}`);
+                        return (
+                          <Pressable
+                            key={model.key}
+                            onPress={() => {
+                              hapticSelection();
+                              setActiveModel(model.key as 'ultra' | 'smart' | 'swift');
+                              setModelMenuOpen(false);
+                            }}
+                            className="rounded-lg px-3 py-2"
+                            style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('chat.model.accessibility', { model: t(`chat.model.label.${model.key}`) })}
+                            accessibilityHint={modelDescription}
+                          >
+                            <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                              {t(`chat.model.label.${model.key}`)}
+                            </Text>
+                            <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                              {modelDescription}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </Animated.View>
+                  ) : null}
+                </View>
               </View>
-            </View>
+            ) : null}
 
             {!hasStartedChat ? (
               <View className="mb-2">
@@ -863,6 +928,7 @@ export default function ChatScreen() {
                     <Pressable
                       onPress={() => {
                         hapticSelection();
+                        inputValueRef.current = item;
                         setInput(item);
                       }}
                       accessibilityRole="button"
@@ -881,7 +947,7 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            <FlatList
+            <FlashList
               ref={messagesListRef}
               className="flex-1"
               ListEmptyComponent={
@@ -902,10 +968,6 @@ export default function ChatScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={8}
-              removeClippedSubviews
               scrollEventThrottle={16}
               onContentSizeChange={() => {
                 if (autoScrollEnabledRef.current) {
@@ -1038,7 +1100,10 @@ export default function ChatScreen() {
           <TextInput
             ref={composerInputRef}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(text) => {
+              inputValueRef.current = text;
+              setInput(text);
+            }}
             placeholder={t('chat.input.placeholder')}
             placeholderTextColor={colors.textSecondary}
             editable

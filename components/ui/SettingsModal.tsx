@@ -97,13 +97,6 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
             },
           ]}
         >
-          <View className="mb-2 items-center">
-            <View
-              className="h-1.5 w-12 rounded-full"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)' }}
-            />
-          </View>
-
           <View className="mb-3 flex-row items-center justify-between">
             <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>
               {t('settings.title')}
@@ -180,109 +173,104 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
           >
             {activeTab === 'general' ? (
               <Animated.View entering={FadeInDown.duration(220)} className="gap-4">
-                <View
-                  className="rounded-2xl border p-3"
-                  style={{ borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#FFFFFF' }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{t('settings.general.title')}</Text>
+                <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{t('settings.general.title')}</Text>
 
-                  <View className="mt-3 gap-3">
-                    <View>
-                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.language')}</Text>
-                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.languageHint')}</Text>
-                      <View className="relative mt-2">
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={t('settings.language.menu')}
-                          accessibilityHint={t('settings.general.languageHint')}
-                          onPress={() => setLanguageMenuOpen((prev) => !prev)}
-                          className="h-10 flex-row items-center justify-between rounded-xl border px-3"
-                          style={{ borderColor: colors.primary, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
+                <View className="gap-3">
+                  <View>
+                    <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.language')}</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.languageHint')}</Text>
+                    <View className="relative mt-2">
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('settings.language.menu')}
+                        accessibilityHint={t('settings.general.languageHint')}
+                        onPress={() => setLanguageMenuOpen((prev) => !prev)}
+                        className="h-10 flex-row items-center justify-between rounded-xl border px-3"
+                        style={{ borderColor: colors.primary, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
+                      >
+                        <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{getLanguageLabel(language)}</Text>
+                        <Ionicons
+                          name={languageMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                          size={16}
+                          color={colors.textSecondary}
+                        />
+                      </Pressable>
+
+                      {languageMenuOpen ? (
+                        <View
+                          className="absolute left-0 right-0 top-11 z-50 rounded-xl border p-1"
+                          style={{ borderColor: colors.border, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
                         >
-                          <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{getLanguageLabel(language)}</Text>
-                          <Ionicons
-                            name={languageMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
-                            size={16}
-                            color={colors.textSecondary}
-                          />
-                        </Pressable>
+                          {supportedLanguages.map((value) => {
+                            const selected = value === language;
+                            const label = getLanguageLabel(value);
+                            return (
+                              <Pressable
+                                key={value}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected }}
+                                accessibilityLabel={t('settings.language.option', { language: label })}
+                                onPress={() => {
+                                  setLanguage(value);
+                                  setLanguageMenuOpen(false);
+                                }}
+                                className="rounded-lg px-3 py-2"
+                                style={{
+                                  backgroundColor: selected ? `${colors.primary}20` : 'transparent',
+                                }}
+                              >
+                                <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontSize: 13, fontWeight: selected ? '700' : '500' }}>
+                                  {label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
 
-                        {languageMenuOpen ? (
-                          <View
-                            className="absolute left-0 right-0 top-11 z-50 rounded-xl border p-1"
-                            style={{ borderColor: colors.border, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
+                  <View className="flex-row items-center justify-between rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
+                    <View className="mr-3 flex-1">
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.theme')}</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.themeHint')}</Text>
+                    </View>
+                    <AppSwitch value={themeMode === 'dark'} onValueChange={(enabled) => setThemeMode(enabled ? 'dark' : 'light')} />
+                  </View>
+
+                  <View className="flex-row items-center justify-between rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
+                    <View className="mr-3 flex-1">
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.haptics')}</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.hapticsHint')}</Text>
+                    </View>
+                    <AppSwitch value={hapticsEnabled} onValueChange={setHapticsEnabled} />
+                  </View>
+
+                  <View className="rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
+                    <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.animation')}</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.animationHint')}</Text>
+                    <View className="mt-3 flex-row gap-2">
+                      {animationOptions.map((option) => {
+                        const selected = option.value === animationLevel;
+                        return (
+                          <Pressable
+                            key={option.value}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            accessibilityLabel={option.label}
+                            onPress={() => setAnimationLevel(option.value)}
+                            className="rounded-full border px-3 py-1.5"
+                            style={{
+                              borderColor: selected ? colors.primary : colors.border,
+                              backgroundColor: selected ? `${colors.primary}1A` : 'transparent',
+                            }}
                           >
-                            {supportedLanguages.map((value) => {
-                              const selected = value === language;
-                              const label = getLanguageLabel(value);
-                              return (
-                                <Pressable
-                                  key={value}
-                                  accessibilityRole="button"
-                                  accessibilityState={{ selected }}
-                                  accessibilityLabel={t('settings.language.option', { language: label })}
-                                  onPress={() => {
-                                    setLanguage(value);
-                                    setLanguageMenuOpen(false);
-                                  }}
-                                  className="rounded-lg px-3 py-2"
-                                  style={{
-                                    backgroundColor: selected ? `${colors.primary}20` : 'transparent',
-                                  }}
-                                >
-                                  <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontSize: 13, fontWeight: selected ? '700' : '500' }}>
-                                    {label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    <View className="flex-row items-center justify-between rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
-                      <View className="mr-3 flex-1">
-                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.theme')}</Text>
-                        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.themeHint')}</Text>
-                      </View>
-                      <AppSwitch value={themeMode === 'dark'} onValueChange={(enabled) => setThemeMode(enabled ? 'dark' : 'light')} />
-                    </View>
-
-                    <View className="flex-row items-center justify-between rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
-                      <View className="mr-3 flex-1">
-                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.haptics')}</Text>
-                        <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.hapticsHint')}</Text>
-                      </View>
-                      <AppSwitch value={hapticsEnabled} onValueChange={setHapticsEnabled} />
-                    </View>
-
-                    <View className="rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
-                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.animation')}</Text>
-                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.animationHint')}</Text>
-                      <View className="mt-3 flex-row gap-2">
-                        {animationOptions.map((option) => {
-                          const selected = option.value === animationLevel;
-                          return (
-                            <Pressable
-                              key={option.value}
-                              accessibilityRole="button"
-                              accessibilityState={{ selected }}
-                              accessibilityLabel={option.label}
-                              onPress={() => setAnimationLevel(option.value)}
-                              className="rounded-full border px-3 py-1.5"
-                              style={{
-                                borderColor: selected ? colors.primary : colors.border,
-                                backgroundColor: selected ? `${colors.primary}1A` : 'transparent',
-                              }}
-                            >
-                              <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                                {option.label}
-                              </Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
+                            <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                              {option.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
                   </View>
                 </View>
