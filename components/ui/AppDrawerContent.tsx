@@ -9,6 +9,8 @@ import { useAppContext } from '@/context';
 import { mockChats, type ChatSummary } from '@/data';
 import { useAppTheme } from '@/hooks';
 import { AppButton } from './AppButton';
+import { AppPromptModal } from './AppPromptModal';
+import { SettingsModal } from './SettingsModal';
 
 type ChatRowProps = {
   item: ChatSummary;
@@ -63,6 +65,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeChatId, setActiveChatId] = useState<string>(mockChats[0]?.id ?? '');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showSignoutPrompt, setShowSignoutPrompt] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chats, setChats] = useState<ChatSummary[]>(mockChats);
 
   const userName = isAuthenticated ? 'Cafa User' : 'Guest User';
@@ -77,7 +81,17 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [chats, searchQuery]);
 
   const openRoute = useCallback(
-    (routeName: 'index' | 'images' | 'videos' | 'voice' | 'plans' | 'settings') => {
+    (
+      routeName:
+        | 'index'
+        | 'images'
+        | 'videos'
+        | 'voice'
+        | 'plans'
+        | 'help'
+        | 'privacy-policy'
+        | 'terms-of-service',
+    ) => {
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
     },
@@ -107,11 +121,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [openRoute]);
 
   const onUserOption = useCallback(
-    (action: 'settings' | 'plans' | 'login' | 'signup' | 'signout') => {
+    (action: 'settings' | 'plans' | 'help' | 'privacy' | 'terms' | 'login' | 'signup' | 'signout') => {
       setMenuOpen(false);
 
       if (action === 'settings') {
-        openRoute('settings');
+        navigation.closeDrawer();
+        setShowSettingsModal(true);
         return;
       }
 
@@ -130,9 +145,24 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         return;
       }
 
-      signOut();
+      if (action === 'help') {
+        openRoute('help');
+        return;
+      }
+
+      if (action === 'privacy') {
+        openRoute('privacy-policy');
+        return;
+      }
+
+      if (action === 'terms') {
+        openRoute('terms-of-service');
+        return;
+      }
+
+      setShowSignoutPrompt(true);
     },
-    [openRoute, signOut],
+    [navigation, openRoute],
   );
 
   const renderChatItem = useCallback(
@@ -152,9 +182,25 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   return (
     <View
-      className="flex-1 px-4 pb-4"
-      style={{ backgroundColor: colors.surface, paddingTop: Math.max(insets.top, 12) }}
+      className="flex-1 pb-4"
+      style={{ backgroundColor: colors.surface, paddingTop: Math.max(insets.top, 12), paddingHorizontal: 10 }}
     >
+      <AppPromptModal
+        visible={showSignoutPrompt}
+        title="Sign out?"
+        message="You will return to guest mode and can still chat with limited features."
+        confirmLabel="Sign out"
+        cancelLabel="Stay logged in"
+        confirmTone="danger"
+        iconName="log-out-outline"
+        onCancel={() => setShowSignoutPrompt(false)}
+        onConfirm={() => {
+          setShowSignoutPrompt(false);
+          signOut();
+        }}
+      />
+      <SettingsModal visible={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
+
       <View>
         <View className="mb-3 gap-2">
           <AppButton
@@ -220,61 +266,172 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         />
       </View>
 
-      <View className="pt-3">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Account card. ${userName}. Current plan ${currentPlan}.`}
-          accessibilityHint="Opens account options."
-          onPress={() => setMenuOpen((prev) => !prev)}
-          className="rounded-2xl border p-3"
-          style={({ pressed }) => ({
-            borderColor: colors.border,
-            backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF',
-            opacity: pressed ? 0.92 : 1,
-          })}
-        >
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <Image
-                source={require('../../assets/images/logo.png')}
-                className="h-10 w-10 rounded-full"
-                accessibilityLabel="User avatar"
-              />
-              <View className="ml-3">
-                <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{currentPlan}</Text>
-              </View>
-            </View>
-            <Ionicons name={menuOpen ? 'chevron-up-outline' : 'chevron-down-outline'} size={18} color={colors.textSecondary} />
-          </View>
-        </Pressable>
-
+      <View className="relative pt-3">
         {menuOpen ? (
-          <View className="mt-2 rounded-xl border p-2" style={{ borderColor: colors.border }}>
+          <View
+            className="absolute left-0 right-0 rounded-2xl p-2"
+            style={{
+              bottom: 74,
+              borderWidth: 1.5,
+              borderColor: colors.primary,
+              backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF',
+              zIndex: 50,
+            }}
+          >
             {isAuthenticated ? (
               <>
-                <Pressable onPress={() => onUserOption('settings')} className="rounded-lg px-3 py-2">
-                  <Text style={{ color: colors.textPrimary, fontSize: 13 }}>Settings</Text>
+                <Pressable
+                  onPress={() => onUserOption('settings')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open settings"
+                  accessibilityHint="Opens the settings modal."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="settings-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Settings</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('plans')} className="rounded-lg px-3 py-2">
-                  <Text style={{ color: colors.textPrimary, fontSize: 13 }}>Plan & Billing</Text>
+                <Pressable
+                  onPress={() => onUserOption('plans')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Upgrade plan"
+                  accessibilityHint="Opens plan and billing options."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="rocket-outline" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Upgrade plan</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('signout')} className="rounded-lg px-3 py-2">
-                  <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '600' }}>Sign out</Text>
+                <Pressable
+                  onPress={() => onUserOption('help')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open help"
+                  accessibilityHint="Opens help resources."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="help-circle-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Help</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('privacy')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open privacy policy"
+                  accessibilityHint="Opens privacy policy information."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="shield-checkmark-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Privacy policy</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('terms')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open terms of service"
+                  accessibilityHint="Opens terms of service information."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="document-text-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Terms of service</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('signout')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sign out"
+                  accessibilityHint="Signs you out and returns to guest mode."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="log-out-outline" size={16} color="#E11D48" />
+                  <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '600', marginLeft: 8 }}>Sign out</Text>
                 </Pressable>
               </>
             ) : (
               <>
-                <Pressable onPress={() => onUserOption('login')} className="rounded-lg px-3 py-2">
-                  <Text style={{ color: colors.textPrimary, fontSize: 13 }}>Login</Text>
+                <Pressable
+                  onPress={() => onUserOption('login')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go to login"
+                  accessibilityHint="Opens the login screen."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="log-in-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Login</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('signup')} className="rounded-lg px-3 py-2">
-                  <Text style={{ color: colors.textPrimary, fontSize: 13 }}>Signup</Text>
+                <Pressable
+                  onPress={() => onUserOption('signup')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go to signup"
+                  accessibilityHint="Opens account creation screen."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="person-add-outline" size={16} color={colors.primary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Signup</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('help')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open help"
+                  accessibilityHint="Opens help resources."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="help-circle-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Help</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('privacy')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open privacy policy"
+                  accessibilityHint="Opens privacy policy information."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="shield-checkmark-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Privacy policy</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUserOption('terms')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open terms of service"
+                  accessibilityHint="Opens terms of service information."
+                  className="flex-row items-center rounded-lg px-3 py-2"
+                >
+                  <Ionicons name="document-text-outline" size={16} color={colors.textPrimary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Terms of service</Text>
                 </Pressable>
               </>
             )}
           </View>
         ) : null}
+
+        <View
+          className="rounded-full"
+          style={{
+            borderWidth: 1.5,
+            borderColor: colors.primary,
+            backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF',
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Account card. ${userName}. Current plan ${currentPlan}.`}
+            accessibilityHint="Opens account options."
+            onPress={() => setMenuOpen((prev) => !prev)}
+            className="rounded-full p-3"
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.92 : 1,
+            })}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <Image
+                  source={require('../../assets/images/logo.png')}
+                  className="h-10 w-10 rounded-full"
+                  accessibilityLabel="User avatar"
+                />
+                <View className="ml-3">
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{currentPlan}</Text>
+                </View>
+              </View>
+              <Ionicons name={menuOpen ? 'chevron-up-outline' : 'chevron-down-outline'} size={18} color={colors.textSecondary} />
+            </View>
+          </Pressable>
+        </View>
       </View>
     </View>
   );

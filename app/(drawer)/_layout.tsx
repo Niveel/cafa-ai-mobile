@@ -10,7 +10,9 @@ const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   videos: 'videocam-outline',
   voice: 'mic-outline',
   plans: 'card-outline',
-  settings: 'settings-outline',
+  help: 'help-circle-outline',
+  'privacy-policy': 'shield-checkmark-outline',
+  'terms-of-service': 'document-text-outline',
 };
 
 export default function DrawerLayout() {
@@ -56,7 +58,27 @@ export default function DrawerLayout() {
       <Drawer.Screen name="videos" options={{ title: 'Videos' }} />
       <Drawer.Screen name="voice" options={{ title: 'Voice' }} />
       <Drawer.Screen name="plans" options={{ title: 'Plans' }} />
-      <Drawer.Screen name="settings" options={{ title: 'Settings' }} />
+      <Drawer.Screen
+        name="help"
+        options={{
+          title: 'Help',
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="privacy-policy"
+        options={{
+          title: 'Privacy Policy',
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="terms-of-service"
+        options={{
+          title: 'Terms of Service',
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
     </Drawer>
   );
 }

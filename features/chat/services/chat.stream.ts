@@ -1,4 +1,5 @@
 import { apiEndpoints } from '@/services/api';
+import { API_BASE_URL } from '@/lib';
 import { ChatStreamEvent } from '@/types';
 
 export async function streamChatMessage(
@@ -6,7 +7,7 @@ export async function streamChatMessage(
   body: FormData,
   onEvent: (event: ChatStreamEvent) => void,
 ) {
-  const response = await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:5000'}${apiEndpoints.chat.messages(conversationId)}`, {
+  const response = await fetch(`${API_BASE_URL}${apiEndpoints.chat.messages(conversationId)}`, {
     method: 'POST',
     body,
   });

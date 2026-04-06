@@ -5,7 +5,7 @@ export default function AuthLayout() {
   const { isAuthenticated } = useAppContext();
 
   if (isAuthenticated) {
-    return <Redirect href="/(drawer)/index" />;
+    return <Redirect href="/(drawer)" />;
   }
 
   return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }} />;

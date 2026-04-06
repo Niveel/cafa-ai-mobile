@@ -1,5 +1,5 @@
-import { AppScreen } from '@/components';
+import { BlankRouteScreen } from '@/components';
 
 export default function PlansScreen() {
-  return <AppScreen title="Plans" subtitle="View plans, usage limits, and billing actions." />;
+  return <BlankRouteScreen title="Upgrade Plan" />;
 }

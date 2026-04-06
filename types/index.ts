@@ -4,6 +4,7 @@ export * from './auth.types';
 export * from './billing.types';
 export * from './chat.types';
 export * from './image.types';
+export * from './form.types';
 export * from './user.types';
 export * from './video.types';
 export * from './voice.types';

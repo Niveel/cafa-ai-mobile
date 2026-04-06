@@ -18,8 +18,14 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.shopwit.cafaai"
+    },
+    "androidStatusBar": {
+      "translucent": false,
+      "backgroundColor": "#ffffff"
     },
     "web": {
       "output": "static",
@@ -48,7 +54,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "f51ee322-7d82-43bd-a791-bd95e8e01363"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"

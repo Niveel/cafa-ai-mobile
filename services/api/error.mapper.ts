@@ -2,10 +2,18 @@ import { AxiosError } from 'axios';
 
 import { ApiErrorPayload } from '@/types';
 
+type ApiMappedError = Error & {
+  code?: string;
+  status?: number;
+};
+
 export function mapApiError(error: unknown): Error {
   if (error instanceof AxiosError) {
     const payload = error.response?.data as ApiErrorPayload | undefined;
-    return new Error(payload?.message ?? error.message ?? 'Request failed.');
+    const mapped = new Error(payload?.message ?? error.message ?? 'Request failed.') as ApiMappedError;
+    mapped.code = payload?.code ?? payload?.error;
+    mapped.status = error.response?.status;
+    return mapped;
   }
 
   if (error instanceof Error) return error;

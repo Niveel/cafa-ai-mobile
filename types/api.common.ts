@@ -1,6 +1,7 @@
 export type ApiErrorPayload = {
   success?: false;
   error?: string;
+  code?: string;
   message?: string;
   errors?: Array<{ field?: string; msg?: string }>;
 };
