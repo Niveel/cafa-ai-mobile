@@ -1,6 +1,6 @@
 import { Drawer } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { AppDrawerContent } from '@/components/ui/AppDrawerContent';
 import { useAppContext } from '@/context';
 
@@ -18,6 +18,7 @@ const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
 export default function DrawerLayout() {
   const { colors } = useAppTheme();
   const { isAuthenticated } = useAppContext();
+  const { t } = useI18n();
 
   return (
     <Drawer
@@ -53,29 +54,29 @@ export default function DrawerLayout() {
         ),
       })}
     >
-      <Drawer.Screen name="index" options={{ title: 'Chat' }} />
-      <Drawer.Screen name="images" options={{ title: 'Images' }} />
-      <Drawer.Screen name="videos" options={{ title: 'Videos' }} />
-      <Drawer.Screen name="voice" options={{ title: 'Voice' }} />
-      <Drawer.Screen name="plans" options={{ title: 'Plans' }} />
+      <Drawer.Screen name="index" options={{ title: t('drawer.newChat') }} />
+      <Drawer.Screen name="images" options={{ title: t('drawer.images') }} />
+      <Drawer.Screen name="videos" options={{ title: t('drawer.videos') }} />
+      <Drawer.Screen name="voice" options={{ title: t('drawer.voice') }} />
+      <Drawer.Screen name="plans" options={{ title: t('drawer.userMenu.upgrade') }} />
       <Drawer.Screen
         name="help"
         options={{
-          title: 'Help',
+          title: t('drawer.userMenu.help'),
           drawerItemStyle: { display: 'none' },
         }}
       />
       <Drawer.Screen
         name="privacy-policy"
         options={{
-          title: 'Privacy Policy',
+          title: t('drawer.userMenu.privacy'),
           drawerItemStyle: { display: 'none' },
         }}
       />
       <Drawer.Screen
         name="terms-of-service"
         options={{
-          title: 'Terms of Service',
+          title: t('drawer.userMenu.terms'),
           drawerItemStyle: { display: 'none' },
         }}
       />

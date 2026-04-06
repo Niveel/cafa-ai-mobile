@@ -13,6 +13,19 @@ type MessageActionsRowProps = {
   onShare: () => void;
   onReadAloud: () => void;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
+  labels: {
+    copy: string;
+    copyHint: string;
+    like: string;
+    likeHint: string;
+    dislike: string;
+    dislikeHint: string;
+    share: string;
+    shareHint: string;
+    read: string;
+    stopRead: string;
+    readHint: string;
+  };
 };
 
 export function MessageActionsRow({
@@ -27,15 +40,16 @@ export function MessageActionsRow({
   onShare,
   onReadAloud,
   onTooltip,
+  labels,
 }: MessageActionsRowProps) {
   return (
     <View className="mt-1 flex-row items-center gap-1">
       <Pressable
         onPress={onCopy}
-        onLongPress={(event) => onTooltip('Copy response', event)}
+        onLongPress={(event) => onTooltip(labels.copy, event)}
         accessibilityRole="button"
-        accessibilityLabel="Copy response"
-        accessibilityHint="Copies this response to clipboard."
+        accessibilityLabel={labels.copy}
+        accessibilityHint={labels.copyHint}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor }}
       >
@@ -44,10 +58,10 @@ export function MessageActionsRow({
 
       <Pressable
         onPress={onLike}
-        onLongPress={(event) => onTooltip('Like response', event)}
+        onLongPress={(event) => onTooltip(labels.like, event)}
         accessibilityRole="button"
-        accessibilityLabel="Like response"
-        accessibilityHint="Marks this response as helpful."
+        accessibilityLabel={labels.like}
+        accessibilityHint={labels.likeHint}
         accessibilityState={{ selected: reaction === 'like' }}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor: reaction === 'like' ? primaryColor : borderColor }}
@@ -61,10 +75,10 @@ export function MessageActionsRow({
 
       <Pressable
         onPress={onDislike}
-        onLongPress={(event) => onTooltip('Dislike response', event)}
+        onLongPress={(event) => onTooltip(labels.dislike, event)}
         accessibilityRole="button"
-        accessibilityLabel="Dislike response"
-        accessibilityHint="Marks this response as unhelpful."
+        accessibilityLabel={labels.dislike}
+        accessibilityHint={labels.dislikeHint}
         accessibilityState={{ selected: reaction === 'dislike' }}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor: reaction === 'dislike' ? primaryColor : borderColor }}
@@ -78,10 +92,10 @@ export function MessageActionsRow({
 
       <Pressable
         onPress={onShare}
-        onLongPress={(event) => onTooltip('Share response', event)}
+        onLongPress={(event) => onTooltip(labels.share, event)}
         accessibilityRole="button"
-        accessibilityLabel="Share response"
-        accessibilityHint="Opens the share sheet for this response."
+        accessibilityLabel={labels.share}
+        accessibilityHint={labels.shareHint}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor }}
       >
@@ -90,10 +104,10 @@ export function MessageActionsRow({
 
       <Pressable
         onPress={onReadAloud}
-        onLongPress={(event) => onTooltip('Read response aloud', event)}
+        onLongPress={(event) => onTooltip(isReading ? labels.stopRead : labels.read, event)}
         accessibilityRole="button"
-        accessibilityLabel={isReading ? 'Stop reading response aloud' : 'Read response aloud'}
-        accessibilityHint="Uses device speech to read this response."
+        accessibilityLabel={isReading ? labels.stopRead : labels.read}
+        accessibilityHint={labels.readHint}
         accessibilityState={{ selected: isReading }}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor: isReading ? primaryColor : borderColor }}

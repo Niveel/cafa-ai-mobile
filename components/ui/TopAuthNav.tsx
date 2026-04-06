@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
 
 import { useAppContext } from '@/context';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { AppButton } from './AppButton';
 import { AppPromptModal } from './AppPromptModal';
 import { MOTION, hapticImpact } from '@/utils';
@@ -12,16 +12,17 @@ import { MOTION, hapticImpact } from '@/utils';
 export function TopAuthNav() {
   const { isDark, colors } = useAppTheme();
   const { isAuthenticated, signOut } = useAppContext();
+  const { t } = useI18n();
   const [showSignOutPrompt, setShowSignOutPrompt] = useState(false);
 
   return (
     <>
       <AppPromptModal
         visible={showSignOutPrompt}
-        title="Sign out?"
-        message="You will return to guest mode and can still chat with limited features."
-        confirmLabel="Sign out"
-        cancelLabel="Stay logged in"
+        title={t('auth.signoutTitle')}
+        message={t('auth.signoutMessage')}
+        confirmLabel={t('auth.signoutConfirm')}
+        cancelLabel={t('auth.signoutCancel')}
         confirmTone="danger"
         iconName="log-out-outline"
         onCancel={() => setShowSignOutPrompt(false)}
@@ -36,7 +37,7 @@ export function TopAuthNav() {
         entering={FadeInRight.duration(MOTION.duration.slow)}
         layout={Layout.springify()}
         accessibilityRole="toolbar"
-        accessibilityLabel="Account actions"
+        accessibilityLabel={t('nav.accountActions')}
         className="rounded-full border p-1"
         style={{
           alignSelf: 'flex-start',
@@ -51,12 +52,12 @@ export function TopAuthNav() {
             style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginRight: 4 }}
             accessibilityRole="text"
           >
-            Cafa AI
+            {t('app.name')}
           </Text>
           {!isAuthenticated ? (
             <>
               <AppButton
-                label="Login"
+                label={t('auth.login')}
                 onPress={() => router.push('/(auth)/login')}
                 variant="outline"
                 iconName="log-in-outline"
@@ -65,7 +66,7 @@ export function TopAuthNav() {
                 compact
               />
               <AppButton
-                label="Signup"
+                label={t('auth.signup')}
                 onPress={() => router.push('/(auth)/signup')}
                 variant="solid"
                 iconName="person-add-outline"
@@ -76,7 +77,7 @@ export function TopAuthNav() {
             </>
           ) : (
             <AppButton
-              label="Sign out"
+              label={t('auth.signout')}
               onPress={() => {
                 hapticImpact();
                 setShowSignOutPrompt(true);

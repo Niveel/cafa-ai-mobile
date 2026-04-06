@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
   type GestureResponderEvent,
@@ -56,20 +56,24 @@ import {
   sendGuestMessageStream,
   toggleAuthenticatedMessageReaction,
 } from '@/features';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess } from '@/utils';
 
 export default function ChatScreen() {
-  const createWelcomeMessage = (): UiMessage => ({
-    id: 'welcome-1',
-    role: 'assistant',
-    content: 'Hi, I am Cafa AI. Ask me anything or start with a task.',
-    createdAt: Date.now(),
-  });
   const ANDROID_KEYBOARD_CALIBRATION = 4;
   const { colors, isDark } = useAppTheme();
   const { isAuthenticated } = useAppContext();
+  const { t } = useI18n();
+  const createWelcomeMessage = useCallback(
+    (): UiMessage => ({
+      id: 'welcome-1',
+      role: 'assistant',
+      content: `Hi, I am ${t('app.name')}. Ask me anything or start with a task.`,
+      createdAt: Date.now(),
+    }),
+    [t],
+  );
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -197,12 +201,12 @@ export default function ChatScreen() {
       try {
         if (!isAuthenticated) {
           if (isMediaGenerationPrompt(trimmed)) {
-            setMessages((prev) =>
+                setMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? {
                       ...message,
-                      content: 'Image and video generation are available after login. Please log in to use media tools.',
+                      content: t('chat.mediaNeedsLogin'),
                     }
                   : message,
               ),
@@ -284,7 +288,7 @@ export default function ChatScreen() {
           }
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Could not send your message right now.';
+        const message = error instanceof Error ? error.message : t('chat.sendFailed');
         console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
         hapticError();
 
@@ -295,7 +299,7 @@ export default function ChatScreen() {
               ? {
                   ...item,
                   content: message.includes('GUEST_DAILY_LIMIT_EXCEEDED')
-                    ? 'Guest message limit reached for now. Please try again after reset.'
+                    ? t('chat.limitReached')
                     : message,
                 }
               : item,
@@ -330,7 +334,7 @@ export default function ChatScreen() {
     const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!permission.granted) {
       hapticError();
-      showTransientNotice('Microphone and speech permissions are required.');
+      showTransientNotice(t('chat.speechPermError'));
       return;
     }
 
@@ -446,14 +450,14 @@ export default function ChatScreen() {
         ...prev,
         [messageId]: previous,
       }));
-      showTransientNotice('Could not save reaction right now.');
+      showTransientNotice(t('chat.reactionFailed'));
     }
   };
 
   const copyMessage = async (content: string) => {
     if (!content.trim()) return;
     await Clipboard.setStringAsync(content);
-    showTransientNotice('Copied text.');
+    showTransientNotice(t('chat.copied'));
     hapticSuccess();
   };
 
@@ -473,7 +477,7 @@ export default function ChatScreen() {
     try {
       await Share.share({ message: content });
     } catch {
-      showTransientNotice('Could not open share sheet.');
+      showTransientNotice(t('chat.shareFailed'));
     }
   };
 
@@ -497,7 +501,7 @@ export default function ChatScreen() {
       onStopped: () => setReadingMessageId(null),
       onError: () => {
         setReadingMessageId(null);
-        showTransientNotice('Could not read this response aloud.');
+        showTransientNotice(t('chat.readAloudFailed'));
       },
     });
   };
@@ -529,7 +533,7 @@ export default function ChatScreen() {
     isRecordingRef.current = false;
     setIsRecording(false);
     hapticError();
-    showTransientNotice('Speech recognition failed. Please try again.');
+    showTransientNotice(t('chat.speechError'));
   });
 
   useEffect(() => {
@@ -589,7 +593,7 @@ export default function ChatScreen() {
           }, {}),
         );
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Could not load your conversations.';
+        const message = error instanceof Error ? error.message : t('drawer.loadingChats');
         showTransientNotice(message);
         setMessages([createWelcomeMessage()]);
       } finally {
@@ -599,7 +603,7 @@ export default function ChatScreen() {
 
     setIsHydratingAuthChat(true);
     void loadAuthenticatedState();
-  }, [isAuthenticated]);
+  }, [createWelcomeMessage, isAuthenticated, t]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -656,7 +660,7 @@ export default function ChatScreen() {
     };
 
     void hydrateTarget();
-  }, [isAuthenticated, params.conversationId, params.newChat]);
+  }, [createWelcomeMessage, isAuthenticated, params.conversationId, params.newChat]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -691,7 +695,7 @@ export default function ChatScreen() {
     };
     setMessages([createWelcomeMessage()]);
     void loadGuestState();
-  }, [isAuthenticated]);
+  }, [createWelcomeMessage, isAuthenticated]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -761,7 +765,7 @@ export default function ChatScreen() {
             {!isAuthenticated ? (
               <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                  Guest mode: login to use the full app experience.
+                  {t('chat.guestNotice')}
                 </Text>
               </Animated.View>
             ) : null}
@@ -785,12 +789,12 @@ export default function ChatScreen() {
                     setModelMenuOpen((prev) => !prev);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Select chat model"
+                  accessibilityLabel={t('chat.model.select')}
                   className="h-8 flex-row items-center rounded-full border px-3"
                   style={{ borderColor: colors.border, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
                 >
                   <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                    {CHAT_MODEL_OPTIONS.find((model) => model.key === activeModel)?.label ?? 'Cafa Smart'}
+                    {t(`chat.model.label.${activeModel}`)}
                   </Text>
                   <Ionicons
                     name={modelMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
@@ -827,11 +831,11 @@ export default function ChatScreen() {
                           className="rounded-lg px-3 py-2"
                           style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
                           accessibilityRole="button"
-                          accessibilityLabel={`${model.label} model`}
+                          accessibilityLabel={`${t(`chat.model.label.${model.key}`)} model`}
                           accessibilityHint={model.description}
                         >
                           <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                            {model.label}
+                            {t(`chat.model.label.${model.key}`)}
                           </Text>
                           <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
                             {model.description}
@@ -861,8 +865,8 @@ export default function ChatScreen() {
                         setInput(item);
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Insert prompt: ${item}`}
-                      accessibilityHint="Adds this template prompt to the message input."
+                      accessibilityLabel={t('chat.quickPrompt.insert', { prompt: item })}
+                      accessibilityHint={t('chat.quickPrompt.hint')}
                       className="rounded-full border px-3 py-1.5"
                       style={{ borderColor: colors.border, backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF' }}
                     >
@@ -882,7 +886,7 @@ export default function ChatScreen() {
               ListEmptyComponent={
                 isAuthenticated && isHydratingAuthChat ? (
                   <View className="px-2 py-2">
-                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Loading conversations...</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{t('drawer.loadingChats')}</Text>
                   </View>
                 ) : null
               }
@@ -958,6 +962,19 @@ export default function ChatScreen() {
                           }}
                           onReadAloud={() => toggleReadAloud(item.id, item.content)}
                           onTooltip={showTooltip}
+                          labels={{
+                            copy: t('chat.tooltip.copyResponse'),
+                            copyHint: t('chat.tooltip.copyResponse'),
+                            like: t('chat.tooltip.like'),
+                            likeHint: t('chat.tooltip.like'),
+                            dislike: t('chat.tooltip.dislike'),
+                            dislikeHint: t('chat.tooltip.dislike'),
+                            share: t('chat.tooltip.share'),
+                            shareHint: t('chat.tooltip.share'),
+                            read: t('chat.tooltip.read'),
+                            stopRead: t('chat.tooltip.stopRead'),
+                            readHint: t('chat.tooltip.read'),
+                          }}
                         />
                       ) : null}
 
@@ -970,6 +987,12 @@ export default function ChatScreen() {
                           }}
                           onEdit={() => editPrompt(item.content)}
                           onTooltip={showTooltip}
+                          labels={{
+                            copy: t('chat.tooltip.copyPrompt'),
+                            copyHint: t('chat.tooltip.copyPrompt'),
+                            edit: t('chat.tooltip.editPrompt'),
+                            editHint: t('chat.tooltip.editPrompt'),
+                          }}
                         />
                       ) : null}
                     </View>
@@ -988,8 +1011,8 @@ export default function ChatScreen() {
                   scrollToBottom(true);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Scroll to latest messages"
-                accessibilityHint="Jumps to the newest message at the bottom of the chat."
+                accessibilityLabel={t('chat.scrollLatest')}
+                accessibilityHint={t('chat.scrollLatestHint')}
                 className="absolute right-3 h-10 w-10 items-center justify-center rounded-full border"
                 style={{
                   bottom: 96 + (Platform.OS === 'android' ? androidComposerOffset : 0),
@@ -1015,7 +1038,7 @@ export default function ChatScreen() {
             ref={composerInputRef}
             value={input}
             onChangeText={setInput}
-            placeholder="Ask anything, or type: generate image/video..."
+            placeholder={t('chat.input.placeholder')}
             placeholderTextColor={colors.textSecondary}
             editable
             multiline
@@ -1024,7 +1047,7 @@ export default function ChatScreen() {
               const nextHeight = Math.min(128, Math.max(34, Math.ceil(event.nativeEvent.contentSize.height)));
               setComposerHeight(nextHeight);
             }}
-            accessibilityLabel="Message input"
+            accessibilityLabel={t('chat.input.accessibility')}
             className="px-1.5 py-1"
             style={{
               color: colors.textPrimary,
@@ -1049,7 +1072,7 @@ export default function ChatScreen() {
                   <Pressable
                     onPress={() => removeAttachment(asset.id)}
                     accessibilityRole="button"
-                    accessibilityLabel="Remove attachment"
+                    accessibilityLabel={t('chat.removeAttachment')}
                     className="ml-1 rounded-full p-0.5"
                   >
                     <Ionicons name="close" size={12} color={colors.textSecondary} />
@@ -1064,9 +1087,11 @@ export default function ChatScreen() {
               <View className="flex-row items-center gap-2">
                 <Pressable
                   onPress={toggleRecording}
-                  onLongPress={(event) => showTooltip(isRecording ? 'Stop recording' : 'Start recording', event)}
+                  onLongPress={(event) =>
+                    showTooltip(isRecording ? t('chat.tooltip.micStop') : t('chat.tooltip.micStart'), event)
+                  }
                   accessibilityRole="button"
-                  accessibilityLabel={isRecording ? 'Stop voice recording' : 'Start voice recording'}
+                  accessibilityLabel={isRecording ? t('chat.mic.stop') : t('chat.mic.start')}
                   className="h-8 w-8 items-center justify-center rounded-full border"
                   style={{
                     borderColor: isRecording ? '#DC2626' : colors.border,
@@ -1091,9 +1116,9 @@ export default function ChatScreen() {
                       hapticSelection();
                       setAttachmentMenuOpen((prev) => !prev);
                     }}
-                    onLongPress={(event) => showTooltip('Attach file', event)}
+                    onLongPress={(event) => showTooltip(t('chat.tooltip.attach'), event)}
                     accessibilityRole="button"
-                    accessibilityLabel="Attach file"
+                    accessibilityLabel={t('chat.tooltip.attach')}
                     className="h-8 w-8 items-center justify-center rounded-full border"
                     style={{ borderColor: colors.border }}
                   >
@@ -1116,11 +1141,11 @@ export default function ChatScreen() {
                     >
                       <Pressable onPress={pickAttachment} className="flex-row items-center rounded-md px-2 py-2">
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
-                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>Image attachment</Text>
+                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachImage')}</Text>
                       </Pressable>
                       <Pressable onPress={pickDocumentAttachment} className="flex-row items-center rounded-md px-2 py-2">
                         <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
-                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>Document attachment</Text>
+                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachDocument')}</Text>
                       </Pressable>
                     </Animated.View>
                   ) : null}
@@ -1128,10 +1153,10 @@ export default function ChatScreen() {
 
                 <Pressable
                   onPress={() => applyRandomPrompt('image')}
-                  onLongPress={(event) => showTooltip('Image prompt template', event)}
+                  onLongPress={(event) => showTooltip(t('chat.tooltip.imageTemplate'), event)}
                   accessibilityRole="button"
-                  accessibilityLabel="Image generation shortcut"
-                  accessibilityHint="Inserts a random image generation prompt into the message input."
+                  accessibilityLabel={t('chat.imageShortcut')}
+                  accessibilityHint={t('chat.imageShortcutHint')}
                   className="h-8 w-8 items-center justify-center rounded-full border"
                   style={{ borderColor: colors.border }}
                 >
@@ -1140,10 +1165,10 @@ export default function ChatScreen() {
 
                 <Pressable
                   onPress={() => applyRandomPrompt('video')}
-                  onLongPress={(event) => showTooltip('Video prompt template', event)}
+                  onLongPress={(event) => showTooltip(t('chat.tooltip.videoTemplate'), event)}
                   accessibilityRole="button"
-                  accessibilityLabel="Video generation shortcut"
-                  accessibilityHint="Inserts a random video generation prompt into the message input."
+                  accessibilityLabel={t('chat.videoShortcut')}
+                  accessibilityHint={t('chat.videoShortcutHint')}
                   className="h-8 w-8 items-center justify-center rounded-full border"
                   style={{ borderColor: colors.border }}
                 >
@@ -1153,11 +1178,11 @@ export default function ChatScreen() {
 
               <Pressable
                 onPress={handleSend}
-                onLongPress={(event) => showTooltip('Send message', event)}
+                onLongPress={(event) => showTooltip(t('chat.send'), event)}
                 disabled={!input.trim() || isSending}
                 accessibilityRole="button"
-                accessibilityLabel="Send message"
-                accessibilityHint="Sends your current message."
+                accessibilityLabel={t('chat.send')}
+                accessibilityHint={t('chat.sendHint')}
                 className="h-10 w-10 items-center justify-center rounded-full"
                 style={{
                   backgroundColor: !input.trim() || isSending ? '#A78BFA' : colors.primary,
@@ -1169,11 +1194,11 @@ export default function ChatScreen() {
           ) : (
             <Pressable
               onPress={handleSend}
-              onLongPress={(event) => showTooltip('Send message', event)}
+              onLongPress={(event) => showTooltip(t('chat.send'), event)}
               disabled={!input.trim() || isSending}
               accessibilityRole="button"
-              accessibilityLabel="Send message"
-              accessibilityHint="Sends your current message."
+              accessibilityLabel={t('chat.send')}
+              accessibilityHint={t('chat.sendHint')}
               className="absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full"
               style={{
                 backgroundColor: !input.trim() || isSending ? '#A78BFA' : colors.primary,

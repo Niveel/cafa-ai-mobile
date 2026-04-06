@@ -16,18 +16,19 @@ import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton
 import { LoginFormValues, LoginValidationSchema } from '@/data';
 import { login as loginRequest } from '@/features';
 import { useAppContext } from '@/context';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { setAccessToken, setRefreshToken } from '@/services';
 
 export default function LoginScreen() {
   const { colors, isDark } = useAppTheme();
   const { login } = useAppContext();
+  const { t } = useI18n();
   const [authError, setAuthError] = useState('');
   const cardBackground = isDark ? 'rgba(20, 20, 20, 0.92)' : 'rgba(255, 255, 255, 0.95)';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
 
   return (
-    <AppScreen title="Welcome back" subtitle="Sign in to continue your Cafa AI conversations." showTopChrome={false} showHeading={false}>
+    <AppScreen title={t('auth.login')} subtitle="Sign in to continue your Cafa AI conversations." showTopChrome={false} showHeading={false}>
       <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
@@ -37,7 +38,7 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View className="flex-1">
-              <SecondaryNav title="Login" />
+              <SecondaryNav title={t('auth.login')} />
               <LinearGradient
                 colors={[`${colors.primary}20`, `${colors.secondary}14`, 'transparent']}
                 start={{ x: 0, y: 0 }}
@@ -60,7 +61,7 @@ export default function LoginScreen() {
                     gap: 12,
                   }}
                 >
-                  <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>Login</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.login')}</Text>
                   <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
                     Use your email or username and password to continue.
                   </Text>
@@ -139,7 +140,7 @@ export default function LoginScreen() {
                     <SubmitButton title="Continue" />
                   </AppForm>
                   <AppButton
-                    label="Create account"
+                    label={t('auth.signup')}
                     variant="outline"
                     iconName="person-add-outline"
                     onPress={() => router.push('/(auth)/signup')}

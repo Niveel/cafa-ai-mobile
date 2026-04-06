@@ -1,5 +1,7 @@
 import { AppScreen } from '@/components';
+import { useI18n } from '@/hooks';
 
 export default function VoiceScreen() {
-  return <AppScreen title="Voice" subtitle="Transcribe audio and synthesize speech voices." />;
+  const { t } = useI18n();
+  return <AppScreen title={t('drawer.voice')} subtitle="Transcribe audio and synthesize speech voices." />;
 }

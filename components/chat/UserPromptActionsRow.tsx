@@ -7,6 +7,12 @@ type UserPromptActionsRowProps = {
   onCopy: () => void;
   onEdit: () => void;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
+  labels: {
+    copy: string;
+    copyHint: string;
+    edit: string;
+    editHint: string;
+  };
 };
 
 export function UserPromptActionsRow({
@@ -15,15 +21,16 @@ export function UserPromptActionsRow({
   onCopy,
   onEdit,
   onTooltip,
+  labels,
 }: UserPromptActionsRowProps) {
   return (
     <View className="mt-1 flex-row items-center gap-1 self-end">
       <Pressable
         onPress={onCopy}
-        onLongPress={(event) => onTooltip('Copy prompt', event)}
+        onLongPress={(event) => onTooltip(labels.copy, event)}
         accessibilityRole="button"
-        accessibilityLabel="Copy prompt"
-        accessibilityHint="Copies your prompt to clipboard."
+        accessibilityLabel={labels.copy}
+        accessibilityHint={labels.copyHint}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor }}
       >
@@ -32,10 +39,10 @@ export function UserPromptActionsRow({
 
       <Pressable
         onPress={onEdit}
-        onLongPress={(event) => onTooltip('Edit prompt', event)}
+        onLongPress={(event) => onTooltip(labels.edit, event)}
         accessibilityRole="button"
-        accessibilityLabel="Edit prompt"
-        accessibilityHint="Copies this prompt into the input so you can edit and send it as a new message."
+        accessibilityLabel={labels.edit}
+        accessibilityHint={labels.editHint}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor }}
       >

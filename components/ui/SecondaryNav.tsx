@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 type SecondaryNavProps = {
   title: string;
@@ -12,6 +12,7 @@ type SecondaryNavProps = {
 
 export function SecondaryNav({ title, onBackPress, topOffset = 0 }: SecondaryNavProps) {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
 
   return (
     <View
@@ -21,8 +22,8 @@ export function SecondaryNav({ title, onBackPress, topOffset = 0 }: SecondaryNav
     >
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={`Go back from ${title}`}
-        accessibilityHint="Navigates to the previous screen"
+        accessibilityLabel={t('nav.backFrom', { title })}
+        accessibilityHint={t('nav.backHint')}
         onPress={onBackPress ?? (() => (router.canGoBack() ? router.back() : router.replace('/')))}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         activeOpacity={0.8}

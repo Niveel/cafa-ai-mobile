@@ -12,7 +12,7 @@ import {
   listAuthenticatedConversations,
   listGuestConversations,
 } from '@/features';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import {
   getChatPreferences,
   setCustomChatTitle,
@@ -48,6 +48,7 @@ type ChatRowProps = {
   activeTint: string;
   isPinned: boolean;
   isAuthenticated: boolean;
+  t: (key: string, params?: Record<string, string>) => string;
 };
 
 const ChatRow = memo(function ChatRow({
@@ -67,13 +68,14 @@ const ChatRow = memo(function ChatRow({
   activeTint,
   isPinned,
   isAuthenticated,
+  t,
 }: ChatRowProps) {
   return (
     <View className="relative">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Open chat: ${item.title}`}
-        accessibilityHint="Opens this conversation."
+        accessibilityLabel={t('drawer.openChat', { title: item.title })}
+        accessibilityHint={t('drawer.openChatHint')}
         onPress={() => onPress(item.id)}
         style={({ pressed }) => ({
           borderWidth: 1,
@@ -102,8 +104,8 @@ const ChatRow = memo(function ChatRow({
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Open options for ${item.title}`}
-            accessibilityHint="Opens chat actions like share, rename, and delete."
+            accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
+            accessibilityHint={t('drawer.chatMenuHint')}
             onPress={() => onToggleMenu(item.id)}
             className="rounded-full p-1.5"
             hitSlop={8}
@@ -121,49 +123,51 @@ const ChatRow = memo(function ChatRow({
           <Pressable
             onPress={() => onShare(item.id)}
             accessibilityRole="button"
-            accessibilityLabel="Share chat"
+            accessibilityLabel={t('drawer.share')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
           >
             <Ionicons name="share-social-outline" size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>Share</Text>
+            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.share')}</Text>
           </Pressable>
           <Pressable
             onPress={() => onRename(item.id)}
             accessibilityRole="button"
-            accessibilityLabel="Rename chat"
+            accessibilityLabel={t('drawer.rename')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
           >
             <Ionicons name="create-outline" size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>Rename</Text>
+            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.rename')}</Text>
           </Pressable>
           <Pressable
             onPress={() => onPin(item.id)}
             accessibilityRole="button"
-            accessibilityLabel={isPinned ? 'Unpin chat' : 'Pin chat'}
+            accessibilityLabel={isPinned ? t('drawer.unpin') : t('drawer.pin')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
           >
             <Ionicons name={isPinned ? 'pin-outline' : 'pin'} size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{isPinned ? 'Unpin chat' : 'Pin chat'}</Text>
+            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>
+              {isPinned ? t('drawer.unpin') : t('drawer.pin')}
+            </Text>
           </Pressable>
           {isAuthenticated ? (
             <Pressable
               onPress={() => onArchive(item.id)}
               accessibilityRole="button"
-              accessibilityLabel="Archive chat"
+              accessibilityLabel={t('drawer.archive')}
               className="flex-row items-center rounded-lg px-2.5 py-2"
             >
               <Ionicons name="archive-outline" size={14} color={textPrimary} />
-              <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>Archive</Text>
+              <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.archive')}</Text>
             </Pressable>
           ) : null}
           <Pressable
             onPress={() => onDelete(item.id)}
             accessibilityRole="button"
-            accessibilityLabel="Delete chat"
+            accessibilityLabel={t('drawer.delete')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
           >
             <Ionicons name="trash-outline" size={14} color="#E11D48" />
-            <Text style={{ color: '#E11D48', marginLeft: 8, fontSize: 12, fontWeight: '600' }}>Delete</Text>
+            <Text style={{ color: '#E11D48', marginLeft: 8, fontSize: 12, fontWeight: '600' }}>{t('drawer.delete')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -175,6 +179,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const { isAuthenticated, signOut } = useAppContext();
+  const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeChatId, setActiveChatId] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -204,7 +209,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           conversationList.map((item) => ({
             id: item.id,
             title: item.title,
-            preview: item.preview || 'Continue this conversation.',
+            preview: item.preview || t('drawer.openChatHint'),
             updatedAt: item.updatedAt,
           })),
         );
@@ -215,7 +220,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           conversationList.map((item) => ({
             id: item._id,
             title: item.title,
-            preview: item.lastMessagePreview || 'Start a fresh conversation.',
+            preview: item.lastMessagePreview || t('drawer.newChat'),
             updatedAt: item.updatedAt,
           })),
         );
@@ -226,7 +231,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     } finally {
       setLoadingChats(false);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, t]);
 
   useEffect(() => {
     void loadChats();
@@ -266,7 +271,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       hapticSelection();
       setChatActionMenuId(null);
       setActiveChatId(chatId);
-      navigation.navigate('index' as never, { conversationId: chatId } as never);
+      (navigation as any).navigate('index', { conversationId: chatId });
       navigation.closeDrawer();
     },
     [navigation],
@@ -274,7 +279,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const createNewChat = useCallback(() => {
     hapticSelection();
-    navigation.navigate('index' as never, { newChat: '1' } as never);
+    (navigation as any).navigate('index', { newChat: '1' });
     navigation.closeDrawer();
   }, [navigation]);
 
@@ -380,14 +385,15 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         onShare={onShareChat}
         onRename={onRenameChat}
         onPin={onTogglePinChat}
-      onArchive={onArchiveChat}
-      onDelete={onRequestDeleteChat}
+        onArchive={onArchiveChat}
+        onDelete={onRequestDeleteChat}
         textPrimary={colors.textPrimary}
         textSecondary={colors.textSecondary}
         borderColor={colors.border}
         activeTint={colors.primary}
         isPinned={pinnedIds.includes(item.id)}
         isAuthenticated={isAuthenticated}
+        t={t}
       />
     ),
     [
@@ -405,6 +411,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       onTogglePinChat,
       openChat,
       pinnedIds,
+      t,
     ],
   );
 
@@ -421,10 +428,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     >
       <AppPromptModal
         visible={showSignoutPrompt}
-        title="Sign out?"
-        message="You will return to guest mode and can still chat with limited features."
-        confirmLabel="Sign out"
-        cancelLabel="Stay logged in"
+        title={t('drawer.signoutPromptTitle')}
+        message={t('drawer.signoutPromptMessage')}
+        confirmLabel={t('drawer.confirmSignout')}
+        cancelLabel={t('auth.signoutCancel')}
         confirmTone="danger"
         iconName="log-out-outline"
         onCancel={() => setShowSignoutPrompt(false)}
@@ -436,10 +443,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
       <AppPromptModal
         visible={showDeletePrompt}
-        title="Delete chat?"
-        message="This action cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title={t('drawer.deleteTitle')}
+        message={t('drawer.deleteMessage')}
+        confirmLabel={t('drawer.deleteConfirm')}
+        cancelLabel={t('drawer.cancel')}
         confirmTone="danger"
         iconName="trash-outline"
         onCancel={() => setShowDeletePrompt(false)}
@@ -450,12 +457,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
       <AppInputPromptModal
         visible={showRenameModal}
-        title="Rename chat"
-        message="Choose a clear title for this conversation."
+        title={t('drawer.renameTitle')}
+        message={t('drawer.renameMessage')}
         initialValue={renameInitialValue}
-        placeholder="Conversation title"
-        confirmLabel="Save"
-        cancelLabel="Cancel"
+        placeholder={t('drawer.renamePlaceholder')}
+        confirmLabel={t('drawer.save')}
+        cancelLabel={t('drawer.cancel')}
         onCancel={() => setShowRenameModal(false)}
         onConfirm={(value) => {
           void onSaveRename(value);
@@ -466,9 +473,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
       <View>
         <View className="mb-3 gap-2">
-          <AppButton label="New chat" iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
-          <AppButton label="Images" iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
-          <AppButton label="Videos" iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
+          <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
+          <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
+          <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
         </View>
 
         <View
@@ -480,10 +487,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search chats"
+            placeholder={t('drawer.searchChats')}
             placeholderTextColor={colors.textSecondary}
-            accessibilityLabel="Search chats"
-            accessibilityHint="Type to filter conversations in real time."
+            accessibilityLabel={t('drawer.searchChats')}
+            accessibilityHint={t('drawer.searchChatsHint')}
             className="ml-2 flex-1"
             style={{ color: colors.textPrimary, fontSize: 14 }}
             autoCorrect={false}
@@ -506,7 +513,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           ListEmptyComponent={
             <View className="rounded-xl border px-3 py-3" style={{ borderColor: colors.border }}>
               <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                {loadingChats ? 'Loading chats...' : 'No chats found.'}
+                {loadingChats ? t('drawer.loadingChats') : t('drawer.noChats')}
               </Text>
             </View>
           }
@@ -530,40 +537,40 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           >
             {isAuthenticated ? (
               <>
-                <Pressable onPress={() => onUserOption('settings')} accessibilityRole="button" accessibilityLabel="Open settings" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('settings')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.settings')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="settings-outline" size={16} color={colors.textPrimary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Settings</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.settings')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('plans')} accessibilityRole="button" accessibilityLabel="Upgrade plan" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('plans')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.upgrade')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="rocket-outline" size={16} color={colors.primary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Upgrade plan</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.upgrade')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('help')} accessibilityRole="button" accessibilityLabel="Open help" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('help')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.help')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="help-circle-outline" size={16} color={colors.textPrimary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Help</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.help')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('privacy')} accessibilityRole="button" accessibilityLabel="Open privacy policy" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('privacy')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.privacy')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="shield-checkmark-outline" size={16} color={colors.textPrimary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Privacy policy</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.privacy')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('terms')} accessibilityRole="button" accessibilityLabel="Open terms of service" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('terms')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.terms')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="document-text-outline" size={16} color={colors.textPrimary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Terms of service</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.terms')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('signout')} accessibilityRole="button" accessibilityLabel="Sign out" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('signout')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.signout')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="log-out-outline" size={16} color="#E11D48" />
-                  <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '600', marginLeft: 8 }}>Sign out</Text>
+                  <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '600', marginLeft: 8 }}>{t('drawer.userMenu.signout')}</Text>
                 </Pressable>
               </>
             ) : (
               <>
-                <Pressable onPress={() => onUserOption('login')} accessibilityRole="button" accessibilityLabel="Go to login" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('login')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.login')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="log-in-outline" size={16} color={colors.textPrimary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Login</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.login')}</Text>
                 </Pressable>
-                <Pressable onPress={() => onUserOption('signup')} accessibilityRole="button" accessibilityLabel="Go to signup" className="flex-row items-center rounded-lg px-3 py-2">
+                <Pressable onPress={() => onUserOption('signup')} accessibilityRole="button" accessibilityLabel={t('drawer.userMenu.signup')} className="flex-row items-center rounded-lg px-3 py-2">
                   <Ionicons name="person-add-outline" size={16} color={colors.primary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>Signup</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 13, marginLeft: 8 }}>{t('drawer.userMenu.signup')}</Text>
                 </Pressable>
               </>
             )}
@@ -580,8 +587,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Account card. ${userName}. Current plan ${currentPlan}.`}
-            accessibilityHint="Opens account options."
+            accessibilityLabel={t('drawer.userCard')}
+            accessibilityHint={t('drawer.userCardHint')}
             onPress={() => setMenuOpen((prev) => !prev)}
             className="rounded-full p-3"
             style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
