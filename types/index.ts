@@ -8,3 +8,4 @@ export * from './form.types';
 export * from './user.types';
 export * from './video.types';
 export * from './voice.types';
+export * from './personalization.types';

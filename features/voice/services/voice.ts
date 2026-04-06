@@ -27,3 +27,15 @@ export async function transcribeAudio(file: Blob) {
     throw mapApiError(error);
   }
 }
+
+export async function synthesizeVoice(payload: { text: string; voice?: string; speed?: number }) {
+  try {
+    const response = await apiClient.post<ArrayBuffer>(apiEndpoints.voice.synthesize, payload, {
+      responseType: 'arraybuffer',
+      headers: { Accept: 'audio/mpeg' },
+    });
+    return new Uint8Array(response.data);
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}

@@ -24,6 +24,15 @@ import { AppInputPromptModal } from './AppInputPromptModal';
 import { AppPromptModal } from './AppPromptModal';
 import { SettingsModal } from './SettingsModal';
 
+function toCapitalizedName(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 type DrawerChatItem = {
   id: string;
   title: string;
@@ -178,7 +187,7 @@ const ChatRow = memo(function ChatRow({
 export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
-  const { isAuthenticated, signOut } = useAppContext();
+  const { isAuthenticated, authUser, signOut } = useAppContext();
   const { t } = useI18n();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeChatId, setActiveChatId] = useState('');
@@ -195,8 +204,36 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
 
-  const userName = isAuthenticated ? t('drawer.userName.auth') : t('drawer.userName.guest');
-  const currentPlan = isAuthenticated ? t('drawer.plan.pro') : t('drawer.plan.free');
+  const userName = useMemo(() => {
+    if (!isAuthenticated) return t('drawer.userName.guest');
+    const trimmedName = authUser?.name?.trim();
+    if (trimmedName) return toCapitalizedName(trimmedName);
+    if (authUser?.email) return toCapitalizedName(authUser.email.split('@')[0] ?? t('drawer.userName.auth'));
+    return toCapitalizedName(t('drawer.userName.auth'));
+  }, [authUser?.email, authUser?.name, isAuthenticated, t]);
+
+  const currentPlan = useMemo(() => {
+    if (!isAuthenticated) return t('drawer.plan.free');
+    switch (authUser?.subscriptionTier) {
+      case 'cafa_max':
+        return 'Cafa Max';
+      case 'cafa_smart':
+        return 'Cafa Smart';
+      case 'cafa_pro':
+        return t('drawer.plan.pro');
+      case 'free':
+        return t('drawer.plan.free');
+      default:
+        return t('drawer.plan.free');
+    }
+  }, [authUser?.subscriptionTier, isAuthenticated, t]);
+
+  const userAvatarSource = useMemo(() => {
+    if (isAuthenticated && authUser?.avatar) {
+      return { uri: authUser.avatar };
+    }
+    return require('../../assets/images/logo.png');
+  }, [authUser?.avatar, isAuthenticated]);
 
   const loadChats = useCallback(async () => {
     setLoadingChats(true);
@@ -472,7 +509,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       <SettingsModal visible={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
 
       <View>
-        <View className="mb-3 gap-2">
+        <View className="mb-3 mt-2 gap-2">
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
           <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
           <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
@@ -595,7 +632,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           >
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
-                <Image source={require('../../assets/images/logo.png')} className="h-10 w-10 rounded-full" accessibilityLabel={t('drawer.userAvatar')} />
+                <Image
+                  source={userAvatarSource}
+                  className="h-12 w-12 rounded-full"
+                  style={{ borderWidth: 1.5, borderColor: colors.primary }}
+                  accessibilityLabel={`${t('drawer.userAvatar')}: ${userName}`}
+                />
                 <View className="ml-3">
                   <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{currentPlan}</Text>

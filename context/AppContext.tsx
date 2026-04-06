@@ -6,6 +6,7 @@ import { setupAuthInterceptor } from '@/services';
 import { fetchCurrentUser, logout as logoutRequest } from '@/features';
 import { clearSessionTokens, getRefreshToken } from '@/services/storage/session';
 import { getAccessToken, getAppPreferences, setAppPreferences, type AnimationLevel } from '@/services';
+import { AuthUser } from '@/types';
 import { setAnimationLevel as applyAnimationLevel, setHapticsEnabled as applyHapticsEnabled } from '@/utils';
 
 type AppContextValue = {
@@ -17,6 +18,8 @@ type AppContextValue = {
   isDark: boolean;
   colors: ThemeColors;
   isAuthenticated: boolean;
+  authUser: AuthUser | null;
+  refreshAuthUser: () => Promise<void>;
   login: () => void;
   signup: () => void;
   signOut: () => void;
@@ -44,6 +47,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [animationLevel, setAnimationLevel] = useState<AnimationLevel>('full');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
 
@@ -53,14 +57,17 @@ export function AppProvider({ children }: AppProviderProps) {
 
       if (!token) {
         setIsAuthenticated(false);
+        setAuthUser(null);
         return;
       }
 
-      await fetchCurrentUser();
+      const me = await fetchCurrentUser();
       setIsAuthenticated(true);
+      setAuthUser(me);
     } catch {
       await clearSessionTokens();
       setIsAuthenticated(false);
+      setAuthUser(null);
     }
   }, []);
 
@@ -113,8 +120,19 @@ export function AppProvider({ children }: AppProviderProps) {
     } finally {
       await clearSessionTokens();
       setIsAuthenticated(false);
+      setAuthUser(null);
     }
   }, []);
+
+  const login = useCallback(() => {
+    setIsAuthenticated(true);
+    void hydrateAuth();
+  }, [hydrateAuth]);
+
+  const signup = useCallback(() => {
+    setIsAuthenticated(true);
+    void hydrateAuth();
+  }, [hydrateAuth]);
 
   const value = useMemo(
     () => ({
@@ -126,8 +144,10 @@ export function AppProvider({ children }: AppProviderProps) {
       isDark,
       colors,
       isAuthenticated,
-      login: () => setIsAuthenticated(true),
-      signup: () => setIsAuthenticated(true),
+      authUser,
+      refreshAuthUser: hydrateAuth,
+      login,
+      signup,
       signOut,
       language,
       setLanguage,
@@ -137,7 +157,7 @@ export function AppProvider({ children }: AppProviderProps) {
       setAnimationLevel,
       t: (key: string, params?: Record<string, string>) => translate(language, key, params),
     }),
-    [animationLevel, colors, hapticsEnabled, isAuthenticated, isDark, isReady, language, signOut, themeMode],
+    [animationLevel, authUser, colors, hapticsEnabled, hydrateAuth, isAuthenticated, isDark, isReady, language, login, signOut, signup, themeMode],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

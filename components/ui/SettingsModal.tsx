@@ -9,6 +9,7 @@ import { useAppContext } from '@/context';
 import { useI18n } from '@/hooks';
 import { AppSwitch } from './AppSwitch';
 import type { AnimationLevel } from '@/services';
+import { PersonalizationSection } from './settings/PersonalizationSection';
 
 const SETTINGS_TABS = [
   { key: 'general', i18nKey: 'settings.tab.general' },
@@ -26,7 +27,7 @@ type SettingsModalProps = {
 };
 
 export function SettingsModal({ visible, onClose }: SettingsModalProps) {
-  const { colors, isDark, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
+  const { colors, isDark, isAuthenticated, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
   const { language, setLanguage, supportedLanguages, getLanguageLabel, t } = useI18n();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
@@ -161,15 +162,19 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
             </ScrollView>
           </View>
 
-          <View
-            className="flex-1 rounded-2xl px-4 py-4"
-            accessible
-            accessibilityLabel={`${activeTabLabel} section content.`}
-            style={{
+          <ScrollView
+            className="flex-1 rounded-2xl"
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingVertical: 16,
               borderWidth: 1,
               borderColor: colors.border,
               backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.66)',
             }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            accessible
+            accessibilityLabel={`${activeTabLabel} section content.`}
           >
             {activeTab === 'general' ? (
               <Animated.View entering={FadeInDown.duration(220)} className="gap-4">
@@ -275,6 +280,16 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                   </View>
                 </View>
               </Animated.View>
+            ) : activeTab === 'personalization' ? (
+              <Animated.View entering={FadeInDown.duration(220)}>
+                <PersonalizationSection
+                  visible={visible}
+                  isAuthenticated={isAuthenticated}
+                  isDark={isDark}
+                  colors={colors}
+                  t={t}
+                />
+              </Animated.View>
             ) : (
               <Animated.View key={activeTab} entering={FadeInDown.duration(220)} className="flex-1 items-center justify-center px-5">
                 <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
@@ -294,7 +309,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                 </Text>
               </Animated.View>
             )}
-          </View>
+          </ScrollView>
         </Animated.View>
       </View>
     </Modal>
