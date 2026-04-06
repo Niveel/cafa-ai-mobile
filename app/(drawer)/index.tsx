@@ -14,142 +14,63 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import { useLocalSearchParams } from 'expo-router';
 import Animated, {
-  Easing,
   FadeIn,
   FadeInDown,
   FadeInUp,
   FadeOutDown,
   LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
 } from 'react-native-reanimated';
 
-import { AppScreen } from '@/components';
+import {
+  AppScreen,
+  CHAT_MODEL_OPTIONS,
+  GUEST_TTS_RATE,
+  IMAGE_MODE_PROMPTS,
+  MessageActionsRow,
+  QUICK_PROMPTS,
+  RecordingWaves,
+  UserPromptActionsRow,
+  VIDEO_MODE_PROMPTS,
+  createIdempotencyKey,
+  getPromptTitle,
+  isMediaGenerationPrompt,
+  type AttachedAsset,
+  type UiMessage,
+} from '@/components';
 import { useAppContext } from '@/context';
-import { createGuestConversation, ensureGuestSession, getGuestConversation, listGuestConversations, sendGuestMessageStream } from '@/features';
+import {
+  createAuthenticatedConversation,
+  createGuestConversation,
+  ensureGuestSession,
+  getAuthenticatedConversation,
+  getGuestConversation,
+  listAuthenticatedConversations,
+  listGuestConversations,
+  sendAuthenticatedMessageStream,
+  sendGuestMessageStream,
+  toggleAuthenticatedMessageReaction,
+} from '@/features';
 import { useAppTheme } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess } from '@/utils';
 
-type UiMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  createdAt: number;
-};
-
-type AttachedAsset = {
-  id: string;
-  label: string;
-};
-
-const IMAGE_MODE_PROMPTS = [
-  'Generate image of a futuristic government operations center.',
-  'Generate image of an underwater research city with glowing coral.',
-  'Generate image of a cinematic aerial view of a neon megacity.',
-  'Generate image of a modern courtroom with holographic evidence displays.',
-];
-
-const VIDEO_MODE_PROMPTS = [
-  'Generate video of drones coordinating disaster relief over a coastal city.',
-  'Generate video of a smart city skyline transitioning from sunset to neon night.',
-  'Generate video of a national emergency war room during a cyber incident.',
-  'Generate video of a futuristic parliament session with transparent voting screens.',
-];
-
-const QUICK_PROMPTS = [
-  'Draft a strategic memo for national AI adoption in education.',
-  'Summarize top risks in government chatbot deployment.',
-  'Generate image of a modern smart city command center at sunset.',
-];
-
-const CHAT_MODEL_OPTIONS = [
-  { key: 'ultra', label: 'Cafa Ultra', description: 'Best quality (uses more compute)' },
-  { key: 'smart', label: 'Cafa Smart', description: 'Balanced quality' },
-  { key: 'swift', label: 'Cafa Swift', description: 'Light tasks and fast' },
-] as const;
-
-function getPromptTitle(prompt: string) {
-  const trimmed = prompt.trim();
-  if (!trimmed) return 'New guest chat';
-  return trimmed.length > 48 ? `${trimmed.slice(0, 48)}...` : trimmed;
-}
-
-function createIdempotencyKey(conversationId: string) {
-  return `${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function isMediaGenerationPrompt(value: string) {
-  const normalized = value.toLowerCase();
-  return normalized.includes('generate image') || normalized.includes('generate video');
-}
-
-const GUEST_TTS_RATE = Platform.select({
-  ios: 0.46,
-  android: 0.78,
-  default: 0.78,
-});
-
-function WaveBar({ color, delay }: { color: string; delay: number }) {
-  const scale = useSharedValue(0.45);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      scale.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 340, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.45, { duration: 340, easing: Easing.inOut(Easing.ease) }),
-        ),
-        -1,
-        false,
-      );
-    }, delay);
-    return () => clearTimeout(timeout);
-  }, [delay, scale]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleY: scale.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[
-        {
-          width: 4,
-          height: 22,
-          borderRadius: 999,
-          backgroundColor: color,
-          opacity: 0.9,
-        },
-        animatedStyle,
-      ]}
-    />
-  );
-}
-
-function RecordingWaves({ color }: { color: string }) {
-  return (
-    <View className="h-7 flex-row items-center gap-1.5">
-      <WaveBar color={color} delay={0} />
-      <WaveBar color={color} delay={90} />
-      <WaveBar color={color} delay={180} />
-      <WaveBar color={color} delay={270} />
-      <WaveBar color={color} delay={360} />
-    </View>
-  );
-}
-
 export default function ChatScreen() {
+  const createWelcomeMessage = (): UiMessage => ({
+    id: 'welcome-1',
+    role: 'assistant',
+    content: 'Hi, I am Cafa AI. Ask me anything or start with a task.',
+    createdAt: Date.now(),
+  });
   const ANDROID_KEYBOARD_CALIBRATION = 4;
   const { colors, isDark } = useAppTheme();
   const { isAuthenticated } = useAppContext();
+  const params = useLocalSearchParams<{ conversationId?: string; newChat?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -158,16 +79,11 @@ export default function ChatScreen() {
   const [attachedAssets, setAttachedAssets] = useState<AttachedAsset[]>([]);
   const [tooltipState, setTooltipState] = useState<{ text: string; x: number; y: number } | null>(null);
   const [activeModel, setActiveModel] = useState<'ultra' | 'smart' | 'swift'>('smart');
-  const [messages, setMessages] = useState<UiMessage[]>([
-    {
-      id: 'welcome-1',
-      role: 'assistant',
-      content: 'Hi, I am Cafa AI. Ask me anything or start with a task.',
-      createdAt: Date.now(),
-    },
-  ]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(34);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
+  const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
@@ -175,13 +91,18 @@ export default function ChatScreen() {
   const [streamingDots, setStreamingDots] = useState('.');
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messagesListRef = useRef<FlatList<UiMessage>>(null);
+  const composerInputRef = useRef<TextInput>(null);
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuTouchRef = useRef(false);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
   const assistantFirstDeltaRef = useRef(false);
+  const pendingDeltaRef = useRef('');
+  const pendingAssistantIdRef = useRef<string | null>(null);
+  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
 
@@ -206,6 +127,30 @@ export default function ChatScreen() {
     }, 1200);
   };
 
+  const flushPendingAssistantDelta = () => {
+    const assistantId = pendingAssistantIdRef.current;
+    const pending = pendingDeltaRef.current;
+    if (!assistantId || !pending) return;
+
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === assistantId ? { ...message, content: `${message.content}${pending}` } : message,
+      ),
+    );
+    pendingDeltaRef.current = '';
+  };
+
+  const queueAssistantDelta = (assistantId: string, delta: string) => {
+    pendingAssistantIdRef.current = assistantId;
+    pendingDeltaRef.current += delta;
+
+    if (deltaFlushTimerRef.current) return;
+    deltaFlushTimerRef.current = setTimeout(() => {
+      flushPendingAssistantDelta();
+      deltaFlushTimerRef.current = null;
+    }, 44);
+  };
+
   const handleSend = () => {
     const run = async () => {
       const trimmed = input.trim();
@@ -223,6 +168,14 @@ export default function ChatScreen() {
 
       hapticImpact();
       assistantFirstDeltaRef.current = false;
+      pendingAssistantIdRef.current = assistantId;
+      pendingDeltaRef.current = '';
+      if (deltaFlushTimerRef.current) {
+        clearTimeout(deltaFlushTimerRef.current);
+        deltaFlushTimerRef.current = null;
+      }
+      setAttachmentMenuOpen(false);
+      setModelMenuOpen(false);
       Keyboard.dismiss();
       setInput('');
       setIsSending(true);
@@ -277,13 +230,10 @@ export default function ChatScreen() {
                   assistantFirstDeltaRef.current = true;
                   hapticSelection();
                 }
-                setMessages((prev) =>
-                  prev.map((message) =>
-                    message.id === assistantId ? { ...message, content: `${message.content}${event.content}` } : message,
-                  ),
-                );
+                queueAssistantDelta(assistantId, event.content);
               }
               if (event.type === 'done') {
+                flushPendingAssistantDelta();
                 hapticSuccess();
               }
               if (event.type === 'error') {
@@ -295,13 +245,44 @@ export default function ChatScreen() {
           return;
         }
 
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === assistantId
-              ? { ...message, content: 'Authenticated streaming will be connected after login flow wiring.' }
-              : message,
-          ),
-        );
+        let conversationId = authConversationId;
+        if (!conversationId) {
+          lastEndpoint = `${API_BASE_URL}/chat`;
+          const created = await createAuthenticatedConversation(getPromptTitle(trimmed));
+          conversationId = created.conversationId;
+          setAuthConversationId(conversationId);
+        }
+
+        lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
+        await sendAuthenticatedMessageStream(conversationId, trimmed, (event) => {
+          if (event.type === 'delta') {
+            if (!assistantFirstDeltaRef.current) {
+              assistantFirstDeltaRef.current = true;
+              hapticSelection();
+            }
+            queueAssistantDelta(assistantId, event.content);
+            return;
+          }
+
+          if (event.type === 'meta' && event.messageId) {
+            setMessages((prev) =>
+              prev.map((message) => (message.id === assistantId ? { ...message, id: event.messageId! } : message)),
+            );
+            return;
+          }
+
+          if (event.type === 'done') {
+            flushPendingAssistantDelta();
+            hapticSuccess();
+            if (event.messageId) {
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === assistantId ? { ...message, id: event.messageId!, tokens: event.tokens } : message,
+                ),
+              );
+            }
+          }
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not send your message right now.';
         console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
@@ -321,6 +302,11 @@ export default function ChatScreen() {
           ),
         );
       } finally {
+        flushPendingAssistantDelta();
+        if (deltaFlushTimerRef.current) {
+          clearTimeout(deltaFlushTimerRef.current);
+          deltaFlushTimerRef.current = null;
+        }
         setIsSending(false);
       }
     };
@@ -378,6 +364,52 @@ export default function ChatScreen() {
     ]);
   };
 
+  const pickDocumentAttachment = async () => {
+    setAttachmentMenuOpen(false);
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: false,
+      multiple: false,
+      type: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'text/plain',
+        'application/rtf',
+      ],
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+    const lowerName = (asset.name ?? '').toLowerCase();
+    const mime = (asset.mimeType ?? '').toLowerCase();
+    const isAllowedMime =
+      mime === 'application/pdf' ||
+      mime === 'application/msword' ||
+      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      mime === 'text/plain' ||
+      mime === 'application/rtf';
+    const isAllowedExtension =
+      lowerName.endsWith('.pdf') ||
+      lowerName.endsWith('.doc') ||
+      lowerName.endsWith('.docx') ||
+      lowerName.endsWith('.txt') ||
+      lowerName.endsWith('.rtf');
+
+    if (!isAllowedMime && !isAllowedExtension) {
+      showTransientNotice('Only text documents are supported: PDF, DOC, DOCX, TXT, RTF.');
+      return;
+    }
+
+    setAttachedAssets((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: asset.name ?? 'document-attachment',
+      },
+    ]);
+  };
+
   const removeAttachment = (id: string) => {
     setAttachedAssets((prev) => prev.filter((item) => item.id !== id));
   };
@@ -391,19 +423,48 @@ export default function ChatScreen() {
     }, 2200);
   };
 
-  const toggleReaction = (messageId: string, reaction: 'like' | 'dislike') => {
+  const toggleReaction = async (messageId: string, reaction: 'like' | 'dislike') => {
+    const previous = messageReactions[messageId];
+    const next = previous === reaction ? undefined : reaction;
+
     setMessageReactions((prev) => ({
       ...prev,
-      [messageId]: prev[messageId] === reaction ? undefined : reaction,
+      [messageId]: next,
     }));
     hapticSelection();
+
+    if (!isAuthenticated || !authConversationId) return;
+
+    try {
+      const server = await toggleAuthenticatedMessageReaction(authConversationId, messageId, reaction);
+      setMessageReactions((prev) => ({
+        ...prev,
+        [messageId]: server.liked ? 'like' : server.disliked ? 'dislike' : undefined,
+      }));
+    } catch {
+      setMessageReactions((prev) => ({
+        ...prev,
+        [messageId]: previous,
+      }));
+      showTransientNotice('Could not save reaction right now.');
+    }
   };
 
   const copyMessage = async (content: string) => {
     if (!content.trim()) return;
     await Clipboard.setStringAsync(content);
-    showTransientNotice('Copied response.');
+    showTransientNotice('Copied text.');
     hapticSuccess();
+  };
+
+  const editPrompt = (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setInput(trimmed);
+    hapticSelection();
+    requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
   };
 
   const shareMessage = async (content: string) => {
@@ -475,16 +536,134 @@ export default function ChatScreen() {
     return () => {
       if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+      if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
       ExpoSpeechRecognitionModule.abort();
       Speech.stop();
     };
   }, []);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
+    setAttachmentMenuOpen(false);
+    setIsRecording(false);
+    setAttachedAssets([]);
+    setGuestConversationId(null);
+
+    const loadAuthenticatedState = async () => {
+      try {
+        const conversations = await listAuthenticatedConversations();
+        if (!conversations.length) {
+          setAuthConversationId(null);
+          setMessages([createWelcomeMessage()]);
+          return;
+        }
+
+        const latest = [...conversations].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        )[0];
+        setAuthConversationId(latest.id);
+
+        const detail = await getAuthenticatedConversation(latest.id);
+        if (!detail.messages.length) return;
+
+        setMessages(
+          detail.messages.map((message) => ({
+            id: message.id,
+            role: message.role === 'assistant' ? 'assistant' : 'user',
+            content: message.content,
+            createdAt: new Date(message.createdAt).getTime(),
+            tokens: message.tokens,
+          })),
+        );
+
+        setMessageReactions(() =>
+          detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
+            if (message.role !== 'assistant') return acc;
+            acc[message.id] = message.reactions?.liked
+              ? 'like'
+              : message.reactions?.disliked
+                ? 'dislike'
+                : undefined;
+            return acc;
+          }, {}),
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not load your conversations.';
+        showTransientNotice(message);
+        setMessages([createWelcomeMessage()]);
+      } finally {
+        setIsHydratingAuthChat(false);
+      }
+    };
+
+    setIsHydratingAuthChat(true);
+    void loadAuthenticatedState();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
+    const shouldStartNewChat = params.newChat === '1';
+    if (shouldStartNewChat) {
+      setAuthConversationId(null);
+      setGuestConversationId(null);
+      setMessages([createWelcomeMessage()]);
+      return;
+    }
+    if (!targetConversationId) return;
+
+    const hydrateTarget = async () => {
+      try {
+        if (isAuthenticated) {
+          const detail = await getAuthenticatedConversation(targetConversationId);
+          setAuthConversationId(targetConversationId);
+          setMessages(
+            detail.messages.map((message) => ({
+              id: message.id,
+              role: message.role === 'assistant' ? 'assistant' : 'user',
+              content: message.content,
+              createdAt: new Date(message.createdAt).getTime(),
+              tokens: message.tokens,
+            })),
+          );
+          setMessageReactions(() =>
+            detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
+              if (message.role !== 'assistant') return acc;
+              acc[message.id] = message.reactions?.liked
+                ? 'like'
+                : message.reactions?.disliked
+                  ? 'dislike'
+                  : undefined;
+              return acc;
+            }, {}),
+          );
+          return;
+        }
+
+        const detail = await getGuestConversation(targetConversationId);
+        setGuestConversationId(targetConversationId);
+        setMessages(
+          detail.messages.map((message) => ({
+            id: message._id,
+            role: message.role === 'assistant' ? 'assistant' : 'user',
+            content: message.content,
+            createdAt: new Date(message.createdAt).getTime(),
+          })),
+        );
+      } catch {
+        // Non-blocking for general chat flow.
+      }
+    };
+
+    void hydrateTarget();
+  }, [isAuthenticated, params.conversationId, params.newChat]);
+
+  useEffect(() => {
     if (isAuthenticated) return;
     setAttachmentMenuOpen(false);
     setIsRecording(false);
     setAttachedAssets([]);
+    setAuthConversationId(null);
     const loadGuestState = async () => {
       try {
         await ensureGuestSession();
@@ -507,9 +686,10 @@ export default function ChatScreen() {
           })),
         );
       } catch {
-        // keep optimistic local starter state
+        setMessages([createWelcomeMessage()]);
       }
     };
+    setMessages([createWelcomeMessage()]);
     void loadGuestState();
   }, [isAuthenticated]);
 
@@ -557,14 +737,27 @@ export default function ChatScreen() {
   }, [messages]);
 
   return (
-    <AppScreen title="Cafa AI">
+    <AppScreen title="Cafa AI" showHeading={false}>
       <KeyboardAvoidingView
         className="flex-1"
         behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         enabled={Platform.OS === 'ios'}
       >
-          <View className="flex-1">
+          <View
+            className="flex-1"
+            onTouchEnd={() => {
+              if (menuTouchRef.current) {
+                menuTouchRef.current = false;
+                return;
+              }
+              if (modelMenuOpen || attachmentMenuOpen) {
+                setModelMenuOpen(false);
+                setAttachmentMenuOpen(false);
+              }
+            }}
+          >
+
             {!isAuthenticated ? (
               <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
@@ -579,7 +772,13 @@ export default function ChatScreen() {
             ) : null}
 
             <View className="mb-2 flex-row items-center justify-end">
-              <View className="relative">
+              <View
+                className="relative"
+                style={{
+                  zIndex: modelMenuOpen ? 120 : 1,
+                  elevation: modelMenuOpen ? 30 : 0,
+                }}
+              >
                 <Pressable
                   onPress={() => {
                     hapticSelection();
@@ -605,7 +804,15 @@ export default function ChatScreen() {
                   <Animated.View
                     entering={FadeInDown.duration(MOTION.duration.normal)}
                     className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
-                    style={{ borderColor: colors.border, backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF' }}
+                    style={{
+                      zIndex: 80,
+                      elevation: 24,
+                      borderColor: colors.border,
+                      backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+                    }}
+                    onTouchStart={() => {
+                      menuTouchRef.current = true;
+                    }}
                   >
                     {CHAT_MODEL_OPTIONS.map((model) => {
                       const active = activeModel === model.key;
@@ -672,6 +879,13 @@ export default function ChatScreen() {
             <FlatList
               ref={messagesListRef}
               className="flex-1"
+              ListEmptyComponent={
+                isAuthenticated && isHydratingAuthChat ? (
+                  <View className="px-2 py-2">
+                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Loading conversations...</Text>
+                  </View>
+                ) : null
+              }
               data={messages}
               showsVerticalScrollIndicator={false}
               keyExtractor={(item) => item.id}
@@ -724,82 +938,39 @@ export default function ChatScreen() {
                       </View>
 
                       {!isUser && item.content.trim() ? (
-                        <View className="mt-1 flex-row items-center gap-1">
-                          <Pressable
-                            onPress={() => {
-                              void copyMessage(item.content);
-                            }}
-                            onLongPress={(event) => showTooltip('Copy response', event)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Copy response"
-                            accessibilityHint="Copies this response to clipboard."
-                            className="h-7 w-7 items-center justify-center rounded-full border"
-                            style={{ borderColor: colors.border }}
-                          >
-                            <Ionicons name="copy-outline" size={13} color={colors.textSecondary} />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => toggleReaction(item.id, 'like')}
-                            onLongPress={(event) => showTooltip('Like response', event)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Like response"
-                            accessibilityHint="Marks this response as helpful."
-                            accessibilityState={{ selected: reaction === 'like' }}
-                            className="h-7 w-7 items-center justify-center rounded-full border"
-                            style={{ borderColor: reaction === 'like' ? colors.primary : colors.border }}
-                          >
-                            <Ionicons
-                              name={reaction === 'like' ? 'thumbs-up' : 'thumbs-up-outline'}
-                              size={13}
-                              color={reaction === 'like' ? colors.primary : colors.textSecondary}
-                            />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => toggleReaction(item.id, 'dislike')}
-                            onLongPress={(event) => showTooltip('Dislike response', event)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Dislike response"
-                            accessibilityHint="Marks this response as unhelpful."
-                            accessibilityState={{ selected: reaction === 'dislike' }}
-                            className="h-7 w-7 items-center justify-center rounded-full border"
-                            style={{ borderColor: reaction === 'dislike' ? colors.primary : colors.border }}
-                          >
-                            <Ionicons
-                              name={reaction === 'dislike' ? 'thumbs-down' : 'thumbs-down-outline'}
-                              size={13}
-                              color={reaction === 'dislike' ? colors.primary : colors.textSecondary}
-                            />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => {
-                              void shareMessage(item.content);
-                            }}
-                            onLongPress={(event) => showTooltip('Share response', event)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Share response"
-                            accessibilityHint="Opens the share sheet for this response."
-                            className="h-7 w-7 items-center justify-center rounded-full border"
-                            style={{ borderColor: colors.border }}
-                          >
-                            <Ionicons name="share-social-outline" size={13} color={colors.textSecondary} />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => toggleReadAloud(item.id, item.content)}
-                            onLongPress={(event) => showTooltip('Read response aloud', event)}
-                            accessibilityRole="button"
-                            accessibilityLabel={isReading ? 'Stop reading response aloud' : 'Read response aloud'}
-                            accessibilityHint="Uses device speech to read this response."
-                            accessibilityState={{ selected: isReading }}
-                            className="h-7 w-7 items-center justify-center rounded-full border"
-                            style={{ borderColor: isReading ? colors.primary : colors.border }}
-                          >
-                            <Ionicons
-                              name={isReading ? 'stop-circle-outline' : 'volume-high-outline'}
-                              size={13}
-                              color={isReading ? colors.primary : colors.textSecondary}
-                            />
-                          </Pressable>
-                        </View>
+                        <MessageActionsRow
+                          isReading={isReading}
+                          reaction={reaction}
+                          primaryColor={colors.primary}
+                          borderColor={colors.border}
+                          iconColor={colors.textSecondary}
+                          onCopy={() => {
+                            void copyMessage(item.content);
+                          }}
+                          onLike={() => {
+                            void toggleReaction(item.id, 'like');
+                          }}
+                          onDislike={() => {
+                            void toggleReaction(item.id, 'dislike');
+                          }}
+                          onShare={() => {
+                            void shareMessage(item.content);
+                          }}
+                          onReadAloud={() => toggleReadAloud(item.id, item.content)}
+                          onTooltip={showTooltip}
+                        />
+                      ) : null}
+
+                      {isUser && item.content.trim() ? (
+                        <UserPromptActionsRow
+                          borderColor={colors.border}
+                          iconColor={colors.textSecondary}
+                          onCopy={() => {
+                            void copyMessage(item.content);
+                          }}
+                          onEdit={() => editPrompt(item.content)}
+                          onTooltip={showTooltip}
+                        />
                       ) : null}
                     </View>
                   </Animated.View>
@@ -841,6 +1012,7 @@ export default function ChatScreen() {
           }}
         >
           <TextInput
+            ref={composerInputRef}
             value={input}
             onChangeText={setInput}
             placeholder="Ask anything, or type: generate image/video..."
@@ -908,7 +1080,12 @@ export default function ChatScreen() {
                   />
                 </Pressable>
 
-                <View>
+                <View
+                  style={{
+                    zIndex: attachmentMenuOpen ? 120 : 1,
+                    elevation: attachmentMenuOpen ? 30 : 0,
+                  }}
+                >
                   <Pressable
                     onPress={() => {
                       hapticSelection();
@@ -927,11 +1104,23 @@ export default function ChatScreen() {
                     <Animated.View
                       entering={FadeInDown.duration(MOTION.duration.normal)}
                       className="absolute bottom-9 left-0 z-30 min-w-[190px] rounded-lg border p-1"
-                      style={{ borderColor: colors.border, backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF' }}
+                      style={{
+                        zIndex: 80,
+                        elevation: 24,
+                        borderColor: colors.border,
+                        backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+                      }}
+                      onTouchStart={() => {
+                        menuTouchRef.current = true;
+                      }}
                     >
                       <Pressable onPress={pickAttachment} className="flex-row items-center rounded-md px-2 py-2">
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
                         <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>Image attachment</Text>
+                      </Pressable>
+                      <Pressable onPress={pickDocumentAttachment} className="flex-row items-center rounded-md px-2 py-2">
+                        <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
+                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>Document attachment</Text>
                       </Pressable>
                     </Animated.View>
                   ) : null}

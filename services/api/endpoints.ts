@@ -17,6 +17,7 @@ export const apiEndpoints = {
 
   chat: {
     list: `${API_BASE_PATH}/chat`,
+    search: `${API_BASE_PATH}/chat/search`,
     detail: (conversationId: string) => `${API_BASE_PATH}/chat/${conversationId}`,
     messages: (conversationId: string) => `${API_BASE_PATH}/chat/${conversationId}/messages`,
     archive: (conversationId: string) => `${API_BASE_PATH}/chat/${conversationId}/archive`,

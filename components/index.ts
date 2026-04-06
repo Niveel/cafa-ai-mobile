@@ -6,6 +6,8 @@ export * from './ui/FloatingDrawerButton';
 export * from './ui/TopAuthNav';
 export * from './ui/SecondaryNav';
 export * from './ui/AppPromptModal';
+export * from './ui/AppInputPromptModal';
 export * from './ui/BlankRouteScreen';
 export * from './ui/SettingsModal';
+export * from './chat';
 export * from './form';

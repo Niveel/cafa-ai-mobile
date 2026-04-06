@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
 
@@ -10,7 +10,7 @@ import { AppPromptModal } from './AppPromptModal';
 import { MOTION, hapticImpact } from '@/utils';
 
 export function TopAuthNav() {
-  const { isDark } = useAppTheme();
+  const { isDark, colors } = useAppTheme();
   const { isAuthenticated, signOut } = useAppContext();
   const [showSignOutPrompt, setShowSignOutPrompt] = useState(false);
 
@@ -46,6 +46,13 @@ export function TopAuthNav() {
         }}
       >
         <View className="flex-row items-center gap-1">
+          <Text
+            numberOfLines={1}
+            style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginRight: 4 }}
+            accessibilityRole="text"
+          >
+            Cafa AI
+          </Text>
           {!isAuthenticated ? (
             <>
               <AppButton
