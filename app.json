@@ -9,7 +9,14 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera for avatar photos and chat attachments.",
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photo library for attachments and profile images.",
+        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save generated images and videos to your photo library.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone for speech-to-text and voice features.",
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to transcribe your speech into text prompts."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -47,7 +54,40 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for speech-to-text.",
+          "speechRecognitionPermission": "Allow $(PRODUCT_NAME) to transcribe your speech into text."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos for chat attachments and avatar uploads.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera for captured attachments and profile photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your media library.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save generated images and videos to your library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera for media capture.",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for video/audio capture.",
+          "recordAudioAndroid": true
+        }
+      ],
+      "expo-document-picker",
+      "expo-video",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

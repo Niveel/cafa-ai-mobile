@@ -1,19 +1,19 @@
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { View } from 'react-native';
 
 import '../global.css';
-import { AppProvider } from '@/context/AppContext';
+import { AppProvider, useAppContext } from '@/context/AppContext';
 import { useAppTheme } from '@/hooks';
-import { setupAuthInterceptor } from '@/services';
 
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
+  const { isReady: appIsReady } = useAppContext();
 
-  useEffect(() => {
-    setupAuthInterceptor();
-  }, []);
+  if (!appIsReady) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
 
   return (
     <>

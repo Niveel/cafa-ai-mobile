@@ -17,7 +17,7 @@ import { LoginFormValues, LoginValidationSchema } from '@/data';
 import { login as loginRequest } from '@/features';
 import { useAppContext } from '@/context';
 import { useAppTheme } from '@/hooks';
-import { setAccessToken } from '@/services';
+import { setAccessToken, setRefreshToken } from '@/services';
 
 export default function LoginScreen() {
   const { colors, isDark } = useAppTheme();
@@ -78,6 +78,10 @@ export default function LoginScreen() {
                         });
 
                         await setAccessToken(session.accessToken);
+                        const refreshToken = (session as { refreshToken?: string }).refreshToken;
+                        if (refreshToken) {
+                          await setRefreshToken(refreshToken);
+                        }
                         login();
                         router.replace('/(drawer)');
                       } catch (error) {

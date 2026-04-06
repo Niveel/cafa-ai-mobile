@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, {
+  Easing,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { useAppTheme } from '@/hooks';
+import { MOTION, hapticSelection } from '@/utils';
 
 const SETTINGS_TABS = [
   { key: 'general', label: 'General' },
@@ -34,6 +42,22 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
   const activeTabLabel = SETTINGS_TABS.find((tab) => tab.key === activeTab)?.label ?? 'General';
+  const overlayOpacity = useSharedValue(0);
+  const sheetTranslate = useSharedValue(26);
+
+  useEffect(() => {
+    if (!visible) return;
+    overlayOpacity.value = withTiming(1, { duration: MOTION.duration.normal, easing: Easing.out(Easing.cubic) });
+    sheetTranslate.value = withTiming(0, { duration: MOTION.duration.slow, easing: Easing.out(Easing.exp) });
+  }, [overlayOpacity, sheetTranslate, visible]);
+
+  const overlayStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetTranslate.value }],
+  }));
 
   return (
     <Modal
@@ -44,11 +68,13 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
       onRequestClose={onClose}
     >
       <View className="flex-1 justify-end">
-        <BlurView
-          intensity={isDark ? 40 : 55}
-          tint={isDark ? 'dark' : 'light'}
-          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
-        />
+        <Animated.View style={[{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, overlayStyle]}>
+          <BlurView
+            intensity={isDark ? 40 : 55}
+            tint={isDark ? 'dark' : 'light'}
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
+          />
+        </Animated.View>
 
         <Pressable
           accessibilityRole="button"
@@ -58,10 +84,10 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
         />
 
-        <View
+        <Animated.View
           accessibilityViewIsModal
           className="rounded-t-3xl"
-          style={{
+          style={[sheetStyle, {
             minHeight: '84%',
             maxHeight: '92%',
             backgroundColor: isDark ? '#0E0E12' : '#FFFFFF',
@@ -70,7 +96,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
             paddingTop: Math.max(10, insets.top * 0.25),
             paddingHorizontal: 10,
             paddingBottom: Math.max(insets.bottom + 8, 16),
-          }}
+          }]}
         >
           <View className="mb-2 items-center">
             <View
@@ -122,7 +148,10 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                     accessibilityHint={
                       selected ? `${tab.label} section selected.` : `Open ${tab.label} settings section.`
                     }
-                    onPress={() => setActiveTab(tab.key)}
+                    onPress={() => {
+                      hapticSelection();
+                      setActiveTab(tab.key);
+                    }}
                     className="mr-1.5 rounded-xl px-3 py-2"
                     style={{
                       borderWidth: selected ? 1.2 : 1,
@@ -159,7 +188,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
               backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.66)',
             }}
           >
-            <View className="flex-1 items-center justify-center px-5">
+            <Animated.View key={activeTab} entering={FadeInDown.duration(MOTION.duration.normal)} className="flex-1 items-center justify-center px-5">
               <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700', textAlign: 'center' }}>
                 {activeTabLabel}
               </Text>
@@ -175,9 +204,9 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
               >
                 {TAB_PLACEHOLDERS[activeTab]}
               </Text>
-            </View>
+            </Animated.View>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

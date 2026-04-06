@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAppTheme } from '@/hooks';
+import { hapticSelection } from '@/utils';
 
 type AppButtonVariant = 'solid' | 'outline' | 'danger';
 
@@ -34,13 +35,17 @@ export function AppButton({
   const textSize = compact ? 12 : 13;
   const resolvedIconSize = compact ? Math.max(12, iconSize - 1) : iconSize;
   const iconGap = compact ? 4 : 6;
+  const onPressWithHaptic = () => {
+    hapticSelection();
+    onPress();
+  };
 
   if (variant === 'danger') {
     return (
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={label}
-        onPress={onPress}
+        onPress={onPressWithHaptic}
         activeOpacity={0.86}
         style={{
           height: buttonHeight,
@@ -75,7 +80,7 @@ export function AppButton({
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={label}
-        onPress={onPress}
+        onPress={onPressWithHaptic}
         activeOpacity={0.86}
         style={{
           height: buttonHeight,
@@ -117,7 +122,7 @@ export function AppButton({
     <TouchableOpacity
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={onPress}
+      onPress={onPressWithHaptic}
       activeOpacity={0.86}
       style={{
         height: buttonHeight,

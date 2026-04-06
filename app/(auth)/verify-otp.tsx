@@ -7,6 +7,8 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { useAppTheme } from '@/hooks';
 import { useAppContext } from '@/context';
+import { setAccessToken, setRefreshToken } from '@/services';
+import { verifyOtp as verifyOtpRequest } from '@/features';
 
 type VerifyOtpScreenValues = {
   email: string;
@@ -26,6 +28,7 @@ export default function VerifyOtpScreen() {
   const { login } = useAppContext();
   const params = useLocalSearchParams<{ email?: string; flow?: string }>();
   const [notice, setNotice] = useState('');
+  const [authError, setAuthError] = useState('');
 
   const cardBackground = isDark ? 'rgba(20, 20, 20, 0.92)' : 'rgba(255, 255, 255, 0.95)';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
@@ -65,9 +68,26 @@ export default function VerifyOtpScreen() {
             <AppForm<VerifyOtpScreenValues>
               initialValues={{ email: initialEmail, otp: '' }}
               validationSchema={VerifyOtpScreenValidationSchema}
-              onSubmit={() => {
-                login();
-                router.replace('/(drawer)');
+              onSubmit={async (values) => {
+                setAuthError('');
+
+                try {
+                  const session = await verifyOtpRequest({
+                    email: values.email.trim(),
+                    otp: values.otp.trim(),
+                  });
+
+                  await setAccessToken(session.accessToken);
+                  const refreshToken = (session as { refreshToken?: string }).refreshToken;
+                  if (refreshToken) {
+                    await setRefreshToken(refreshToken);
+                  }
+                  login();
+                  router.replace('/(drawer)');
+                } catch (error) {
+                  const mapped = error as { message?: string };
+                  setAuthError(mapped.message ?? 'Could not verify code right now.');
+                }
               }}
               enableReinitialize
             >
@@ -101,6 +121,22 @@ export default function VerifyOtpScreen() {
                   }}
                 >
                   {notice}
+                </Text>
+              ) : null}
+              {authError ? (
+                <Text
+                  style={{
+                    color: isDark ? '#FCA5A5' : '#B91C1C',
+                    fontSize: 12,
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(251, 113, 133, 0.5)' : 'rgba(220, 38, 38, 0.35)',
+                    backgroundColor: isDark ? 'rgba(127, 29, 29, 0.28)' : 'rgba(254, 226, 226, 0.95)',
+                    borderRadius: 10,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                  }}
+                >
+                  {authError}
                 </Text>
               ) : null}
               <View className="flex-row items-center justify-between">

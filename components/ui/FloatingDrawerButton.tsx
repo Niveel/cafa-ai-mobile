@@ -1,11 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo, Pressable, View } from 'react-native';
+import { useEffect, useMemo } from 'react';
+import { Pressable, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { DrawerActions } from '@react-navigation/native';
 import { useNavigation } from 'expo-router';
 import { useDrawerStatus } from '@react-navigation/drawer';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useReducedMotionPreference } from '@/hooks';
+import { MOTION, hapticImpact } from '@/utils';
 
 function FancyMenuGlyph() {
   return (
@@ -30,33 +39,34 @@ export function FloatingDrawerButton() {
   const navigation = useNavigation();
   const drawerStatus = useDrawerStatus();
   const { isDark, colors } = useAppTheme();
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const prefersReducedMotion = useReducedMotionPreference();
   const isDrawerOpen = drawerStatus === 'open';
+  const pulse = useSharedValue(1);
 
   useEffect(() => {
-    let isMounted = true;
+    if (prefersReducedMotion || isDrawerOpen) {
+      pulse.value = 1;
+      return;
+    }
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1.045, {
+          duration: MOTION.duration.slow * 2,
+          easing: Easing.inOut(Easing.quad),
+        }),
+        withTiming(1, {
+          duration: MOTION.duration.slow * 2,
+          easing: Easing.inOut(Easing.quad),
+        }),
+      ),
+      -1,
+      false,
+    );
+  }, [isDrawerOpen, prefersReducedMotion, pulse]);
 
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((enabled) => {
-        if (isMounted) {
-          setPrefersReducedMotion(enabled);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setPrefersReducedMotion(false);
-        }
-      });
-
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
-      setPrefersReducedMotion(enabled);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.remove();
-    };
-  }, []);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
 
   const shadowStyle = useMemo(
     () => ({
@@ -70,15 +80,21 @@ export function FloatingDrawerButton() {
   );
 
   return (
-    <View style={shadowStyle}>
+    <Animated.View style={[shadowStyle, animatedStyle]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={isDrawerOpen ? 'Close navigation menu' : 'Open navigation menu'}
         accessibilityHint="Opens the app navigation drawer."
         accessibilityState={{ expanded: isDrawerOpen }}
         accessibilityActions={[{ name: 'activate', label: 'Toggle navigation menu' }]}
-        onAccessibilityAction={() => navigation.dispatch(DrawerActions.toggleDrawer())}
-        onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
+        onAccessibilityAction={() => {
+          hapticImpact();
+          navigation.dispatch(DrawerActions.toggleDrawer());
+        }}
+        onPress={() => {
+          hapticImpact();
+          navigation.dispatch(DrawerActions.toggleDrawer());
+        }}
         hitSlop={10}
         className="h-12 w-12 overflow-hidden rounded-full border border-white/30"
         style={({ pressed }) => ({
@@ -114,6 +130,6 @@ export function FloatingDrawerButton() {
           />
         </LinearGradient>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }

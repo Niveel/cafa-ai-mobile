@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAppTheme } from '@/hooks';
+import { MOTION, hapticImpact } from '@/utils';
 
 type AppPromptModalProps = {
   visible: boolean;
@@ -40,6 +41,7 @@ export function AppPromptModal({
 
   useEffect(() => {
     if (!visible) return;
+    hapticImpact();
 
     overlayAnim.setValue(0);
     cardAnim.setValue(0.96);
@@ -47,7 +49,7 @@ export function AppPromptModal({
     Animated.parallel([
       Animated.timing(overlayAnim, {
         toValue: 1,
-        duration: 200,
+        duration: MOTION.duration.normal,
         useNativeDriver: true,
       }),
       Animated.spring(cardAnim, {
@@ -122,7 +124,10 @@ export function AppPromptModal({
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={cancelLabel}
-              onPress={onCancel}
+              onPress={() => {
+                hapticImpact();
+                onCancel();
+              }}
               activeOpacity={0.88}
               className="h-10 items-center justify-center rounded-full px-4"
               style={{
@@ -139,7 +144,10 @@ export function AppPromptModal({
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={confirmLabel}
-              onPress={onConfirm}
+              onPress={() => {
+                hapticImpact();
+                onConfirm();
+              }}
               activeOpacity={0.88}
               className="h-10 items-center justify-center rounded-full px-4"
               style={{ backgroundColor: confirmBackground }}

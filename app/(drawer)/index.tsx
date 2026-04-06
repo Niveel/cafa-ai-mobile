@@ -1,24 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
+  type GestureResponderEvent,
   Dimensions,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Share,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
+import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
+  FadeOutDown,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { AppScreen } from '@/components';
 import { useAppContext } from '@/context';
 import { createGuestConversation, ensureGuestSession, getGuestConversation, listGuestConversations, sendGuestMessageStream } from '@/features';
 import { useAppTheme } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
+import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess } from '@/utils';
 
 type UiMessage = {
   id: string;
@@ -73,6 +91,61 @@ function isMediaGenerationPrompt(value: string) {
   return normalized.includes('generate image') || normalized.includes('generate video');
 }
 
+const GUEST_TTS_RATE = Platform.select({
+  ios: 0.46,
+  android: 0.78,
+  default: 0.78,
+});
+
+function WaveBar({ color, delay }: { color: string; delay: number }) {
+  const scale = useSharedValue(0.45);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      scale.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 340, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.45, { duration: 340, easing: Easing.inOut(Easing.ease) }),
+        ),
+        -1,
+        false,
+      );
+    }, delay);
+    return () => clearTimeout(timeout);
+  }, [delay, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleY: scale.value }],
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: 4,
+          height: 22,
+          borderRadius: 999,
+          backgroundColor: color,
+          opacity: 0.9,
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+function RecordingWaves({ color }: { color: string }) {
+  return (
+    <View className="h-7 flex-row items-center gap-1.5">
+      <WaveBar color={color} delay={0} />
+      <WaveBar color={color} delay={90} />
+      <WaveBar color={color} delay={180} />
+      <WaveBar color={color} delay={270} />
+      <WaveBar color={color} delay={360} />
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 4;
   const { colors, isDark } = useAppTheme();
@@ -80,11 +153,10 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState('');
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [attachedAssets, setAttachedAssets] = useState<AttachedAsset[]>([]);
-  const [tooltipText, setTooltipText] = useState('');
+  const [tooltipState, setTooltipState] = useState<{ text: string; x: number; y: number } | null>(null);
   const [activeModel, setActiveModel] = useState<'ultra' | 'smart' | 'swift'>('smart');
   const [messages, setMessages] = useState<UiMessage[]>([
     {
@@ -98,16 +170,40 @@ export default function ChatScreen() {
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
+  const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
+  const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
   const [streamingDots, setStreamingDots] = useState('.');
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messagesListRef = useRef<FlatList<UiMessage>>(null);
   const autoScrollEnabledRef = useRef(true);
+  const showScrollButtonRef = useRef(false);
+  const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechDraftRef = useRef('');
+  const isRecordingRef = useRef(false);
+  const assistantFirstDeltaRef = useRef(false);
   const hasStartedChat = messages.some((message) => message.role === 'user');
+  const screenWidth = Dimensions.get('window').width;
 
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
       messagesListRef.current?.scrollToEnd({ animated });
     });
+  };
+
+  const showTooltip = (text: string, event?: GestureResponderEvent) => {
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+
+    const fallbackX = screenWidth / 2;
+    const fallbackY = Dimensions.get('window').height - 180;
+    const pageX = event?.nativeEvent?.pageX ?? fallbackX;
+    const pageY = event?.nativeEvent?.pageY ?? fallbackY;
+
+    setTooltipState({ text, x: pageX, y: pageY });
+    tooltipTimeoutRef.current = setTimeout(() => {
+      setTooltipState(null);
+      tooltipTimeoutRef.current = null;
+    }, 1200);
   };
 
   const handleSend = () => {
@@ -125,6 +221,9 @@ export default function ChatScreen() {
 
       const assistantId = `assistant-${Date.now()}`;
 
+      hapticImpact();
+      assistantFirstDeltaRef.current = false;
+      Keyboard.dismiss();
       setInput('');
       setIsSending(true);
       setStatusNotice('');
@@ -174,11 +273,18 @@ export default function ChatScreen() {
             trimmed,
             (event) => {
               if (event.type === 'delta') {
+                if (!assistantFirstDeltaRef.current) {
+                  assistantFirstDeltaRef.current = true;
+                  hapticSelection();
+                }
                 setMessages((prev) =>
                   prev.map((message) =>
                     message.id === assistantId ? { ...message, content: `${message.content}${event.content}` } : message,
                   ),
                 );
+              }
+              if (event.type === 'done') {
+                hapticSuccess();
               }
               if (event.type === 'error') {
                 throw new Error(event.message || 'Guest chat stream failed.');
@@ -199,6 +305,7 @@ export default function ChatScreen() {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not send your message right now.';
         console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
+        hapticError();
 
         setStatusNotice(message);
         setMessages((prev) =>
@@ -227,16 +334,28 @@ export default function ChatScreen() {
     setInput(picked);
   };
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      setIsRecording(false);
-      setVoiceStatus('Voice note captured. Review before sending.');
-      setInput((prev) => `${prev}${prev ? '\n' : ''}[Voice note transcript placeholder]`);
+  const toggleRecording = async () => {
+    if (isRecordingRef.current) {
+      hapticSelection();
+      ExpoSpeechRecognitionModule.stop();
       return;
     }
 
-    setVoiceStatus('Recording voice... tap again to stop.');
-    setIsRecording(true);
+    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!permission.granted) {
+      hapticError();
+      showTransientNotice('Microphone and speech permissions are required.');
+      return;
+    }
+
+    hapticImpact();
+    speechDraftRef.current = '';
+    ExpoSpeechRecognitionModule.start({
+      lang: 'en-US',
+      interimResults: true,
+      continuous: false,
+      maxAlternatives: 1,
+    });
   };
 
   const pickAttachment = async () => {
@@ -257,24 +376,114 @@ export default function ChatScreen() {
         label: asset.fileName ?? 'image-attachment.jpg',
       },
     ]);
-    setVoiceStatus('Attachment added.');
   };
 
   const removeAttachment = (id: string) => {
     setAttachedAssets((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const showTransientNotice = (message: string) => {
+    setStatusNotice(message);
+    if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+    noticeTimeoutRef.current = setTimeout(() => {
+      setStatusNotice('');
+      noticeTimeoutRef.current = null;
+    }, 2200);
+  };
+
+  const toggleReaction = (messageId: string, reaction: 'like' | 'dislike') => {
+    setMessageReactions((prev) => ({
+      ...prev,
+      [messageId]: prev[messageId] === reaction ? undefined : reaction,
+    }));
+    hapticSelection();
+  };
+
+  const copyMessage = async (content: string) => {
+    if (!content.trim()) return;
+    await Clipboard.setStringAsync(content);
+    showTransientNotice('Copied response.');
+    hapticSuccess();
+  };
+
+  const shareMessage = async (content: string) => {
+    if (!content.trim()) return;
+    hapticSelection();
+    try {
+      await Share.share({ message: content });
+    } catch {
+      showTransientNotice('Could not open share sheet.');
+    }
+  };
+
+  const toggleReadAloud = (messageId: string, content: string) => {
+    if (!content.trim()) return;
+
+    if (readingMessageId === messageId) {
+      hapticSelection();
+      Speech.stop();
+      setReadingMessageId(null);
+      return;
+    }
+
+    hapticSelection();
+    Speech.stop();
+    setReadingMessageId(messageId);
+    Speech.speak(content, {
+      rate: GUEST_TTS_RATE,
+      pitch: 1,
+      onDone: () => setReadingMessageId(null),
+      onStopped: () => setReadingMessageId(null),
+      onError: () => {
+        setReadingMessageId(null);
+        showTransientNotice('Could not read this response aloud.');
+      },
+    });
+  };
+
+  useSpeechRecognitionEvent('start', () => {
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    hapticSelection();
+  });
+
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results?.[0]?.transcript?.trim();
+    if (!transcript) return;
+    speechDraftRef.current = transcript;
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    const transcript = speechDraftRef.current.trim();
+    if (!transcript) {
+      return;
+    }
+    setInput((prev) => `${prev}${prev ? '\n' : ''}${transcript}`);
+    hapticSuccess();
+  });
+
+  useSpeechRecognitionEvent('error', () => {
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    hapticError();
+    showTransientNotice('Speech recognition failed. Please try again.');
+  });
+
   useEffect(() => {
-    if (!tooltipText) return;
-    const timeout = setTimeout(() => setTooltipText(''), 1200);
-    return () => clearTimeout(timeout);
-  }, [tooltipText]);
+    return () => {
+      if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+      if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+      ExpoSpeechRecognitionModule.abort();
+      Speech.stop();
+    };
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) return;
     setAttachmentMenuOpen(false);
     setIsRecording(false);
-    setVoiceStatus('');
     setAttachedAssets([]);
     const loadGuestState = async () => {
       try {
@@ -355,25 +564,27 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         enabled={Platform.OS === 'ios'}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <View className="flex-1">
             {!isAuthenticated ? (
-              <View className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
+              <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
                   Guest mode: login to use the full app experience.
                 </Text>
-              </View>
+              </Animated.View>
             ) : null}
             {!!statusNotice ? (
-              <View className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
+              <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{statusNotice}</Text>
-              </View>
+              </Animated.View>
             ) : null}
 
             <View className="mb-2 flex-row items-center justify-end">
               <View className="relative">
                 <Pressable
-                  onPress={() => setModelMenuOpen((prev) => !prev)}
+                  onPress={() => {
+                    hapticSelection();
+                    setModelMenuOpen((prev) => !prev);
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="Select chat model"
                   className="h-8 flex-row items-center rounded-full border px-3"
@@ -391,7 +602,8 @@ export default function ChatScreen() {
                 </Pressable>
 
                 {modelMenuOpen ? (
-                  <View
+                  <Animated.View
+                    entering={FadeInDown.duration(MOTION.duration.normal)}
                     className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
                     style={{ borderColor: colors.border, backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF' }}
                   >
@@ -401,6 +613,7 @@ export default function ChatScreen() {
                         <Pressable
                           key={model.key}
                           onPress={() => {
+                            hapticSelection();
                             setActiveModel(model.key as 'ultra' | 'smart' | 'swift');
                             setModelMenuOpen(false);
                           }}
@@ -419,7 +632,7 @@ export default function ChatScreen() {
                         </Pressable>
                       );
                     })}
-                  </View>
+                  </Animated.View>
                 ) : null}
               </View>
             </View>
@@ -434,8 +647,12 @@ export default function ChatScreen() {
                   contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
                   keyboardShouldPersistTaps="handled"
                   renderItem={({ item }) => (
+                    <Animated.View entering={FadeIn.duration(MOTION.duration.slow)}>
                     <Pressable
-                      onPress={() => setInput(item)}
+                      onPress={() => {
+                        hapticSelection();
+                        setInput(item);
+                      }}
                       accessibilityRole="button"
                       accessibilityLabel={`Insert prompt: ${item}`}
                       accessibilityHint="Adds this template prompt to the message input."
@@ -446,6 +663,7 @@ export default function ChatScreen() {
                         {item}
                       </Text>
                     </Pressable>
+                    </Animated.View>
                   )}
                 />
               </View>
@@ -455,11 +673,12 @@ export default function ChatScreen() {
               ref={messagesListRef}
               className="flex-1"
               data={messages}
+              showsVerticalScrollIndicator={false}
               keyExtractor={(item) => item.id}
               contentContainerStyle={{
                 paddingHorizontal: 2,
                 paddingVertical: 6,
-                paddingBottom: Platform.OS === 'android' ? 10 : 6,
+                paddingBottom: Platform.OS === 'android' ? 36 : 30,
               }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -479,30 +698,120 @@ export default function ChatScreen() {
                 const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
                 const isNearBottom = distanceFromBottom < 48;
                 autoScrollEnabledRef.current = isNearBottom;
-                setShowScrollToBottom(!isNearBottom);
+                const nextShow = !isNearBottom;
+                if (showScrollButtonRef.current !== nextShow) {
+                  showScrollButtonRef.current = nextShow;
+                  setShowScrollToBottom(nextShow);
+                }
               }}
+              onScrollBeginDrag={() => Keyboard.dismiss()}
               renderItem={({ item }) => {
                 const isUser = item.role === 'user';
+                const reaction = messageReactions[item.id];
+                const isReading = readingMessageId === item.id;
                 return (
-                  <View className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    <View
-                      className="max-w-[88%] rounded-2xl px-3 py-2"
-                      style={{
-                        backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
-                      }}
-                    >
-                      <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
-                        {item.content || (isSending && !isUser ? streamingDots : '')}
-                      </Text>
+                  <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
+                    <View className="max-w-[88%]">
+                      <View
+                        className="rounded-2xl px-3 py-2"
+                        style={{
+                          backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
+                        }}
+                      >
+                        <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
+                          {item.content || (isSending && !isUser ? streamingDots : '')}
+                        </Text>
+                      </View>
+
+                      {!isUser && item.content.trim() ? (
+                        <View className="mt-1 flex-row items-center gap-1">
+                          <Pressable
+                            onPress={() => {
+                              void copyMessage(item.content);
+                            }}
+                            onLongPress={(event) => showTooltip('Copy response', event)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Copy response"
+                            accessibilityHint="Copies this response to clipboard."
+                            className="h-7 w-7 items-center justify-center rounded-full border"
+                            style={{ borderColor: colors.border }}
+                          >
+                            <Ionicons name="copy-outline" size={13} color={colors.textSecondary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => toggleReaction(item.id, 'like')}
+                            onLongPress={(event) => showTooltip('Like response', event)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Like response"
+                            accessibilityHint="Marks this response as helpful."
+                            accessibilityState={{ selected: reaction === 'like' }}
+                            className="h-7 w-7 items-center justify-center rounded-full border"
+                            style={{ borderColor: reaction === 'like' ? colors.primary : colors.border }}
+                          >
+                            <Ionicons
+                              name={reaction === 'like' ? 'thumbs-up' : 'thumbs-up-outline'}
+                              size={13}
+                              color={reaction === 'like' ? colors.primary : colors.textSecondary}
+                            />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => toggleReaction(item.id, 'dislike')}
+                            onLongPress={(event) => showTooltip('Dislike response', event)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Dislike response"
+                            accessibilityHint="Marks this response as unhelpful."
+                            accessibilityState={{ selected: reaction === 'dislike' }}
+                            className="h-7 w-7 items-center justify-center rounded-full border"
+                            style={{ borderColor: reaction === 'dislike' ? colors.primary : colors.border }}
+                          >
+                            <Ionicons
+                              name={reaction === 'dislike' ? 'thumbs-down' : 'thumbs-down-outline'}
+                              size={13}
+                              color={reaction === 'dislike' ? colors.primary : colors.textSecondary}
+                            />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              void shareMessage(item.content);
+                            }}
+                            onLongPress={(event) => showTooltip('Share response', event)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Share response"
+                            accessibilityHint="Opens the share sheet for this response."
+                            className="h-7 w-7 items-center justify-center rounded-full border"
+                            style={{ borderColor: colors.border }}
+                          >
+                            <Ionicons name="share-social-outline" size={13} color={colors.textSecondary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => toggleReadAloud(item.id, item.content)}
+                            onLongPress={(event) => showTooltip('Read response aloud', event)}
+                            accessibilityRole="button"
+                            accessibilityLabel={isReading ? 'Stop reading response aloud' : 'Read response aloud'}
+                            accessibilityHint="Uses device speech to read this response."
+                            accessibilityState={{ selected: isReading }}
+                            className="h-7 w-7 items-center justify-center rounded-full border"
+                            style={{ borderColor: isReading ? colors.primary : colors.border }}
+                          >
+                            <Ionicons
+                              name={isReading ? 'stop-circle-outline' : 'volume-high-outline'}
+                              size={13}
+                              color={isReading ? colors.primary : colors.textSecondary}
+                            />
+                          </Pressable>
+                        </View>
+                      ) : null}
                     </View>
-                  </View>
+                  </Animated.View>
                 );
               }}
             />
 
             {showScrollToBottom ? (
+              <Animated.View entering={FadeInUp.duration(MOTION.duration.quick)} exiting={FadeOutDown.duration(MOTION.duration.quick)}>
               <Pressable
                 onPress={() => {
+                  hapticSelection();
                   autoScrollEnabledRef.current = true;
                   setShowScrollToBottom(false);
                   scrollToBottom(true);
@@ -519,9 +828,11 @@ export default function ChatScreen() {
               >
                 <Ionicons name="arrow-down" size={18} color={colors.textPrimary} />
               </Pressable>
+              </Animated.View>
             ) : null}
 
-            <View
+            <Animated.View
+          layout={LinearTransition.springify().damping(24).stiffness(300).mass(0.72)}
           className="relative mt-3 rounded-[28px] border p-2"
           style={{
             borderColor: colors.primary,
@@ -581,7 +892,7 @@ export default function ChatScreen() {
               <View className="flex-row items-center gap-2">
                 <Pressable
                   onPress={toggleRecording}
-                  onLongPress={() => setTooltipText(isRecording ? 'Stop recording' : 'Start recording')}
+                  onLongPress={(event) => showTooltip(isRecording ? 'Stop recording' : 'Start recording', event)}
                   accessibilityRole="button"
                   accessibilityLabel={isRecording ? 'Stop voice recording' : 'Start voice recording'}
                   className="h-8 w-8 items-center justify-center rounded-full border"
@@ -599,8 +910,11 @@ export default function ChatScreen() {
 
                 <View>
                   <Pressable
-                    onPress={() => setAttachmentMenuOpen((prev) => !prev)}
-                    onLongPress={() => setTooltipText('Attach file')}
+                    onPress={() => {
+                      hapticSelection();
+                      setAttachmentMenuOpen((prev) => !prev);
+                    }}
+                    onLongPress={(event) => showTooltip('Attach file', event)}
                     accessibilityRole="button"
                     accessibilityLabel="Attach file"
                     className="h-8 w-8 items-center justify-center rounded-full border"
@@ -610,7 +924,8 @@ export default function ChatScreen() {
                   </Pressable>
 
                   {attachmentMenuOpen ? (
-                    <View
+                    <Animated.View
+                      entering={FadeInDown.duration(MOTION.duration.normal)}
                       className="absolute bottom-9 left-0 z-30 min-w-[190px] rounded-lg border p-1"
                       style={{ borderColor: colors.border, backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF' }}
                     >
@@ -618,13 +933,13 @@ export default function ChatScreen() {
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
                         <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>Image attachment</Text>
                       </Pressable>
-                    </View>
+                    </Animated.View>
                   ) : null}
                 </View>
 
                 <Pressable
                   onPress={() => applyRandomPrompt('image')}
-                  onLongPress={() => setTooltipText('Image prompt template')}
+                  onLongPress={(event) => showTooltip('Image prompt template', event)}
                   accessibilityRole="button"
                   accessibilityLabel="Image generation shortcut"
                   accessibilityHint="Inserts a random image generation prompt into the message input."
@@ -636,7 +951,7 @@ export default function ChatScreen() {
 
                 <Pressable
                   onPress={() => applyRandomPrompt('video')}
-                  onLongPress={() => setTooltipText('Video prompt template')}
+                  onLongPress={(event) => showTooltip('Video prompt template', event)}
                   accessibilityRole="button"
                   accessibilityLabel="Video generation shortcut"
                   accessibilityHint="Inserts a random video generation prompt into the message input."
@@ -649,7 +964,7 @@ export default function ChatScreen() {
 
               <Pressable
                 onPress={handleSend}
-                onLongPress={() => setTooltipText('Send message')}
+                onLongPress={(event) => showTooltip('Send message', event)}
                 disabled={!input.trim() || isSending}
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
@@ -665,7 +980,7 @@ export default function ChatScreen() {
           ) : (
             <Pressable
               onPress={handleSend}
-              onLongPress={() => setTooltipText('Send message')}
+              onLongPress={(event) => showTooltip('Send message', event)}
               disabled={!input.trim() || isSending}
               accessibilityRole="button"
               accessibilityLabel="Send message"
@@ -679,26 +994,32 @@ export default function ChatScreen() {
             </Pressable>
           )}
 
-          {tooltipText ? (
-            <View
+          {tooltipState ? (
+            <Animated.View
+              entering={FadeIn.duration(MOTION.duration.quick)}
               pointerEvents="none"
-              className="absolute bottom-14 right-2 rounded-md px-2 py-1"
-              style={{ backgroundColor: isDark ? '#171717' : '#111111' }}
+              className="absolute rounded-md px-2 py-1"
+              style={{
+                backgroundColor: isDark ? '#171717' : '#111111',
+                left: Math.max(8, Math.min(tooltipState.x - 56, screenWidth - 124)),
+                top: Math.max(8, tooltipState.y - 40),
+              }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 11 }}>{tooltipText}</Text>
-            </View>
+              <Text style={{ color: '#FFFFFF', fontSize: 11 }}>{tooltipState.text}</Text>
+            </Animated.View>
           ) : null}
 
-          {isRecording || voiceStatus ? (
-            <View className="mt-1 rounded-md border px-2 py-1.5" style={{ borderColor: colors.border }}>
-              <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
-                {voiceStatus || 'Recording... tap stop when you are done.'}
-              </Text>
-            </View>
+          {isRecording ? (
+            <Animated.View
+              entering={FadeInDown.duration(MOTION.duration.quick)}
+              className="mt-1 flex-row items-center rounded-xl border px-2.5 py-1.5"
+              style={{ borderColor: `${colors.primary}99`, backgroundColor: `${colors.primary}17` }}
+            >
+              <RecordingWaves color={colors.primary} />
+            </Animated.View>
           ) : null}
-            </View>
+            </Animated.View>
           </View>
-        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </AppScreen>
   );

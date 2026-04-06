@@ -4,6 +4,7 @@ import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 
 import { useAppContext } from '@/context';
 import { mockChats, type ChatSummary } from '@/data';
@@ -11,6 +12,7 @@ import { useAppTheme } from '@/hooks';
 import { AppButton } from './AppButton';
 import { AppPromptModal } from './AppPromptModal';
 import { SettingsModal } from './SettingsModal';
+import { MOTION, hapticSelection } from '@/utils';
 
 type ChatRowProps = {
   item: ChatSummary;
@@ -100,6 +102,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const openChat = useCallback(
     (chatId: string) => {
+      hapticSelection();
       setActiveChatId(chatId);
       openRoute('index');
     },
@@ -107,6 +110,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   );
 
   const createNewChat = useCallback(() => {
+    hapticSelection();
     const id = `chat-${Date.now()}`;
     const nextChat: ChatSummary = {
       id,
@@ -122,6 +126,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const onUserOption = useCallback(
     (action: 'settings' | 'plans' | 'help' | 'privacy' | 'terms' | 'login' | 'signup' | 'signout') => {
+      hapticSelection();
       setMenuOpen(false);
 
       if (action === 'settings') {
@@ -268,7 +273,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
       <View className="relative pt-3">
         {menuOpen ? (
-          <View
+          <Animated.View
+            entering={FadeInDown.duration(MOTION.duration.normal)}
             className="absolute left-0 right-0 rounded-2xl p-2"
             style={{
               bottom: 74,
@@ -395,10 +401,11 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
                 </Pressable>
               </>
             )}
-          </View>
+          </Animated.View>
         ) : null}
 
-        <View
+        <Animated.View
+          entering={FadeInUp.duration(MOTION.duration.slow)}
           className="rounded-full"
           style={{
             borderWidth: 1.5,
@@ -410,7 +417,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
             accessibilityRole="button"
             accessibilityLabel={`Account card. ${userName}. Current plan ${currentPlan}.`}
             accessibilityHint="Opens account options."
-            onPress={() => setMenuOpen((prev) => !prev)}
+            onPress={() => {
+              hapticSelection();
+              setMenuOpen((prev) => !prev);
+            }}
             className="rounded-full p-3"
             style={({ pressed }) => ({
               opacity: pressed ? 0.92 : 1,
@@ -431,7 +441,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
               <Ionicons name={menuOpen ? 'chevron-up-outline' : 'chevron-down-outline'} size={18} color={colors.textSecondary} />
             </View>
           </Pressable>
-        </View>
+        </Animated.View>
       </View>
     </View>
   );
