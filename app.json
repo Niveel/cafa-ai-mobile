@@ -66,14 +66,6 @@
               "scheme": "cafa-ai",
               "host": "billing",
               "pathPrefix": "/cancel"
-            },
-            {
-              "scheme": "cafa-ai",
-              "pathPrefix": "/billing/success"
-            },
-            {
-              "scheme": "cafa-ai",
-              "pathPrefix": "/billing/cancel"
             }
           ]
         }
