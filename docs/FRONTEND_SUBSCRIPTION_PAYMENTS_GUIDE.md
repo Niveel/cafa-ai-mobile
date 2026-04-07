@@ -24,14 +24,13 @@ Success `200`:
         "description": "For generous everyday chat and basic prompts.",
         "benefits": [
           "500 chat messages per reset window",
-          "Model switch enabled",
-          "Access to Cafa chat models",
-          "5 image generations per day",
+          "Model switch enabled (gpt-4o costs more credits)",
+          "gpt-4o-mini access",
           "Streaming responses"
         ],
         "limits": {
           "chatMessagesPerDay": 500,
-          "imageGenerationsPerDay": 5,
+          "imageGenerationsPerDay": null,
           "chatModelIds": ["gpt-4o-mini"],
           "imageModelIds": [],
           "documentsEnabled": false,
@@ -101,6 +100,24 @@ Request:
 { "tier": "cafa_smart" }
 ```
 
+Optional mobile request (deep-link return):
+```json
+{
+  "tier": "cafa_smart",
+  "platform": "mobile"
+}
+```
+
+Optional custom mobile deep-link return URLs:
+```json
+{
+  "tier": "cafa_smart",
+  "platform": "mobile",
+  "successUrl": "cafaai://billing/success?session_id={CHECKOUT_SESSION_ID}",
+  "cancelUrl": "cafaai://billing/cancel"
+}
+```
+
 Allowed values:
 - `cafa_smart`
 - `cafa_pro`
@@ -126,12 +143,33 @@ window.location.href = data.url;
 Common errors:
 - `400 VALIDATION_ERROR` (bad tier)
 - `401 UNAUTHORIZED`
+- `409 MANAGE_EXISTING_SUBSCRIPTION` (user already has a paid plan; response includes `data.url` to Stripe Billing Portal)
+
+When `409 MANAGE_EXISTING_SUBSCRIPTION` is returned, redirect user to `data.url`:
+```ts
+if (res.status === 409 && res.data?.error === "MANAGE_EXISTING_SUBSCRIPTION" && res.data?.data?.url) {
+  window.location.href = res.data.data.url;
+  return;
+}
+```
 
 ## 3) Checkout Return Pages
 
-Backend uses:
-- success: `/billing/success?session_id={CHECKOUT_SESSION_ID}`
-- cancel: `/billing/cancel`
+Backend return URL policy:
+
+Web:
+1. Production (`NODE_ENV=production`): `https://www.cafaai.com`
+2. Development (all non-production): `http://localhost:3000`
+3. Paths:
+   - success: `/billing/success?session_id={CHECKOUT_SESSION_ID}`
+   - cancel: `/billing/cancel`
+
+Mobile:
+1. Send `"platform": "mobile"` in checkout request.
+2. Default deep-link scheme is `cafaai://` (configurable via `MOBILE_APP_SCHEME`).
+3. Default paths:
+   - success: `cafaai://billing/success?session_id={CHECKOUT_SESSION_ID}`
+   - cancel: `cafaai://billing/cancel`
 
 Suggested `/billing/success` flow:
 1. Show “Payment received, finalizing subscription...”

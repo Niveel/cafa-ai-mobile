@@ -60,9 +60,16 @@ type GuestStreamEvent =
   | { type: 'error'; code?: string; message: string; requestId?: string; timestamp?: string };
 
 type GuestApiError = Error & { code?: string; status?: number };
+type GuestCacheOptions = { force?: boolean };
 
 let sessionCache: GuestSessionPayload | null = null;
 let sessionPromise: Promise<GuestSessionPayload> | null = null;
+const GUEST_LIST_TTL_MS = 20_000;
+const GUEST_DETAIL_TTL_MS = 12_000;
+let guestListCache: { value: GuestConversationSummary[]; expiresAt: number } | null = null;
+let guestListPromise: Promise<GuestConversationSummary[]> | null = null;
+const guestDetailCache = new Map<string, { value: GuestConversationDetail; expiresAt: number }>();
+const guestDetailPromises = new Map<string, Promise<GuestConversationDetail>>();
 
 const GUEST_MODEL = 'gpt-4o-mini';
 const FALLBACK_CHUNK_SIZE = 6;
@@ -81,6 +88,29 @@ function toGuestApiError(message: string, code?: string, status?: number): Guest
   error.code = code;
   error.status = status;
   return error;
+}
+
+function cloneGuestSummaryList(list: GuestConversationSummary[]) {
+  return list.map((item) => ({ ...item }));
+}
+
+function cloneGuestDetail(detail: GuestConversationDetail): GuestConversationDetail {
+  return {
+    ...detail,
+    messages: detail.messages.map((item) => ({ ...item })),
+  };
+}
+
+export function invalidateGuestChatCache(conversationId?: string) {
+  if (conversationId) {
+    guestDetailCache.delete(conversationId);
+    guestDetailPromises.delete(conversationId);
+    return;
+  }
+  guestListCache = null;
+  guestListPromise = null;
+  guestDetailCache.clear();
+  guestDetailPromises.clear();
 }
 
 async function parseGuestResponseError(response: Response, fallback: string) {
@@ -207,35 +237,70 @@ export async function createGuestConversation(title?: string) {
     throw toGuestApiError(payload?.message ?? 'Invalid guest conversation response.');
   }
 
+  invalidateGuestChatCache();
   return payload.data;
 }
 
-export async function listGuestConversations() {
-  const response = await withGuestAuth('/guest/chat');
-  if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not load guest conversations.');
+export async function listGuestConversations(options?: GuestCacheOptions) {
+  const force = options?.force ?? false;
+  const now = Date.now();
+  if (!force && guestListCache && guestListCache.expiresAt > now) {
+    return cloneGuestSummaryList(guestListCache.value);
+  }
+  if (!force && guestListPromise) {
+    return guestListPromise;
   }
 
-  const payload = (await response.json()) as GuestApiResponse<GuestConversationSummary[]>;
-  if (!payload?.success || !Array.isArray(payload.data)) {
-    throw toGuestApiError(payload?.message ?? 'Invalid guest conversation list response.');
-  }
+  guestListPromise = (async () => {
+    const response = await withGuestAuth('/guest/chat');
+    if (!response.ok) {
+      throw await parseGuestResponseError(response, 'Could not load guest conversations.');
+    }
 
-  return payload.data;
+    const payload = (await response.json()) as GuestApiResponse<GuestConversationSummary[]>;
+    if (!payload?.success || !Array.isArray(payload.data)) {
+      throw toGuestApiError(payload?.message ?? 'Invalid guest conversation list response.');
+    }
+
+    guestListCache = { value: payload.data, expiresAt: Date.now() + GUEST_LIST_TTL_MS };
+    return cloneGuestSummaryList(payload.data);
+  })().finally(() => {
+    guestListPromise = null;
+  });
+
+  return guestListPromise;
 }
 
-export async function getGuestConversation(conversationId: string) {
-  const response = await withGuestAuth(`/guest/chat/${conversationId}`);
-  if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not load guest conversation.');
+export async function getGuestConversation(conversationId: string, options?: GuestCacheOptions) {
+  const force = options?.force ?? false;
+  const now = Date.now();
+  const cached = guestDetailCache.get(conversationId);
+  if (!force && cached && cached.expiresAt > now) {
+    return cloneGuestDetail(cached.value);
+  }
+  if (!force && guestDetailPromises.has(conversationId)) {
+    return guestDetailPromises.get(conversationId)!;
   }
 
-  const payload = (await response.json()) as GuestApiResponse<GuestConversationDetail>;
-  if (!payload?.success || !payload.data?._id) {
-    throw toGuestApiError(payload?.message ?? 'Invalid guest conversation detail response.');
-  }
+  const detailPromise = (async () => {
+    const response = await withGuestAuth(`/guest/chat/${conversationId}`);
+    if (!response.ok) {
+      throw await parseGuestResponseError(response, 'Could not load guest conversation.');
+    }
 
-  return payload.data;
+    const payload = (await response.json()) as GuestApiResponse<GuestConversationDetail>;
+    if (!payload?.success || !payload.data?._id) {
+      throw toGuestApiError(payload?.message ?? 'Invalid guest conversation detail response.');
+    }
+
+    guestDetailCache.set(conversationId, { value: payload.data, expiresAt: Date.now() + GUEST_DETAIL_TTL_MS });
+    return cloneGuestDetail(payload.data);
+  })().finally(() => {
+    guestDetailPromises.delete(conversationId);
+  });
+
+  guestDetailPromises.set(conversationId, detailPromise);
+  return detailPromise;
 }
 
 export async function sendGuestMessageStream(
@@ -245,6 +310,8 @@ export async function sendGuestMessageStream(
   idempotencyKey: string,
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
 ) {
+  invalidateGuestChatCache(conversationId);
+  guestListCache = null;
   const sendNonStreamFallback = async () => {
     const nonStreamResponse = await withGuestAuth(
       `/guest/chat/${conversationId}/messages`,
@@ -293,7 +360,7 @@ export async function sendGuestMessageStream(
       }
     } else if (assistantMessageId) {
       try {
-        const detail = await getGuestConversation(conversationId);
+        const detail = await getGuestConversation(conversationId, { force: true });
         const replayedMessage = detail.messages
           .slice()
           .reverse()

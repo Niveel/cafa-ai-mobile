@@ -13,15 +13,25 @@ type AppScreenProps = {
   children?: ReactNode;
   showTopChrome?: boolean;
   showHeading?: boolean;
+  topChromeOffset?: number;
 };
 
-export function AppScreen({ title, subtitle, children, showTopChrome = true, showHeading = true }: AppScreenProps) {
+export function AppScreen({
+  title,
+  subtitle,
+  children,
+  showTopChrome = true,
+  showHeading = true,
+  topChromeOffset = 0,
+}: AppScreenProps) {
   const { colors } = useAppTheme();
   const { isAuthenticated } = useAppContext();
   const insets = useSafeAreaInsets();
   const horizontalPadding = 10;
-  const floatingTop = insets.top + 8;
-  const contentTop = showTopChrome ? insets.top + 70 : insets.top + (showHeading ? 20 : 8);
+  const floatingTop = insets.top + 8 + topChromeOffset;
+  const contentTop = showTopChrome
+    ? insets.top + 70 + topChromeOffset
+    : insets.top + (showHeading ? 20 : 8);
   const contentGapTop = showHeading ? (subtitle ? 20 : 8) : 0;
 
   return (

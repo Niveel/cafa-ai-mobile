@@ -3,9 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
   type GestureResponderEvent,
+  ActivityIndicator,
   Dimensions,
   FlatList,
-  Keyboard,
+  Keyboard, 
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +19,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
+import { File, Paths } from 'expo-file-system';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { useLocalSearchParams } from 'expo-router';
 import Animated, {
@@ -51,12 +54,15 @@ import {
   getGuestConversation,
   listAuthenticatedConversations,
   listGuestConversations,
+  getVoiceCatalog,
   sendAuthenticatedMessageStream,
   sendGuestMessageStream,
+  synthesizeVoice,
   toggleAuthenticatedMessageReaction,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
+import { getDefaultVoicePreference } from '@/services';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess } from '@/utils';
 
 export default function ChatScreen() {
@@ -92,8 +98,11 @@ export default function ChatScreen() {
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
+  const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
+  const [readAloudSpeaker, setReadAloudSpeaker] = useState<string | null>(null);
+  const [isReadAloudLoading, setIsReadAloudLoading] = useState(false);
   const [streamingDots, setStreamingDots] = useState('.');
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -103,14 +112,20 @@ export default function ChatScreen() {
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuTouchRef = useRef(false);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
+  const activeReadAloudRequestRef = useRef(0);
   const assistantFirstDeltaRef = useRef(false);
   const pendingDeltaRef = useRef('');
   const pendingAssistantIdRef = useRef<string | null>(null);
   const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ttsPlayerRef = useRef<AudioPlayer | null>(null);
+  const ttsPlayerSubRef = useRef<{ remove: () => void } | null>(null);
+  const ttsFilesRef = useRef<File[]>([]);
+  const voiceNameByIdRef = useRef<Record<string, string>>({});
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
 
@@ -134,6 +149,30 @@ export default function ChatScreen() {
       tooltipTimeoutRef.current = null;
     }, 1200);
   };
+
+  const showTtsToast = useCallback((message: string) => {
+    setTtsToastNotice(message);
+    if (ttsToastTimeoutRef.current) clearTimeout(ttsToastTimeoutRef.current);
+    ttsToastTimeoutRef.current = setTimeout(() => {
+      setTtsToastNotice('');
+      ttsToastTimeoutRef.current = null;
+    }, 2600);
+  }, []);
+
+  const resolveVoiceLabel = useCallback(async (voiceId?: string | null) => {
+    if (!voiceId) return t('chat.voice.default');
+    if (voiceNameByIdRef.current[voiceId]) return voiceNameByIdRef.current[voiceId];
+    try {
+      const catalog = await getVoiceCatalog();
+      voiceNameByIdRef.current = catalog.reduce<Record<string, string>>((acc, voice) => {
+        acc[voice.id] = voice.name;
+        return acc;
+      }, {});
+      return voiceNameByIdRef.current[voiceId] ?? voiceId;
+    } catch {
+      return voiceId;
+    }
+  }, [t]);
 
   const flushPendingAssistantDelta = () => {
     const assistantId = pendingAssistantIdRef.current;
@@ -530,29 +569,191 @@ export default function ChatScreen() {
     }
   };
 
+  const stopReadAloudPlayback = useCallback(() => {
+    try {
+      ttsPlayerSubRef.current?.remove();
+    } catch {
+      // no-op
+    }
+    ttsPlayerSubRef.current = null;
+
+    try {
+      ttsPlayerRef.current?.pause();
+    } catch {
+      // no-op
+    }
+    try {
+      ttsPlayerRef.current?.remove();
+    } catch {
+      // no-op
+    }
+    ttsPlayerRef.current = null;
+
+    ttsFilesRef.current.forEach((file) => {
+      try {
+        if (file?.exists) {
+          file.delete();
+        }
+      } catch {
+        // no-op
+      }
+    });
+    ttsFilesRef.current = [];
+
+    Speech.stop();
+    setReadingMessageId(null);
+    setReadAloudSpeaker(null);
+    setIsReadAloudLoading(false);
+  }, []);
+
+  const splitTextForTts = (text: string, maxLen = 1900) => {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+
+    const parts: string[] = [];
+    let remaining = normalized;
+
+    while (remaining.length > maxLen) {
+      let breakAt = Math.max(
+        remaining.lastIndexOf('. ', maxLen),
+        remaining.lastIndexOf('! ', maxLen),
+        remaining.lastIndexOf('? ', maxLen),
+      );
+      if (breakAt < Math.floor(maxLen * 0.5)) {
+        breakAt = remaining.lastIndexOf(' ', maxLen);
+      }
+      if (breakAt <= 0) {
+        breakAt = maxLen;
+      }
+      const chunk = remaining.slice(0, breakAt).trim();
+      if (chunk) parts.push(chunk);
+      remaining = remaining.slice(breakAt).trim();
+    }
+
+    if (remaining) parts.push(remaining);
+    return parts;
+  };
+
   const toggleReadAloud = (messageId: string, content: string) => {
     if (!content.trim()) return;
 
     if (readingMessageId === messageId) {
       hapticSelection();
-      Speech.stop();
-      setReadingMessageId(null);
+      activeReadAloudRequestRef.current += 1;
+      stopReadAloudPlayback();
       return;
     }
 
     hapticSelection();
-    Speech.stop();
+    activeReadAloudRequestRef.current += 1;
+    const requestId = activeReadAloudRequestRef.current;
+    stopReadAloudPlayback();
     setReadingMessageId(messageId);
-    Speech.speak(content, {
-      rate: GUEST_TTS_RATE,
-      pitch: 1,
-      onDone: () => setReadingMessageId(null),
-      onStopped: () => setReadingMessageId(null),
-      onError: () => {
-        setReadingMessageId(null);
-        showTransientNotice(t('chat.readAloudFailed'));
-      },
-    });
+
+    const speakWithNativeFallback = () => {
+      Speech.speak(content, {
+        rate: GUEST_TTS_RATE,
+        pitch: 1,
+        onDone: () => {
+          setReadingMessageId((current) => (current === messageId ? null : current));
+          setReadAloudSpeaker(null);
+        },
+        onStopped: () => {
+          setReadingMessageId((current) => (current === messageId ? null : current));
+          setReadAloudSpeaker(null);
+        },
+        onError: () => {
+          setReadingMessageId((current) => (current === messageId ? null : current));
+          setReadAloudSpeaker(null);
+          showTransientNotice(t('chat.readAloudFailed'));
+        },
+      });
+    };
+
+    const run = async () => {
+      if (!isAuthenticated) {
+        speakWithNativeFallback();
+        return;
+      }
+
+      const synthEndpoint = `${API_BASE_URL}/voice/synthesize`;
+      let selectedVoice: string | null = null;
+      try {
+        selectedVoice = await getDefaultVoicePreference();
+        const selectedVoiceLabel = await resolveVoiceLabel(selectedVoice);
+        setReadAloudSpeaker(
+          t('chat.speakingWith', { voice: selectedVoiceLabel }),
+        );
+        setIsReadAloudLoading(true);
+        const chunks = splitTextForTts(content);
+        if (!chunks.length) {
+          throw new Error('No text available for read-aloud.');
+        }
+
+        if (activeReadAloudRequestRef.current !== requestId) {
+          return;
+        }
+        const files: File[] = [];
+        for (let i = 0; i < chunks.length; i += 1) {
+          const bytes = await synthesizeVoice({ text: chunks[i], voice: selectedVoice ?? undefined, speed: 1 });
+          if (!bytes?.length) {
+            throw new Error(`Empty TTS payload for chunk ${i + 1}.`);
+          }
+          const file = new File(Paths.cache, `chat-read-aloud-${messageId}-${Date.now()}-${i}.wav`);
+          file.create({ intermediates: true, overwrite: true });
+          file.write(bytes);
+          files.push(file);
+        }
+        ttsFilesRef.current = files;
+
+        const playChunk = (index: number) => {
+          if (activeReadAloudRequestRef.current !== requestId) return;
+          const target = ttsFilesRef.current[index];
+          if (!target) {
+            stopReadAloudPlayback();
+            return;
+          }
+          if (index === 0) {
+            setIsReadAloudLoading(false);
+          }
+          const player = createAudioPlayer(target.uri, { keepAudioSessionActive: true });
+          ttsPlayerRef.current = player;
+          ttsPlayerSubRef.current = player.addListener('playbackStatusUpdate', (status) => {
+            if (!status.didJustFinish) return;
+            try {
+              ttsPlayerSubRef.current?.remove();
+            } catch {
+              // no-op
+            }
+            ttsPlayerSubRef.current = null;
+            try {
+              player.remove();
+            } catch {
+              // no-op
+            }
+            ttsPlayerRef.current = null;
+            playChunk(index + 1);
+          });
+          player.play();
+        };
+
+        playChunk(0);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown TTS failure';
+        console.log(
+          `[tts:error] endpoint=${synthEndpoint} voice=${selectedVoice ?? 'default'} message="${message}"`,
+        );
+        if (activeReadAloudRequestRef.current !== requestId) {
+          return;
+        }
+        setReadAloudSpeaker(t('chat.speakingWith', { voice: t('chat.voice.device') }));
+        setIsReadAloudLoading(false);
+        showTtsToast(t('chat.readAloudFallbackNative'));
+        speakWithNativeFallback();
+      }
+    };
+
+    void run();
   };
 
   useSpeechRecognitionEvent('start', () => {
@@ -590,12 +791,14 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+      if (ttsToastTimeoutRef.current) clearTimeout(ttsToastTimeoutRef.current);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
       ExpoSpeechRecognitionModule.abort();
-      Speech.stop();
+      activeReadAloudRequestRef.current += 1;
+      stopReadAloudPlayback();
     };
-  }, []);
+  }, [stopReadAloudPlayback]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -670,7 +873,7 @@ export default function ChatScreen() {
     const hydrateTarget = async () => {
       try {
         if (isAuthenticated) {
-          const detail = await getAuthenticatedConversation(targetConversationId);
+          const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
           setAuthConversationId(targetConversationId);
           setMessages(
             detail.messages.map((message) => ({
@@ -695,7 +898,7 @@ export default function ChatScreen() {
           return;
         }
 
-        const detail = await getGuestConversation(targetConversationId);
+        const detail = await getGuestConversation(targetConversationId, { force: true });
         setGuestConversationId(targetConversationId);
         setMessages(
           detail.messages.map((message) => ({
@@ -823,6 +1026,40 @@ export default function ChatScreen() {
             {!!statusNotice ? (
               <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{statusNotice}</Text>
+              </Animated.View>
+            ) : null}
+            {isAuthenticated && !!readAloudSpeaker ? (
+              <Animated.View
+                entering={FadeInDown.duration(MOTION.duration.quick)}
+                exiting={FadeOutDown.duration(MOTION.duration.quick)}
+                className="mb-2 self-start rounded-full border px-3 py-1.5"
+                style={{ borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }}
+              >
+                <View className="flex-row items-center">
+                  {isReadAloudLoading ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="volume-high-outline" size={13} color={colors.primary} />
+                  )}
+                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginLeft: 6 }}>
+                    {isReadAloudLoading ? t('chat.voicePreparing') : readAloudSpeaker}
+                  </Text>
+                </View>
+              </Animated.View>
+            ) : null}
+            {isAuthenticated && !!ttsToastNotice ? (
+              <Animated.View
+                entering={FadeInDown.duration(MOTION.duration.quick)}
+                exiting={FadeOutDown.duration(MOTION.duration.quick)}
+                className="mb-2 self-start rounded-xl border px-3 py-2"
+                style={{ borderColor: '#F59E0B', backgroundColor: isDark ? 'rgba(120,53,15,0.28)' : 'rgba(255,237,213,0.95)' }}
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="warning-outline" size={14} color="#F59E0B" />
+                  <Text style={{ color: isDark ? '#FDE68A' : '#92400E', fontSize: 12, fontWeight: '600', marginLeft: 8 }}>
+                    {ttsToastNotice}
+                  </Text>
+                </View>
               </Animated.View>
             ) : null}
             {!!streamingModelLabel ? (
@@ -1304,4 +1541,3 @@ export default function ChatScreen() {
     </AppScreen>
   );
 }
-

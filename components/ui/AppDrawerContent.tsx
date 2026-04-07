@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { useAppContext } from '@/context';
+import { API_BASE_URL } from '@/lib';
 import {
   archiveAuthenticatedConversation,
   deleteAuthenticatedConversation,
@@ -18,6 +19,7 @@ import {
   setCustomChatTitle,
   setPinnedChat,
 } from '@/services/storage/chatPreferences';
+import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
 import { hapticSelection } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
@@ -31,6 +33,17 @@ function toCapitalizedName(value: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ');
+}
+
+function resolveAvatarUri(input?: string | null) {
+  if (!input) return undefined;
+  const value = input.trim();
+  if (!value) return undefined;
+  if (/^(https?:|file:|content:|data:)/i.test(value)) return value;
+
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  if (value.startsWith('/')) return `${apiOrigin}${value}`;
+  return `${apiOrigin}/${value}`;
 }
 
 type DrawerChatItem = {
@@ -203,6 +216,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [loadingChats, setLoadingChats] = useState(false);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
   const userName = useMemo(() => {
     if (!isAuthenticated) return t('drawer.userName.guest');
@@ -228,12 +242,21 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     }
   }, [authUser?.subscriptionTier, isAuthenticated, t]);
 
+  const resolvedAvatarUri = useMemo(
+    () => resolveAvatarUri(authUser?.avatar),
+    [authUser?.avatar],
+  );
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [resolvedAvatarUri]);
+
   const userAvatarSource = useMemo(() => {
-    if (isAuthenticated && authUser?.avatar) {
-      return { uri: authUser.avatar };
+    if (isAuthenticated && resolvedAvatarUri && !avatarLoadFailed) {
+      return { uri: resolvedAvatarUri };
     }
     return require('../../assets/images/logo.png');
-  }, [authUser?.avatar, isAuthenticated]);
+  }, [avatarLoadFailed, isAuthenticated, resolvedAvatarUri]);
 
   const loadChats = useCallback(async () => {
     setLoadingChats(true);
@@ -242,6 +265,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         const [conversationList, prefs] = await Promise.all([listAuthenticatedConversations(), getChatPreferences()]);
         setPinnedIds(prefs.pinnedIds);
         setCustomTitles(prefs.customTitles);
+        const activeIds = new Set(conversationList.map((item) => item.id));
+        const archivedSnapshots = await getArchivedChatSnapshots();
+        const staleArchived = archivedSnapshots.filter((item) => activeIds.has(item.id)).map((item) => item.id);
+        if (staleArchived.length) {
+          await Promise.all(staleArchived.map((chatId) => removeArchivedChatSnapshot(chatId)));
+        }
         setChats(
           conversationList.map((item) => ({
             id: item.id,
@@ -380,12 +409,24 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     setChatActionMenuId(null);
     if (!isAuthenticated) return;
     try {
+      const chat = chats.find((item) => item.id === chatId);
       await archiveAuthenticatedConversation(chatId, true);
+      if (chat) {
+        await upsertArchivedChatSnapshots([
+          {
+            id: chat.id,
+            title: customTitles[chat.id] || chat.title,
+            preview: chat.preview,
+            updatedAt: chat.updatedAt,
+            archivedAt: Date.now(),
+          },
+        ]);
+      }
       setChats((prev) => prev.filter((chat) => chat.id !== chatId));
     } catch {
       // Keep experience resilient.
     }
-  }, [isAuthenticated]);
+  }, [chats, customTitles, isAuthenticated]);
 
   const onRequestDeleteChat = useCallback((chatId: string) => {
     setChatActionMenuId(null);
@@ -402,6 +443,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       if (isAuthenticated) {
         await deleteAuthenticatedConversation(deleteChatId);
       }
+      await removeArchivedChatSnapshot(deleteChatId);
       setChats((prev) => prev.filter((chat) => chat.id !== deleteChatId));
     } catch {
       // Keep experience resilient.
@@ -637,6 +679,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
                   className="h-12 w-12 rounded-full"
                   style={{ borderWidth: 1.5, borderColor: colors.primary }}
                   accessibilityLabel={`${t('drawer.userAvatar')}: ${userName}`}
+                  onError={() => setAvatarLoadFailed(true)}
                 />
                 <View className="ml-3">
                   <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>

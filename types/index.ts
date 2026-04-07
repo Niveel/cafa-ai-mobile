@@ -9,3 +9,4 @@ export * from './user.types';
 export * from './video.types';
 export * from './voice.types';
 export * from './personalization.types';
+export * from './legal.types';

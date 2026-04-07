@@ -3,7 +3,12 @@ import { useColorScheme } from 'react-native';
 
 import { AppLanguage, colorsByMode, ThemeColors, ThemeMode, translate } from '@/config';
 import { setupAuthInterceptor } from '@/services';
-import { fetchCurrentUser, logout as logoutRequest } from '@/features';
+import {
+  fetchCurrentUser,
+  invalidateAuthenticatedChatCache,
+  invalidateGuestChatCache,
+  logout as logoutRequest,
+} from '@/features';
 import { clearSessionTokens, getRefreshToken } from '@/services/storage/session';
 import { getAccessToken, getAppPreferences, setAppPreferences, type AnimationLevel } from '@/services';
 import { AuthUser } from '@/types';
@@ -56,6 +61,8 @@ export function AppProvider({ children }: AppProviderProps) {
       const token = await getAccessToken();
 
       if (!token) {
+        invalidateAuthenticatedChatCache();
+        invalidateGuestChatCache();
         setIsAuthenticated(false);
         setAuthUser(null);
         return;
@@ -65,6 +72,8 @@ export function AppProvider({ children }: AppProviderProps) {
       setIsAuthenticated(true);
       setAuthUser(me);
     } catch {
+      invalidateAuthenticatedChatCache();
+      invalidateGuestChatCache();
       await clearSessionTokens();
       setIsAuthenticated(false);
       setAuthUser(null);
@@ -118,6 +127,8 @@ export function AppProvider({ children }: AppProviderProps) {
     } catch {
       // Intentionally ignore logout transport failures and always clear local session.
     } finally {
+      invalidateAuthenticatedChatCache();
+      invalidateGuestChatCache();
       await clearSessionTokens();
       setIsAuthenticated(false);
       setAuthUser(null);

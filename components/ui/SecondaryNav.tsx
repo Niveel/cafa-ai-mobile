@@ -18,7 +18,7 @@ export function SecondaryNav({ title, onBackPress, topOffset = 0 }: SecondaryNav
     <View
       accessibilityRole="header"
       className="flex-row items-center"
-      style={{ paddingTop: topOffset, paddingBottom: 8 }}
+      style={{ paddingTop: topOffset + 8, paddingBottom: 8 }}
     >
       <TouchableOpacity
         accessibilityRole="button"

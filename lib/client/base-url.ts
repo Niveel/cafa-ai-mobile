@@ -13,7 +13,9 @@ function getExpoHost() {
 
 const detectedHost = getExpoHost();
 const FALLBACK_DEV_HOST = '10.20.254.23';
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+const resolvedHost = LOOPBACK_HOSTS.has(detectedHost) ? '' : detectedHost;
 
-export const DEV_BASE_URL = `http://${detectedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
+export const DEV_BASE_URL = `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? DEV_BASE_URL;

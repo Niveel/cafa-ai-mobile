@@ -5,3 +5,4 @@ export * from './images';
 export * from './settings';
 export * from './videos';
 export * from './voice';
+export * from './support';

@@ -47,6 +47,8 @@ export const apiEndpoints = {
 
   users: {
     me: `${API_BASE_PATH}/users/me`,
+    avatar: `${API_BASE_PATH}/users/me/avatar`,
+    password: `${API_BASE_PATH}/users/me/password`,
     usage: `${API_BASE_PATH}/users/me/usage`,
     personalization: `${API_BASE_PATH}/users/me/personalization`,
   },
@@ -55,5 +57,9 @@ export const apiEndpoints = {
     transcribe: `${API_BASE_PATH}/voice/transcribe`,
     synthesize: `${API_BASE_PATH}/voice/synthesize`,
     voices: `${API_BASE_PATH}/voice/voices`,
+  },
+
+  support: {
+    contact: `${API_BASE_PATH}/support/contact`,
   },
 };

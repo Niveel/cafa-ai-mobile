@@ -84,9 +84,16 @@ type AuthRefreshResponse = {
 };
 
 type AuthSendError = Error & { status?: number; code?: string };
+type ChatCacheOptions = { force?: boolean };
 
 let authRefreshPromise: Promise<string> | null = null;
 const AUTH_STREAM_DEBUG = false;
+const AUTH_LIST_TTL_MS = 20_000;
+const AUTH_DETAIL_TTL_MS = 12_000;
+let authListCache: { value: AuthConversationSummary[]; expiresAt: number } | null = null;
+let authListPromise: Promise<AuthConversationSummary[]> | null = null;
+const authDetailCache = new Map<string, { value: AuthConversationDetail; expiresAt: number }>();
+const authDetailPromises = new Map<string, Promise<AuthConversationDetail>>();
 
 function authStreamLog(stage: string, details?: string) {
   if (!AUTH_STREAM_DEBUG) return;
@@ -125,6 +132,33 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
       },
     })),
   };
+}
+
+function cloneSummaryList(list: AuthConversationSummary[]) {
+  return list.map((item) => ({ ...item }));
+}
+
+function cloneDetail(detail: AuthConversationDetail): AuthConversationDetail {
+  return {
+    ...detail,
+    messages: detail.messages.map((message) => ({
+      ...message,
+      reactions: message.reactions ? { ...message.reactions } : undefined,
+    })),
+  };
+}
+
+export function invalidateAuthenticatedChatCache(conversationId?: string) {
+  if (conversationId) {
+    authDetailCache.delete(conversationId);
+    authDetailPromises.delete(conversationId);
+    return;
+  }
+
+  authListCache = null;
+  authListPromise = null;
+  authDetailCache.clear();
+  authDetailPromises.clear();
 }
 
 async function parseHttpError(response: Response, fallbackMessage: string) {
@@ -207,10 +241,55 @@ async function refreshAccessTokenForStreamSend() {
   return authRefreshPromise;
 }
 
-export async function listAuthenticatedConversations() {
+export async function listAuthenticatedConversations(options?: ChatCacheOptions) {
+  const force = options?.force ?? false;
+  const now = Date.now();
+  if (!force && authListCache && authListCache.expiresAt > now) {
+    return cloneSummaryList(authListCache.value);
+  }
+  if (!force && authListPromise) {
+    return authListPromise;
+  }
+
+  authListPromise = (async () => {
+    try {
+      const response = await apiClient.get<ApiResponse<AuthConversationSummaryDto[]>>(apiEndpoints.chat.list);
+      const mapped = (response.data.data ?? []).map(mapSummary);
+      authListCache = { value: mapped, expiresAt: Date.now() + AUTH_LIST_TTL_MS };
+      return cloneSummaryList(mapped);
+    } catch (error) {
+      throw mapApiError(error);
+    } finally {
+      authListPromise = null;
+    }
+  })();
+
+  return authListPromise;
+}
+
+export async function listAllAuthenticatedConversations(limit = 50) {
+  const mergedById = new Map<string, AuthConversationSummary>();
+  let page = 1;
+  let totalPages = 1;
+
   try {
-    const response = await apiClient.get<ApiResponse<AuthConversationSummaryDto[]>>(apiEndpoints.chat.list);
-    return (response.data.data ?? []).map(mapSummary);
+    do {
+      const response = await apiClient.get<ApiResponse<AuthConversationSummaryDto[]>>(apiEndpoints.chat.list, {
+        params: { page, limit },
+      });
+      const list = (response.data.data ?? []).map(mapSummary);
+      for (const item of list) {
+        mergedById.set(item.id, item);
+      }
+
+      totalPages = response.data.pagination?.pages ?? page;
+      if (!response.data.pagination && list.length < limit) {
+        break;
+      }
+      page += 1;
+    } while (page <= totalPages);
+
+    return [...mergedById.values()];
   } catch (error) {
     throw mapApiError(error);
   }
@@ -227,15 +306,34 @@ export async function searchAuthenticatedConversations(query: string) {
   }
 }
 
-export async function getAuthenticatedConversation(conversationId: string) {
-  try {
-    const response = await apiClient.get<ApiResponse<AuthConversationDetailDto>>(
-      apiEndpoints.chat.detail(conversationId),
-    );
-    return mapDetail(response.data.data);
-  } catch (error) {
-    throw mapApiError(error);
+export async function getAuthenticatedConversation(conversationId: string, options?: ChatCacheOptions) {
+  const force = options?.force ?? false;
+  const now = Date.now();
+  const cached = authDetailCache.get(conversationId);
+  if (!force && cached && cached.expiresAt > now) {
+    return cloneDetail(cached.value);
   }
+  if (!force && authDetailPromises.has(conversationId)) {
+    return authDetailPromises.get(conversationId)!;
+  }
+
+  const detailPromise = (async () => {
+    try {
+      const response = await apiClient.get<ApiResponse<AuthConversationDetailDto>>(
+        apiEndpoints.chat.detail(conversationId),
+      );
+      const mapped = mapDetail(response.data.data);
+      authDetailCache.set(conversationId, { value: mapped, expiresAt: Date.now() + AUTH_DETAIL_TTL_MS });
+      return cloneDetail(mapped);
+    } catch (error) {
+      throw mapApiError(error);
+    } finally {
+      authDetailPromises.delete(conversationId);
+    }
+  })();
+
+  authDetailPromises.set(conversationId, detailPromise);
+  return detailPromise;
 }
 
 export async function createAuthenticatedConversation(title?: string) {
@@ -244,6 +342,7 @@ export async function createAuthenticatedConversation(title?: string) {
       apiEndpoints.chat.list,
       title ? { title } : {},
     );
+    invalidateAuthenticatedChatCache();
     return response.data.data;
   } catch (error) {
     throw mapApiError(error);
@@ -261,6 +360,20 @@ export async function toggleAuthenticatedMessageReaction(
       endpoint,
       { action },
     );
+    const cached = authDetailCache.get(conversationId);
+    if (cached) {
+      authDetailCache.set(conversationId, {
+        ...cached,
+        value: {
+          ...cached.value,
+          messages: cached.value.messages.map((message) =>
+            message.id === messageId
+              ? { ...message, reactions: { ...response.data.data.reactions } }
+              : message,
+          ),
+        },
+      });
+    }
     return response.data.data.reactions;
   } catch (error) {
     throw mapApiError(error);
@@ -270,6 +383,8 @@ export async function toggleAuthenticatedMessageReaction(
 export async function archiveAuthenticatedConversation(conversationId: string, isArchived = true) {
   try {
     await apiClient.patch(apiEndpoints.chat.archive(conversationId), { isArchived });
+    invalidateAuthenticatedChatCache(conversationId);
+    authListCache = null;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -278,6 +393,8 @@ export async function archiveAuthenticatedConversation(conversationId: string, i
 export async function deleteAuthenticatedConversation(conversationId: string) {
   try {
     await apiClient.delete(apiEndpoints.chat.detail(conversationId));
+    invalidateAuthenticatedChatCache(conversationId);
+    authListCache = null;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -290,6 +407,8 @@ export async function sendAuthenticatedMessageStream(
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
 ) {
+  invalidateAuthenticatedChatCache(conversationId);
+  authListCache = null;
   const initialToken = await getAccessToken();
   if (!initialToken) {
     throw new Error('Missing access token for authenticated chat.');
@@ -337,7 +456,7 @@ export async function sendAuthenticatedMessageStream(
 
     // Poll conversation briefly for idempotent replay payloads that only return IDs.
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      const detail = await getAuthenticatedConversation(conversationId);
+      const detail = await getAuthenticatedConversation(conversationId, { force: true });
       const target = replayedMessageId
         ? detail.messages.find((item) => item.id === replayedMessageId && item.role === 'assistant')
         : [...detail.messages].reverse().find((item) => item.role === 'assistant');

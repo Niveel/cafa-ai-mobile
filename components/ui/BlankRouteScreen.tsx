@@ -14,7 +14,7 @@ export function BlankRouteScreen({ title }: BlankRouteScreenProps) {
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
-      <SecondaryNav title={title} topOffset={Math.max(insets.top - 6, 0)} />
+      <SecondaryNav title={title} topOffset={Math.max(insets.top, 0)} />
       <View className="flex-1" />
     </View>
   );

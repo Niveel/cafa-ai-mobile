@@ -17,6 +17,8 @@ import { LoginFormValues, LoginValidationSchema } from '@/data';
 import { login as loginRequest } from '@/features';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
+import { API_BASE_URL } from '@/lib';
+import { apiEndpoints } from '@/services/api';
 import { setAccessToken, setRefreshToken } from '@/services';
 
 export default function LoginScreen() {
@@ -86,9 +88,12 @@ export default function LoginScreen() {
                         login();
                         router.replace('/(drawer)');
                       } catch (error) {
-                        const mapped = error as { code?: string; message?: string };
+                        const mapped = error as { code?: string; status?: number; message?: string };
                         const message = mapped?.message ?? t('auth.signinFailed');
                         const code = mapped?.code ?? '';
+                        console.log(
+                          `[login-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.login} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
+                        );
 
                         if (code === 'EMAIL_NOT_VERIFIED') {
                           router.push({

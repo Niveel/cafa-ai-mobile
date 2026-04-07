@@ -9,6 +9,10 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "bundleIdentifier": "com.shopwit.cafaai",
+      "associatedDomains": [
+        "applinks:www.cafaai.com"
+      ],
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera for avatar photos and chat attachments.",
@@ -28,7 +32,51 @@
       "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.shopwit.cafaai"
+      "package": "com.shopwit.cafaai",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "www.cafaai.com",
+              "pathPrefix": "/billing"
+            }
+          ]
+        },
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "cafa-ai",
+              "host": "billing",
+              "pathPrefix": "/success"
+            },
+            {
+              "scheme": "cafa-ai",
+              "host": "billing",
+              "pathPrefix": "/cancel"
+            },
+            {
+              "scheme": "cafa-ai",
+              "pathPrefix": "/billing/success"
+            },
+            {
+              "scheme": "cafa-ai",
+              "pathPrefix": "/billing/cancel"
+            }
+          ]
+        }
+      ]
     },
     "androidStatusBar": {
       "translucent": false,

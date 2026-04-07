@@ -81,3 +81,22 @@ export const ContactFormGuestValidationSchema = Yup.object().shape({
     .label('Message'),
 });
 export type ContactFormGuestValues = InferType<typeof ContactFormGuestValidationSchema>;
+
+export const ContactSupportValidationSchema = Yup.object().shape({
+  name: fullNameValidation(),
+  email: Yup.string()
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
+    .label('Email'),
+  subject: Yup.string()
+    .required('validation.subjectRequired')
+    .min(5, 'validation.subjectMin')
+    .max(200, 'validation.subjectMax')
+    .label('Subject'),
+  message: Yup.string()
+    .required('validation.messageRequired')
+    .min(10, 'validation.messageMin')
+    .max(2000, 'validation.messageMax')
+    .label('Message'),
+});
+export type ContactSupportFormValues = InferType<typeof ContactSupportValidationSchema>;

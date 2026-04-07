@@ -48,9 +48,9 @@ export function resolveModelBadgeLabel(backendModel: string | undefined, request
 }
 
 export const GUEST_TTS_RATE = Platform.select({
-  ios: 0.46,
-  android: 0.78,
-  default: 0.78,
+  ios: 0.52,
+  android: 0.86,
+  default: 0.86,
 });
 
 export function getPromptTitle(prompt: string, fallbackTitle = 'New guest chat') {

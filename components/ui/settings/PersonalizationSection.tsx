@@ -65,6 +65,8 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
   const [voices, setVoices] = useState<VoiceDescriptor[]>([]);
   const [voiceId, setVoiceId] = useState('');
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle');
+  const [previewNotice, setPreviewNotice] = useState('');
   const { height: viewportHeight } = useWindowDimensions();
 
   const lastAboutRef = useRef<AboutYouPersonalization>(EMPTY_ABOUT);
@@ -72,7 +74,8 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
   const aboutPulseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   const subRef = useRef<{ remove: () => void } | null>(null);
-  const fileRef = useRef<File | null>(null);
+  const voicePreviewUriByIdRef = useRef<Record<string, string>>({});
+  const voicePreviewFileByIdRef = useRef<Record<string, File>>({});
   const toneTriggerRef = useRef<View | null>(null);
   const lengthTriggerRef = useRef<View | null>(null);
   const voiceTriggerRef = useRef<View | null>(null);
@@ -101,9 +104,8 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
     try { playerRef.current?.pause(); } catch {}
     try { playerRef.current?.remove(); } catch {}
     playerRef.current = null;
-    try { if (fileRef.current?.exists) fileRef.current.delete(); } catch {}
-    fileRef.current = null;
     setPreviewVoiceId(null);
+    setPreviewState('idle');
   }, []);
 
   const apply = useCallback((next: Awaited<ReturnType<typeof getUserPersonalization>>) => {
@@ -149,25 +151,40 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
 
   const previewVoice = useCallback(async (nextVoiceId: string) => {
     if (!voiceEnabled || isLoading || isSaving) return;
-    if (previewVoiceId === nextVoiceId) { stopPreview(); return; }
+    if (previewVoiceId === nextVoiceId && previewState === 'playing') { stopPreview(); return; }
     stopPreview();
+    setPreviewNotice('');
     setPreviewVoiceId(nextVoiceId);
     try {
-      const bytes = await synthesizeVoice({ text: t('settings.personalization.voice.previewText'), voice: nextVoiceId, speed: 1 });
-      const file = new File(Paths.cache, `voice-preview-${nextVoiceId}-${Date.now()}.mp3`);
-      file.create({ intermediates: true, overwrite: true });
-      file.write(bytes);
-      fileRef.current = file;
-      const player = createAudioPlayer(file.uri, { keepAudioSessionActive: true });
+      let uri = voicePreviewUriByIdRef.current[nextVoiceId];
+      if (!uri) {
+        setPreviewState('loading');
+        const bytes = await synthesizeVoice({
+          text: t('settings.personalization.voice.previewText'),
+          voice: nextVoiceId,
+          speed: 1,
+        });
+        const file = new File(Paths.cache, `voice-preview-cache-${nextVoiceId}.wav`);
+        file.create({ intermediates: true, overwrite: true });
+        file.write(bytes);
+        voicePreviewFileByIdRef.current[nextVoiceId] = file;
+        uri = file.uri;
+        voicePreviewUriByIdRef.current[nextVoiceId] = uri;
+      }
+
+      const player = createAudioPlayer(uri, { keepAudioSessionActive: true });
       playerRef.current = player;
+      setPreviewState('playing');
       subRef.current = player.addListener('playbackStatusUpdate', (status) => {
         if (status.didJustFinish) stopPreview();
       });
       player.play();
     } catch {
       stopPreview();
+      setPreviewState('error');
+      setPreviewNotice(t('settings.personalization.previewFailed'));
     }
-  }, [isLoading, isSaving, previewVoiceId, stopPreview, t, voiceEnabled]);
+  }, [isLoading, isSaving, previewState, previewVoiceId, stopPreview, t, voiceEnabled]);
 
   useEffect(() => {
     if (!visible) return;
@@ -178,6 +195,15 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
     if (aboutDebounceRef.current) clearTimeout(aboutDebounceRef.current);
     if (aboutPulseRef.current) clearTimeout(aboutPulseRef.current);
     stopPreview();
+    Object.values(voicePreviewFileByIdRef.current).forEach((file) => {
+      try {
+        if (file.exists) file.delete();
+      } catch {
+        // Ignore cache cleanup errors.
+      }
+    });
+    voicePreviewFileByIdRef.current = {};
+    voicePreviewUriByIdRef.current = {};
   }, [stopPreview]);
 
   useEffect(() => {
@@ -238,6 +264,16 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
             </View>
           ) : null}
         </View>
+        {previewState === 'loading' ? (
+          <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 8 }} accessibilityLiveRegion="polite">
+            {t('settings.personalization.previewLoadingHint')}
+          </Text>
+        ) : null}
+        {previewNotice ? (
+          <Text style={{ color: '#F87171', fontSize: 11, marginTop: 6 }} accessibilityLiveRegion="polite">
+            {previewNotice}
+          </Text>
+        ) : null}
       </View>
       <View style={{ height: 1, backgroundColor: colors.border, opacity: 0.45 }} />
 
@@ -300,7 +336,9 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
         <View className="mt-2 gap-2">
           {voices.map((entry) => {
             const selected = voiceId === entry.id;
-            const isPlaying = previewVoiceId === entry.id;
+            const isTarget = previewVoiceId === entry.id;
+            const isLoadingPreview = isTarget && previewState === 'loading';
+            const isPlaying = isTarget && previewState === 'playing';
             return (
               <View key={entry.id} className="rounded-lg border px-2.5 py-2" style={{ borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? `${colors.primary}12` : 'transparent' }}>
                 <View className="flex-row items-start justify-between">
@@ -308,8 +346,15 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
                     <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{entry.name}</Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 11 }}>{`${entry.gender ?? '—'} · ${entry.accent ?? '—'}`}</Text>
                   </View>
-                  <Pressable className="h-8 items-center justify-center rounded-md border px-2" style={{ borderColor: colors.border, opacity: !voiceEnabled ? 0.5 : 1 }} disabled={!voiceEnabled || isSaving} onPress={() => { void previewVoice(entry.id); }}>
-                    <Text style={{ color: colors.textPrimary, fontSize: 11 }}>{isPlaying ? t('settings.personalization.stopPreview') : t('settings.personalization.preview')}</Text>
+                  <Pressable className="h-8 min-w-[84px] items-center justify-center rounded-md border px-2" style={{ borderColor: colors.border, opacity: !voiceEnabled ? 0.5 : 1 }} disabled={!voiceEnabled || isSaving} onPress={() => { void previewVoice(entry.id); }}>
+                    {isLoadingPreview ? (
+                      <View className="flex-row items-center">
+                        <ActivityIndicator size="small" color={colors.textPrimary} />
+                        <Text style={{ color: colors.textPrimary, fontSize: 11, marginLeft: 6 }}>{t('settings.personalization.previewLoading')}</Text>
+                      </View>
+                    ) : (
+                      <Text style={{ color: colors.textPrimary, fontSize: 11 }}>{isPlaying ? t('settings.personalization.stopPreview') : t('settings.personalization.preview')}</Text>
+                    )}
                   </Pressable>
                 </View>
               </View>

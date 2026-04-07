@@ -10,6 +10,9 @@ import { useI18n } from '@/hooks';
 import { AppSwitch } from './AppSwitch';
 import type { AnimationLevel } from '@/services';
 import { PersonalizationSection } from './settings/PersonalizationSection';
+import { DataControlsSection } from './settings/DataControlsSection';
+import { SecuritySection } from './settings/SecuritySection';
+import { AccountSection } from './settings/AccountSection';
 
 const SETTINGS_TABS = [
   { key: 'general', i18nKey: 'settings.tab.general' },
@@ -27,7 +30,7 @@ type SettingsModalProps = {
 };
 
 export function SettingsModal({ visible, onClose }: SettingsModalProps) {
-  const { colors, isDark, isAuthenticated, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
+  const { colors, isDark, isAuthenticated, authUser, refreshAuthUser, signOut, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
   const { language, setLanguage, supportedLanguages, getLanguageLabel, t } = useI18n();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
@@ -164,12 +167,16 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
 
           <ScrollView
             className="flex-1 rounded-2xl"
+            style={{
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 18,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.66)',
+              overflow: 'hidden',
+            }}
             contentContainerStyle={{
               paddingHorizontal: 16,
               paddingVertical: 16,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.66)',
             }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -288,6 +295,36 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                   isDark={isDark}
                   colors={colors}
                   t={t}
+                />
+              </Animated.View>
+            ) : activeTab === 'data-controls' ? (
+              <Animated.View entering={FadeInDown.duration(220)}>
+                <DataControlsSection
+                  visible={visible}
+                  isAuthenticated={isAuthenticated}
+                  isDark={isDark}
+                  colors={colors}
+                  t={t}
+                />
+              </Animated.View>
+            ) : activeTab === 'security' ? (
+              <Animated.View entering={FadeInDown.duration(220)}>
+                <SecuritySection
+                  isDark={isDark}
+                  colors={colors}
+                  signOut={signOut}
+                  t={t}
+                />
+              </Animated.View>
+            ) : activeTab === 'account' ? (
+              <Animated.View entering={FadeInDown.duration(220)}>
+                <AccountSection
+                  isDark={isDark}
+                  colors={colors}
+                  t={t}
+                  authUser={authUser}
+                  refreshAuthUser={refreshAuthUser}
+                  signOut={signOut}
                 />
               </Animated.View>
             ) : (
