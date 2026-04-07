@@ -72,7 +72,8 @@ function deriveSmartChatTitle(preview: string, fallback: string) {
   if (lower.includes('how to be rich') || lower.includes('make money') || lower.includes('wealth')) {
     return 'Wealth Building Advice';
   }
-  const words = cleaned.replace(/[^\p{L}\p{N}\s'-]/gu, '').split(/\s+/).slice(0, 5).join(' ');
+  // Avoid Unicode property escapes to keep compatibility across JS engines/build variants.
+  const words = cleaned.replace(/[^A-Za-z0-9\s'-]/g, '').split(/\s+/).slice(0, 5).join(' ');
   return toTitleCase(words || fallback);
 }
 
@@ -123,13 +124,20 @@ const ChatRow = memo(function ChatRow({
   useEffect(() => {
     if (!menuOpen) return;
     requestAnimationFrame(() => {
-      menuTriggerRef.current?.measureInWindow((_x, y, _width, height) => {
-        const viewportHeight = Dimensions.get('window').height;
-        const estimatedMenuHeight = isAuthenticated ? 178 : 118;
-        const spaceBelow = viewportHeight - (y + height);
-        const spaceAbove = y;
-        setMenuOpenUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
-      });
+      const triggerNode = menuTriggerRef.current as unknown as { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void } | null;
+      if (!triggerNode || typeof triggerNode.measureInWindow !== 'function') return;
+      try {
+        triggerNode.measureInWindow((_x, y, _width, height) => {
+          const viewportHeight = Dimensions.get('window').height;
+          const estimatedMenuHeight = isAuthenticated ? 178 : 118;
+          const spaceBelow = viewportHeight - (y + height);
+          const spaceAbove = y;
+          setMenuOpenUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
+        });
+      } catch {
+        // Non-fatal: if measuring fails under certain renderer/runtime combinations,
+        // keep default downward menu placement instead of crashing.
+      }
     });
   }, [isAuthenticated, menuOpen]);
 
