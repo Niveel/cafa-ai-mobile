@@ -82,6 +82,7 @@ import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, save
 
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 0;
+  const IOS_COMPOSER_KEYBOARD_GAP = 6;
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAppContext();
@@ -111,7 +112,7 @@ export default function ChatScreen() {
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(34);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
-  const [iosComposerOffset, setIosComposerOffset] = useState(0);
+  const [isIosKeyboardVisible, setIsIosKeyboardVisible] = useState(false);
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
@@ -152,7 +153,7 @@ export default function ChatScreen() {
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
+  const keyboardComposerOffset = androidComposerOffset;
   const safeBottomInset = Math.max(insets.bottom, 0);
   const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
   const topPillBg = isDark ? 'rgba(16, 16, 20, 0.94)' : 'rgba(255, 255, 255, 0.96)';
@@ -1393,23 +1394,11 @@ export default function ChatScreen() {
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
 
-    const syncOffset = (screenY?: number, fallbackHeight?: number) => {
-      const windowHeight = Dimensions.get('window').height;
-      if (typeof screenY === 'number') {
-        const overlap = Math.max(0, windowHeight - screenY);
-        setIosComposerOffset(Math.max(0, overlap));
-        return;
-      }
-      setIosComposerOffset(Math.max(0, fallbackHeight ?? 0));
-    };
-
-    const showSub = Keyboard.addListener('keyboardWillShow', (event) => {
-      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
-    });
+    const showSub = Keyboard.addListener('keyboardWillShow', () => setIsIosKeyboardVisible(true));
     const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
-      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+      setIsIosKeyboardVisible((event.endCoordinates.height ?? 0) > 0);
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', () => setIosComposerOffset(0));
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => setIsIosKeyboardVisible(false));
 
     return () => {
       showSub.remove();
@@ -1913,7 +1902,7 @@ export default function ChatScreen() {
           style={{
             borderColor: colors.primary,
             backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF',
-            marginBottom: composerBottomInset,
+            marginBottom: composerBottomInset + (Platform.OS === 'ios' && isIosKeyboardVisible ? IOS_COMPOSER_KEYBOARD_GAP : 0),
           }}
         >
           <TextInput
