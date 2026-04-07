@@ -86,6 +86,7 @@ type ChatRowProps = {
   onPin: (id: string) => void;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
+  onMenuTouchStart: () => void;
   textPrimary: string;
   textSecondary: string;
   borderColor: string;
@@ -105,6 +106,7 @@ const ChatRow = memo(function ChatRow({
   onPin,
   onArchive,
   onDelete,
+  onMenuTouchStart,
   textPrimary,
   textSecondary,
   borderColor,
@@ -132,7 +134,13 @@ const ChatRow = memo(function ChatRow({
   }, [isAuthenticated, menuOpen]);
 
   return (
-    <View className="relative">
+    <View
+      className="relative"
+      style={{
+        zIndex: menuOpen ? 120 : 1,
+        elevation: menuOpen ? 120 : 0,
+      }}
+    >
       <View
         className="relative rounded-2xl"
         style={{
@@ -217,16 +225,20 @@ const ChatRow = memo(function ChatRow({
 
       {menuOpen ? (
         <View
+          onTouchStart={onMenuTouchStart}
           className="absolute right-2 z-50 min-w-[158px] rounded-xl border p-1"
           style={{
             borderColor,
             backgroundColor: '#0F0F0F',
             top: menuOpenUpward ? undefined : 42,
             bottom: menuOpenUpward ? 42 : undefined,
+            elevation: 120,
           }}
         >
           <Pressable
-            onPress={() => onRename(item.id)}
+            onPress={() => {
+              onRename(item.id);
+            }}
             accessibilityRole="button"
             accessibilityLabel={t('drawer.rename')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
@@ -235,7 +247,9 @@ const ChatRow = memo(function ChatRow({
             <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.rename')}</Text>
           </Pressable>
           <Pressable
-            onPress={() => onPin(item.id)}
+            onPress={() => {
+              onPin(item.id);
+            }}
             accessibilityRole="button"
             accessibilityLabel={isPinned ? t('drawer.unpin') : t('drawer.pin')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
@@ -247,7 +261,9 @@ const ChatRow = memo(function ChatRow({
           </Pressable>
           {isAuthenticated ? (
             <Pressable
-              onPress={() => onArchive(item.id)}
+              onPress={() => {
+                onArchive(item.id);
+              }}
               accessibilityRole="button"
               accessibilityLabel={t('drawer.archive')}
               className="flex-row items-center rounded-lg px-2.5 py-2"
@@ -257,7 +273,9 @@ const ChatRow = memo(function ChatRow({
             </Pressable>
           ) : null}
           <Pressable
-            onPress={() => onDelete(item.id)}
+            onPress={() => {
+              onDelete(item.id);
+            }}
             accessibilityRole="button"
             accessibilityLabel={t('drawer.delete')}
             className="flex-row items-center rounded-lg px-2.5 py-2"
@@ -291,6 +309,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const menuTouchRef = useRef(false);
 
   const userName = useMemo(() => {
     if (!isAuthenticated) return t('drawer.userName.guest');
@@ -549,11 +568,17 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         active={item.id === activeChatId}
         menuOpen={chatActionMenuId === item.id}
         onPress={openChat}
-        onToggleMenu={(id) => setChatActionMenuId((prev) => (prev === id ? null : id))}
+        onToggleMenu={(id) => {
+          menuTouchRef.current = true;
+          setChatActionMenuId((prev) => (prev === id ? null : id));
+        }}
         onRename={onRenameChat}
         onPin={onTogglePinChat}
         onArchive={onArchiveChat}
         onDelete={onRequestDeleteChat}
+        onMenuTouchStart={() => {
+          menuTouchRef.current = true;
+        }}
         textPrimary={colors.textPrimary}
         textSecondary={colors.textSecondary}
         borderColor={colors.border}
@@ -590,6 +615,15 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   return (
     <View
       className="flex-1"
+      onTouchEnd={() => {
+        if (!menuOpen && !chatActionMenuId) return;
+        if (menuTouchRef.current) {
+          menuTouchRef.current = false;
+          return;
+        }
+        setMenuOpen(false);
+        setChatActionMenuId(null);
+      }}
       style={{
         backgroundColor: colors.surface,
         paddingTop: Math.max(insets.top, 12),
@@ -597,18 +631,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         paddingBottom: Math.max(insets.bottom, 12),
       }}
     >
-      {menuOpen || chatActionMenuId ? (
-        <Pressable
-          onPress={() => {
-            setMenuOpen(false);
-            setChatActionMenuId(null);
-          }}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.close')}
-        />
-      ) : null}
-
       <AppPromptModal
         visible={showSignoutPrompt}
         title={t('drawer.signoutPromptTitle')}
@@ -719,6 +741,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       <View className="relative pt-3">
         {menuOpen ? (
           <View
+            onTouchStart={() => {
+              menuTouchRef.current = true;
+            }}
             className="absolute left-0 right-0 rounded-2xl p-2"
             style={{
               bottom: 74 + Math.max(insets.bottom, 8),
@@ -782,7 +807,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
             accessibilityRole="button"
             accessibilityLabel={t('drawer.userCard')}
             accessibilityHint={t('drawer.userCardHint')}
-            onPress={() => setMenuOpen((prev) => !prev)}
+            onPress={() => {
+              menuTouchRef.current = true;
+              setMenuOpen((prev) => !prev);
+            }}
             className="rounded-full p-3"
             style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
           >
