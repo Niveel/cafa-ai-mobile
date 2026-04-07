@@ -83,6 +83,11 @@ import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, save
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 0;
   const IOS_COMPOSER_KEYBOARD_GAP = 6;
+  const VIDEO_JOB_POLL_ATTEMPTS = 360;
+  const VIDEO_JOB_POLL_INTERVAL_MS = 2200;
+  const VIDEO_JOB_RATE_LIMIT_BACKOFF_MS = 7000;
+  const VIDEO_AUTO_SYNC_ATTEMPTS = 40;
+  const VIDEO_AUTO_SYNC_INTERVAL_MS = 12000;
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAppContext();
@@ -148,6 +153,7 @@ export default function ChatScreen() {
   const ttsFilesRef = useRef<File[]>([]);
   const voiceNameByIdRef = useRef<Record<string, string>>({});
   const videoGenerationInFlightRef = useRef(false);
+  const videoAutoSyncInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
   const lastPromptIndexRef = useRef<{ image: number; video: number }>({ image: -1, video: -1 });
   const hasStartedChat = messages.some((message) => message.role === 'user');
@@ -200,25 +206,86 @@ export default function ChatScreen() {
   };
 
   const waitForVideoGeneration = useCallback(async (jobId: string) => {
-    const maxAttempts = 180;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const status = await pollVideoJob(jobId);
-      if (status.status === 'completed') {
-        const resolvedVideoUrl = resolveBackendAssetUrl(status.result?.videoUrl ?? status.videoUrl);
-        return {
-          videoId: status.result?.id,
-          videoPrompt: status.result?.prompt,
-          videoUrl: resolvedVideoUrl,
-        };
+    for (let attempt = 0; attempt < VIDEO_JOB_POLL_ATTEMPTS; attempt += 1) {
+      try {
+        const status = await pollVideoJob(jobId);
+        if (status.status === 'completed') {
+          const resolvedVideoUrl = resolveBackendAssetUrl(status.result?.videoUrl ?? status.videoUrl);
+          return {
+            videoId: status.result?.id,
+            videoPrompt: status.result?.prompt,
+            videoUrl: resolvedVideoUrl,
+          };
+        }
+        if (status.status === 'failed') {
+          throw new Error(status.error || status.message || 'Video generation failed.');
+        }
+        await new Promise((resolve) => setTimeout(resolve, VIDEO_JOB_POLL_INTERVAL_MS));
+      } catch (error) {
+        const typed = error as { status?: number; code?: string; message?: string } | undefined;
+        const code = (typed?.code ?? '').toUpperCase();
+        const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+        const isRateLimited =
+          typed?.status === 429
+          || code.includes('RATE_LIMIT')
+          || message.includes('too many video generation requests')
+          || message.includes('too many requests');
+        if (!isRateLimited) throw error;
+        await new Promise((resolve) => setTimeout(resolve, VIDEO_JOB_RATE_LIMIT_BACKOFF_MS));
       }
-      if (status.status === 'failed') {
-        throw new Error(status.error || status.message || 'Video generation failed.');
-      }
-      await new Promise((resolve) => setTimeout(resolve, 2200));
     }
 
-    throw new Error('Video generation is still processing. Please check again shortly.');
+    const pendingError = new Error('Video generation is still processing.');
+    (pendingError as Error & { code?: string }).code = 'VIDEO_GENERATION_PENDING';
+    throw pendingError;
   }, [resolveBackendAssetUrl]);
+
+  const applyAuthConversationDetail = useCallback((detail: Awaited<ReturnType<typeof getAuthenticatedConversation>>) => {
+    setMessages(detail.messages.map(mapAuthMessageToUiMessage));
+    setMessageReactions(() =>
+      detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
+        if (message.role !== 'assistant') return acc;
+        acc[message.id] = message.reactions?.liked
+          ? 'like'
+          : message.reactions?.disliked
+            ? 'dislike'
+            : undefined;
+        return acc;
+      }, {}),
+    );
+  }, [mapAuthMessageToUiMessage]);
+
+  const scheduleVideoAutoSync = useCallback((conversationId: string, expectedPrompt: string, startedAt: number) => {
+    if (videoAutoSyncInFlightRef.current) return;
+    videoAutoSyncInFlightRef.current = true;
+    const normalizedPrompt = expectedPrompt.trim().toLowerCase();
+
+    const run = async () => {
+      for (let attempt = 0; attempt < VIDEO_AUTO_SYNC_ATTEMPTS; attempt += 1) {
+        try {
+          const detail = await getAuthenticatedConversation(conversationId, { force: true });
+          applyAuthConversationDetail(detail);
+          const hasResolvedVideo = detail.messages.some((message) => {
+            if (message.role !== 'assistant' || !message.videoUrl) return false;
+            const createdAt = new Date(message.createdAt).getTime();
+            const candidate = (message.videoPrompt ?? message.content ?? '').trim().toLowerCase();
+            if (candidate && candidate === normalizedPrompt) return true;
+            return createdAt >= startedAt - 15000;
+          });
+          if (hasResolvedVideo) {
+            videoAutoSyncInFlightRef.current = false;
+            return;
+          }
+        } catch {
+          // Keep trying; background sync is best-effort.
+        }
+        await new Promise((resolve) => setTimeout(resolve, VIDEO_AUTO_SYNC_INTERVAL_MS));
+      }
+      videoAutoSyncInFlightRef.current = false;
+    };
+
+    void run();
+  }, [applyAuthConversationDetail]);
 
   const isLimitOrUpgradeError = (error: unknown) => {
     const typed = error as { code?: string; status?: number; message?: string } | undefined;
@@ -349,6 +416,9 @@ export default function ChatScreen() {
       if (!trimmed || isSending) return;
       let lastEndpoint = `${API_BASE_URL}/chat`;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
+      let requestedVideoPrompt = '';
+      let requestedVideoConversationId = '';
+      let requestedVideoStartedAt = 0;
       const attachmentsForSend = [...attachedAssets];
       let didMutateChats = false;
 
@@ -504,6 +574,9 @@ export default function ChatScreen() {
             return;
           }
           videoGenerationInFlightRef.current = true;
+          requestedVideoPrompt = fullVideoPrompt;
+          requestedVideoConversationId = conversationId;
+          requestedVideoStartedAt = Date.now();
           lastVideoGenerationStartAtRef.current = now;
           setMessages((prev) =>
             prev.map((item) =>
@@ -528,18 +601,7 @@ export default function ChatScreen() {
 
           try {
             const detail = await getAuthenticatedConversation(conversationId, { force: true });
-            setMessages(detail.messages.map(mapAuthMessageToUiMessage));
-            setMessageReactions(() =>
-              detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
-                if (message.role !== 'assistant') return acc;
-                acc[message.id] = message.reactions?.liked
-                  ? 'like'
-                  : message.reactions?.disliked
-                    ? 'dislike'
-                    : undefined;
-                return acc;
-              }, {}),
-            );
+            applyAuthConversationDetail(detail);
           } catch {
             setMessages((prev) =>
               prev.map((item) =>
@@ -590,18 +652,7 @@ export default function ChatScreen() {
           }
           try {
             const detail = await getAuthenticatedConversation(conversationId, { force: true });
-            setMessages(detail.messages.map(mapAuthMessageToUiMessage));
-            setMessageReactions(() =>
-              detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
-                if (message.role !== 'assistant') return acc;
-                acc[message.id] = message.reactions?.liked
-                  ? 'like'
-                  : message.reactions?.disliked
-                    ? 'dislike'
-                    : undefined;
-                return acc;
-              }, {}),
-            );
+            applyAuthConversationDetail(detail);
           } catch {
             setMessages((prev) =>
               prev.map((item) =>
@@ -671,13 +722,46 @@ export default function ChatScreen() {
         didMutateChats = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
+        const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
+        const delayedVideoError =
+          requestKind === 'video'
+          && (
+            code === 'VIDEO_GENERATION_PENDING'
+            || message.toLowerCase().includes('too many video generation requests')
+            || message.toLowerCase().includes('too many requests')
+          );
         if (isAuthenticated && attachmentsForSend.length) {
           setAttachedAssets(attachmentsForSend);
         }
         if (requestKind === 'video') {
           videoGenerationInFlightRef.current = false;
+        }
+        if (delayedVideoError) {
+          const delayedMessage = t('chat.videoGenerationDelayed');
+          if (requestedVideoConversationId) {
+            scheduleVideoAutoSync(
+              requestedVideoConversationId,
+              requestedVideoPrompt || trimmed,
+              requestedVideoStartedAt || Date.now(),
+            );
+          }
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: delayedMessage,
+                    videoPrompt: requestedVideoPrompt || item.videoPrompt,
+                    isVideoGenerating: true,
+                  }
+                : item,
+            ),
+          );
+          showTransientNotice(delayedMessage, 7000);
+          didMutateChats = true;
+          return;
         }
         if (isLimitError) {
           showLimitNotice(requestKind);
