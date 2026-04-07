@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useState } from 'react';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -12,11 +13,15 @@ import {
 
 import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { SignupFormValues, SignupValidationSchema } from '@/data';
+import { signup as signupRequest } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
+import { API_BASE_URL } from '@/lib';
+import { apiEndpoints } from '@/services/api';
 
 export default function SignupScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
+  const [authError, setAuthError] = useState('');
   const cardBackground = isDark ? 'rgba(20, 20, 20, 0.92)' : 'rgba(255, 255, 255, 0.95)';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
 
@@ -62,15 +67,44 @@ export default function SignupScreen() {
                   <AppForm<SignupFormValues>
                     initialValues={{ username: '', email: '', password: '', confirmPassword: '' }}
                     validationSchema={SignupValidationSchema}
-                    onSubmit={(values) =>
-                      router.push({
-                        pathname: '/(auth)/verify-otp',
-                        params: {
-                          email: values.email.trim(),
-                          flow: 'signup',
-                        },
-                      })
-                    }
+                    onSubmit={async (values) => {
+                      setAuthError('');
+                      const email = values.email.trim();
+
+                      try {
+                        await signupRequest({
+                          name: values.username.trim(),
+                          email,
+                          password: values.password,
+                        });
+                        router.push({
+                          pathname: '/(auth)/verify-otp',
+                          params: {
+                            email,
+                            flow: 'signup',
+                          },
+                        });
+                      } catch (error) {
+                        const mapped = error as { code?: string; status?: number; message?: string };
+                        const code = (mapped?.code ?? '').toUpperCase();
+                        const message = mapped?.message ?? t('auth.signupFailed');
+                        const isEmailConflict =
+                          mapped?.status === 409 ||
+                          code.includes('EMAIL') ||
+                          code.includes('EXIST') ||
+                          code.includes('CONFLICT') ||
+                          message.toLowerCase().includes('already exists');
+
+                        const finalMessage = isEmailConflict
+                          ? 'A user with this email already exists'
+                          : message;
+
+                        console.log(
+                          `[signup-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.register} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
+                        );
+                        setAuthError(finalMessage);
+                      }
+                    }}
                   >
                     <AppFormField<SignupFormValues> name="username" label={t('field.username')} placeholder={t('placeholder.username')} required />
                     <AppFormField<SignupFormValues> name="email" label={t('field.email')} placeholder={t('placeholder.email')} required />
@@ -88,6 +122,17 @@ export default function SignupScreen() {
                       type="password"
                       required
                     />
+                    {authError ? (
+                      <View
+                        className="rounded-xl border px-3 py-2"
+                        style={{
+                          borderColor: isDark ? 'rgba(251, 113, 133, 0.5)' : 'rgba(220, 38, 38, 0.35)',
+                          backgroundColor: isDark ? 'rgba(127, 29, 29, 0.28)' : 'rgba(254, 226, 226, 0.95)',
+                        }}
+                      >
+                        <Text style={{ color: isDark ? '#FCA5A5' : '#B91C1C', fontSize: 12 }}>{authError}</Text>
+                      </View>
+                    ) : null}
                     <SubmitButton title={t('auth.createAccount')} />
                   </AppForm>
                   <AppButton

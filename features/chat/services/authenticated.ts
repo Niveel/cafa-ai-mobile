@@ -433,6 +433,11 @@ export async function deleteAuthenticatedConversation(conversationId: string) {
 export async function sendAuthenticatedMessageStream(
   conversationId: string,
   message: string,
+  attachments: Array<{
+    uri: string;
+    fileName?: string;
+    mimeType?: string;
+  }>,
   onEvent: (event: AuthChatStreamEvent) => void,
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
@@ -461,6 +466,14 @@ export async function sendAuthenticatedMessageStream(
     formData.append('language', language);
     formData.append('selectedModel', selectedModelId);
     formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
+    for (const file of attachments) {
+      if (!file?.uri) continue;
+      formData.append('files', {
+        uri: file.uri,
+        name: file.fileName ?? `attachment-${Date.now()}`,
+        type: file.mimeType ?? 'application/octet-stream',
+      } as unknown as Blob);
+    }
     return formData;
   };
 

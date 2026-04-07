@@ -17,6 +17,9 @@ export type UiMessage = {
 export type AttachedAsset = {
   id: string;
   label: string;
+  uri: string;
+  mimeType?: string;
+  fileName?: string;
 };
 
 export type ChatModelKey = 'ultra' | 'smart' | 'swift';

@@ -21,7 +21,7 @@ export function LegalDocumentScreen({ title, document }: LegalDocumentScreenProp
       <ScrollView
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 18, 28) }}
         keyboardShouldPersistTaps="handled"
       >
         <View
@@ -71,4 +71,3 @@ export function LegalDocumentScreen({ title, document }: LegalDocumentScreenProp
     </View>
   );
 }
-

@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import * as Yup from 'yup';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
 import { AppForm, AppFormField, SubmitButton } from '@/components/form';
 import { API_BASE_URL } from '@/lib';
@@ -93,17 +99,21 @@ export function AccountSection({
   const [loadingSubscription, setLoadingSubscription] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
-  const [avatarPreviewUri, setAvatarPreviewUri] = useState<string | null>(null);
+  const [localAvatarUri, setLocalAvatarUri] = useState<string | null | undefined>(undefined);
   const [showDeletePrompt, setShowDeletePrompt] = useState(false);
   const [showDeleteForm, setShowDeleteForm] = useState(false);
   const [avatarRenderError, setAvatarRenderError] = useState(false);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
 
   const displayName = useMemo(() => toTitleCase(authUser?.name ?? ''), [authUser?.name]);
-  const resolvedAvatarUri = useMemo(
-    () => resolveAvatarUri(avatarPreviewUri) ?? resolveAvatarUri(authUser?.avatar),
-    [authUser?.avatar, avatarPreviewUri],
-  );
+  const resolvedAvatarUri = useMemo(() => {
+    if (localAvatarUri === null) return undefined;
+    if (typeof localAvatarUri === 'string') {
+      const resolvedLocal = resolveAvatarUri(localAvatarUri);
+      if (resolvedLocal) return resolvedLocal;
+    }
+    return resolveAvatarUri(authUser?.avatar);
+  }, [authUser?.avatar, localAvatarUri]);
   const profileInitial = useMemo(() => getInitials(displayName, authUser?.email), [authUser?.email, displayName]);
 
   const deleteSchema = useMemo(
@@ -152,7 +162,7 @@ export function AccountSection({
       if (result.canceled || !result.assets[0]?.uri) return;
       const pickedAsset = result.assets[0];
       const pickedUri = pickedAsset.uri;
-      setAvatarPreviewUri(pickedUri);
+      setLocalAvatarUri(pickedUri);
       setAvatarRenderError(false);
 
       const uploadedAvatar = await uploadCurrentUserAvatar({
@@ -162,6 +172,7 @@ export function AccountSection({
       });
 
       if (uploadedAvatar) {
+        setLocalAvatarUri(uploadedAvatar);
         try {
           await updateCurrentUserProfile({ avatar: uploadedAvatar });
         } catch {
@@ -181,13 +192,14 @@ export function AccountSection({
   const onRemoveAvatar = async () => {
     setStatusText('');
     setAvatarBusy(true);
+    setLocalAvatarUri(null);
+    setAvatarRenderError(false);
     try {
       await updateCurrentUserProfile({ avatar: null });
       await refreshAuthUser();
-      setAvatarPreviewUri(null);
-      setAvatarRenderError(false);
       setStatusText(t('settings.account.avatarRemoved'));
     } catch (error) {
+      setLocalAvatarUri(undefined);
       setStatusText(error instanceof Error ? error.message : t('settings.account.avatarRemoveError'));
     } finally {
       setAvatarBusy(false);
@@ -310,17 +322,29 @@ export function AccountSection({
           </Text>
         </View>
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={t('settings.account.cancelSubscription')}
-          onPress={() => {
-            void onCancelSubscription();
-          }}
-          className="mt-3 h-10 items-center justify-center rounded-full px-3"
-          style={{ borderWidth: 1.2, borderColor: colors.primary }}
-        >
-          <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{t('settings.account.cancelSubscription')}</Text>
-        </TouchableOpacity>
+        <View className="mt-3 gap-2">
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={t('drawer.userMenu.upgrade')}
+            onPress={() => router.push('/plans')}
+            className="h-10 items-center justify-center rounded-full px-3"
+            style={{ backgroundColor: colors.primary }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>{t('drawer.userMenu.upgrade')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.account.cancelSubscription')}
+            onPress={() => {
+              void onCancelSubscription();
+            }}
+            className="h-10 items-center justify-center rounded-full px-3"
+            style={{ borderWidth: 1.2, borderColor: colors.primary }}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{t('settings.account.cancelSubscription')}</Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 6, lineHeight: 13 }}>
           {t('settings.account.cancelSubscriptionHint')}
@@ -363,56 +387,67 @@ export function AccountSection({
       />
 
       <Modal visible={showDeleteForm} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setShowDeleteForm(false)}>
-        <View className="flex-1 justify-center px-5">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('settings.close')}
-            onPress={() => setShowDeleteForm(false)}
-            style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(4,6,12,0.6)' }}
-          />
-          <View className="rounded-3xl p-4" style={{ borderWidth: 1.4, borderColor: '#E11D48', backgroundColor: isDark ? '#0E0E12' : '#FFFFFF' }}>
-            <View className="mb-2 flex-row items-center justify-between">
-              <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700' }}>{t('settings.account.deleteAction')}</Text>
-              <TouchableOpacity
+        <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 10}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View className="flex-1 justify-center px-5">
+              <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('settings.close')}
                 onPress={() => setShowDeleteForm(false)}
-                className="h-9 w-9 items-center justify-center rounded-full"
-                style={{ borderWidth: 1, borderColor: colors.border }}
-              >
-                <Ionicons name="close" size={18} color={colors.textPrimary} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 12 }}>{t('settings.account.deletePasswordPrompt')}</Text>
-
-            <AppForm<DeleteAccountFormValues>
-              initialValues={{ password: '' }}
-              validationSchema={deleteSchema}
-              onSubmit={submitDelete}
-            >
-              <AppFormField<DeleteAccountFormValues>
-                name="password"
-                label={t('settings.account.currentPassword')}
-                placeholder={t('settings.account.currentPassword')}
-                type="password"
-                required
+                style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(4,6,12,0.6)' }}
               />
-              <View className="mt-1 flex-row justify-end gap-2">
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={t('drawer.cancel')}
-                  onPress={() => setShowDeleteForm(false)}
-                  className="h-10 items-center justify-center rounded-full px-4"
-                  style={{ borderWidth: 1.2, borderColor: colors.primary }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('drawer.cancel')}</Text>
-                </TouchableOpacity>
-                <SubmitButton title={t('settings.account.deleteAction')} forceEnable />
-              </View>
-            </AppForm>
-          </View>
-        </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="none"
+                contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+                showsVerticalScrollIndicator={false}
+              >
+                <View className="rounded-3xl p-4" style={{ borderWidth: 1.4, borderColor: '#E11D48', backgroundColor: isDark ? '#0E0E12' : '#FFFFFF' }}>
+                  <View className="mb-2 flex-row items-center justify-between">
+                    <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700' }}>{t('settings.account.deleteAction')}</Text>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={t('settings.close')}
+                      onPress={() => setShowDeleteForm(false)}
+                      className="h-9 w-9 items-center justify-center rounded-full"
+                      style={{ borderWidth: 1, borderColor: colors.border }}
+                    >
+                      <Ionicons name="close" size={18} color={colors.textPrimary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 12 }}>{t('settings.account.deletePasswordPrompt')}</Text>
+
+                  <AppForm<DeleteAccountFormValues>
+                    initialValues={{ password: '' }}
+                    validationSchema={deleteSchema}
+                    onSubmit={submitDelete}
+                  >
+                    <AppFormField<DeleteAccountFormValues>
+                      name="password"
+                      label={t('settings.account.currentPassword')}
+                      placeholder={t('settings.account.currentPassword')}
+                      type="password"
+                      required
+                    />
+                    <View className="mt-1 flex-row justify-end gap-2">
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={t('drawer.cancel')}
+                        onPress={() => setShowDeleteForm(false)}
+                        className="h-10 items-center justify-center rounded-full px-4"
+                        style={{ borderWidth: 1.2, borderColor: colors.primary }}
+                      >
+                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('drawer.cancel')}</Text>
+                      </TouchableOpacity>
+                      <SubmitButton title={t('settings.account.deleteAction')} forceEnable />
+                    </View>
+                  </AppForm>
+                </View>
+              </ScrollView>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {loadingSubscription ? (

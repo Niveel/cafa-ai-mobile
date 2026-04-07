@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { DrawerActions } from '@react-navigation/native';
 import { useNavigation } from 'expo-router';
@@ -35,6 +35,25 @@ function FancyMenuGlyph() {
   );
 }
 
+function IosFancyMenuGlyph() {
+  return (
+    <View accessible={false} importantForAccessibility="no-hide-descendants" className="items-center justify-center">
+      <View className="flex-row items-center" style={{ marginBottom: 3 }}>
+        <View className="h-0.5 w-6 rounded-full bg-white" />
+        <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-white/85" />
+      </View>
+      <View className="flex-row items-center" style={{ marginBottom: 3 }}>
+        <View className="h-0.5 w-4.5 rounded-full bg-white/95" />
+        <View className="ml-1.5 h-1 w-1 rounded-full bg-white/70" />
+      </View>
+      <View className="flex-row items-center">
+        <View className="h-0.5 w-5.5 rounded-full bg-white" />
+        <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-white/85" />
+      </View>
+    </View>
+  );
+}
+
 export function FloatingDrawerButton() {
   const navigation = useNavigation();
   const drawerStatus = useDrawerStatus();
@@ -42,10 +61,11 @@ export function FloatingDrawerButton() {
   const { t } = useI18n();
   const prefersReducedMotion = useReducedMotionPreference();
   const isDrawerOpen = drawerStatus === 'open';
+  const isIos = Platform.OS === 'ios';
   const pulse = useSharedValue(1);
 
   useEffect(() => {
-    if (prefersReducedMotion || isDrawerOpen) {
+    if (isIos || prefersReducedMotion || isDrawerOpen) {
       pulse.value = 1;
       return;
     }
@@ -63,7 +83,7 @@ export function FloatingDrawerButton() {
       -1,
       false,
     );
-  }, [isDrawerOpen, prefersReducedMotion, pulse]);
+  }, [isDrawerOpen, isIos, prefersReducedMotion, pulse]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.value }],
@@ -118,7 +138,7 @@ export function FloatingDrawerButton() {
             importantForAccessibility="no-hide-descendants"
             className="absolute inset-0 rounded-full border border-white/35 bg-white/10"
           />
-          <FancyMenuGlyph />
+          {isIos ? <IosFancyMenuGlyph /> : <FancyMenuGlyph />}
           <View
             accessible={false}
             importantForAccessibility="no-hide-descendants"

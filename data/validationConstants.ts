@@ -54,6 +54,14 @@ export const VerifyOtpValidationSchema = Yup.object().shape({
 export type VerifyOtpFormValues = InferType<typeof VerifyOtpValidationSchema>;
 
 export const PasswordResetValidationSchema = Yup.object().shape({
+  email: Yup.string()
+    .required('validation.emailRequired')
+    .matches(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}$/, 'validation.emailInvalid')
+    .label('Email'),
+  otp: Yup.string()
+    .required('validation.otpRequired')
+    .matches(/^\d{6}$/, 'validation.otpExact')
+    .label('OTP'),
   password: passwordValidation(),
   confirmPassword: Yup.string().oneOf([Yup.ref('password')], 'validation.passwordsMatch').required('validation.confirmPasswordRequired'),
 });

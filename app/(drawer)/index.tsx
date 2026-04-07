@@ -24,6 +24,7 @@ import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -80,8 +81,9 @@ import { getAccessToken, getDefaultVoicePreference } from '@/services';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
 
 export default function ChatScreen() {
-  const ANDROID_KEYBOARD_CALIBRATION = 4;
+  const ANDROID_KEYBOARD_CALIBRATION = 0;
   const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAppContext();
   const { t, language } = useI18n();
   const createWelcomeMessage = useCallback(
@@ -109,6 +111,7 @@ export default function ChatScreen() {
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(34);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
+  const [iosComposerOffset, setIosComposerOffset] = useState(0);
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
@@ -149,6 +152,12 @@ export default function ChatScreen() {
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
+  const safeBottomInset = Math.max(insets.bottom, 0);
+  const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
+  const topPillBg = isDark ? 'rgba(16, 16, 20, 0.94)' : 'rgba(255, 255, 255, 0.96)';
+  const topPillBorder = isDark ? 'rgba(124, 58, 237, 0.42)' : 'rgba(124, 58, 237, 0.3)';
+  const dividerPill = isDark ? 'rgba(124, 58, 237, 0.38)' : 'rgba(124, 58, 237, 0.2)';
 
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;
@@ -339,6 +348,7 @@ export default function ChatScreen() {
       if (!trimmed || isSending) return;
       let lastEndpoint = `${API_BASE_URL}/chat`;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
+      const attachmentsForSend = [...attachedAssets];
 
       const userMessage: UiMessage = {
         id: `user-${Date.now()}`,
@@ -360,6 +370,9 @@ export default function ChatScreen() {
       }
       setAttachmentMenuOpen(false);
       setModelMenuOpen(false);
+      if (attachmentsForSend.length) {
+        setAttachedAssets([]);
+      }
       Keyboard.dismiss();
       inputValueRef.current = '';
       setInput('');
@@ -448,6 +461,7 @@ export default function ChatScreen() {
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         if (extractedVideoPrompt) {
+          const fullVideoPrompt = trimmed;
           requestKind = 'video';
           if (videoGenerationInFlightRef.current) {
             const inProgressMessage = t('chat.videoGenerationInProgress');
@@ -491,8 +505,8 @@ export default function ChatScreen() {
               item.id === assistantId
                 ? {
                     ...item,
-                    content: extractedVideoPrompt,
-                    videoPrompt: extractedVideoPrompt,
+                    content: fullVideoPrompt,
+                    videoPrompt: fullVideoPrompt,
                     isVideoGenerating: true,
                   }
                 : item,
@@ -501,7 +515,7 @@ export default function ChatScreen() {
           lastEndpoint = `${API_BASE_URL}/videos/generate`;
           const job = await startVideoGeneration({
             conversationId,
-            prompt: extractedVideoPrompt,
+            prompt: fullVideoPrompt,
             aspectRatio: '16:9',
           });
 
@@ -527,9 +541,9 @@ export default function ChatScreen() {
                 item.id === assistantId
                   ? {
                       ...item,
-                      content: resolvedVideo.videoPrompt || extractedVideoPrompt,
+                      content: resolvedVideo.videoPrompt || fullVideoPrompt,
                       videoId: resolvedVideo.videoId,
-                      videoPrompt: resolvedVideo.videoPrompt || extractedVideoPrompt,
+                      videoPrompt: resolvedVideo.videoPrompt || fullVideoPrompt,
                       videoUrl: resolvedVideo.videoUrl ?? undefined,
                       isVideoGenerating: false,
                     }
@@ -544,14 +558,15 @@ export default function ChatScreen() {
 
         const extractedImagePrompt = extractImagePrompt(trimmed);
         if (extractedImagePrompt) {
+          const fullImagePrompt = trimmed;
           requestKind = 'image';
           setMessages((prev) =>
             prev.map((item) =>
               item.id === assistantId
                 ? {
                     ...item,
-                    content: extractedImagePrompt,
-                    imagePrompt: extractedImagePrompt,
+                    content: fullImagePrompt,
+                    imagePrompt: fullImagePrompt,
                     isImageGenerating: true,
                   }
                 : item,
@@ -560,7 +575,7 @@ export default function ChatScreen() {
           lastEndpoint = `${API_BASE_URL}/images/generate`;
           const generated = await generateImage({
             conversationId,
-            prompt: extractedImagePrompt,
+            prompt: fullImagePrompt,
             style: 'cinematic',
           });
           const resolvedImageUrl = resolveBackendAssetUrl(generated.imageUrl);
@@ -587,9 +602,9 @@ export default function ChatScreen() {
                 item.id === assistantId
                   ? {
                       ...item,
-                      content: generated.prompt || extractedImagePrompt,
+                      content: generated.prompt || fullImagePrompt,
                       imageId: generated.id,
-                      imagePrompt: generated.prompt || extractedImagePrompt,
+                      imagePrompt: generated.prompt || fullImagePrompt,
                       imageUrl: resolvedImageUrl,
                       isImageGenerating: false,
                     }
@@ -602,7 +617,7 @@ export default function ChatScreen() {
         }
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
-        await sendAuthenticatedMessageStream(conversationId, trimmed, (event) => {
+        await sendAuthenticatedMessageStream(conversationId, trimmed, attachmentsForSend, (event) => {
           if (event.type === 'meta') {
             setStreamingModelLabel(
               resolveModelBadgeLabel(event.model, activeModel),
@@ -650,6 +665,9 @@ export default function ChatScreen() {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
+        if (isAuthenticated && attachmentsForSend.length) {
+          setAttachedAssets(attachmentsForSend);
+        }
         if (requestKind === 'video') {
           videoGenerationInFlightRef.current = false;
         }
@@ -741,11 +759,15 @@ export default function ChatScreen() {
     if (result.canceled || !result.assets?.length) return;
 
     const asset = result.assets[0];
+    const fallbackFileName = `image-${Date.now()}.jpg`;
     setAttachedAssets((prev) => [
       ...prev,
       {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        label: asset.fileName ?? 'image-attachment.jpg',
+        label: asset.fileName ?? fallbackFileName,
+        uri: asset.uri,
+        fileName: asset.fileName ?? fallbackFileName,
+        mimeType: asset.mimeType ?? 'image/jpeg',
       },
     ]);
   };
@@ -792,6 +814,9 @@ export default function ChatScreen() {
       {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         label: asset.name ?? 'document-attachment',
+        uri: asset.uri,
+        fileName: asset.name ?? `document-${Date.now()}`,
+        mimeType: asset.mimeType ?? undefined,
       },
     ]);
   };
@@ -1327,21 +1352,55 @@ export default function ChatScreen() {
 
     const syncOffset = (screenY?: number, fallbackHeight?: number) => {
       const windowHeight = Dimensions.get('window').height;
+      const keyboardHeight = Math.max(0, fallbackHeight ?? 0);
       if (typeof screenY === 'number') {
         const overlap = Math.max(0, windowHeight - screenY);
-        setAndroidComposerOffset(Math.max(0, overlap - ANDROID_KEYBOARD_CALIBRATION));
+        const resolvedOffset = Math.max(overlap, keyboardHeight);
+        setAndroidComposerOffset(Math.max(0, resolvedOffset - ANDROID_KEYBOARD_CALIBRATION));
         return;
       }
-      setAndroidComposerOffset(Math.max(0, (fallbackHeight ?? 0) - ANDROID_KEYBOARD_CALIBRATION));
+      setAndroidComposerOffset(Math.max(0, keyboardHeight - ANDROID_KEYBOARD_CALIBRATION));
     };
 
     const showSub = Keyboard.addListener('keyboardDidShow', (event) => {
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+    });
+    const changeSub = Keyboard.addListener('keyboardDidChangeFrame', (event) => {
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const hideSub = Keyboard.addListener('keyboardDidHide', () => setAndroidComposerOffset(0));
 
     return () => {
       showSub.remove();
+      changeSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+
+    const syncOffset = (screenY?: number, fallbackHeight?: number) => {
+      const windowHeight = Dimensions.get('window').height;
+      if (typeof screenY === 'number') {
+        const overlap = Math.max(0, windowHeight - screenY);
+        setIosComposerOffset(Math.max(0, overlap));
+        return;
+      }
+      setIosComposerOffset(Math.max(0, fallbackHeight ?? 0));
+    };
+
+    const showSub = Keyboard.addListener('keyboardWillShow', (event) => {
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+    });
+    const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => setIosComposerOffset(0));
+
+    return () => {
+      showSub.remove();
+      changeSub.remove();
       hideSub.remove();
     };
   }, []);
@@ -1366,7 +1425,7 @@ export default function ChatScreen() {
   }, [messages]);
 
   return (
-    <AppScreen title={t('app.name')} showHeading={false}>
+    <AppScreen title={t('app.name')} showHeading={false} contentTopOffset={-12}>
       <KeyboardAvoidingView
         className="flex-1"
         behavior="padding"
@@ -1444,8 +1503,10 @@ export default function ChatScreen() {
             {isAuthenticated ? (
               <View className="mb-2 flex-row items-center justify-end">
                 <View
-                  className="relative"
+                  className="relative rounded-full border px-1.5 py-1"
                   style={{
+                    borderColor: topPillBorder,
+                    backgroundColor: topPillBg,
                     zIndex: modelMenuOpen ? 120 : 1,
                     elevation: modelMenuOpen ? 30 : 0,
                   }}
@@ -1458,7 +1519,7 @@ export default function ChatScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={t('chat.model.select')}
                     className="h-8 flex-row items-center rounded-full border px-3"
-                    style={{ borderColor: colors.border, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
+                    style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
                       {t(`chat.model.label.${activeModel}`)}
@@ -1478,7 +1539,7 @@ export default function ChatScreen() {
                       style={{
                         zIndex: 80,
                         elevation: 24,
-                        borderColor: colors.border,
+                        borderColor: topPillBorder,
                         backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
                       }}
                       onTouchStart={() => {
@@ -1516,6 +1577,16 @@ export default function ChatScreen() {
                 </View>
               </View>
             ) : null}
+
+            <View className="mb-2 items-center">
+              <View
+                className="h-1.5 rounded-full"
+                style={{
+                  width: 88,
+                  backgroundColor: dividerPill,
+                }}
+              />
+            </View>
 
             {!hasStartedChat ? (
               <View className="mb-2">
@@ -1566,7 +1637,7 @@ export default function ChatScreen() {
               contentContainerStyle={{
                 paddingHorizontal: 2,
                 paddingVertical: 6,
-                paddingBottom: Platform.OS === 'android' ? 36 : 30,
+                paddingBottom: 72 + (keyboardComposerOffset > 0 ? 0 : Math.min(safeBottomInset, 8)),
               }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -1813,7 +1884,7 @@ export default function ChatScreen() {
                 accessibilityHint={t('chat.scrollLatestHint')}
                 className="absolute right-3 h-10 w-10 items-center justify-center rounded-full border"
                 style={{
-                  bottom: 96 + (Platform.OS === 'android' ? androidComposerOffset : 0),
+                  bottom: 96 + composerBottomInset,
                   borderColor: colors.border,
                   backgroundColor: isDark ? '#151515' : '#FFFFFF',
                 }}
@@ -1829,7 +1900,7 @@ export default function ChatScreen() {
           style={{
             borderColor: colors.primary,
             backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF',
-            marginBottom: Platform.OS === 'android' ? androidComposerOffset : 0,
+            marginBottom: composerBottomInset,
           }}
         >
           <TextInput
@@ -2027,7 +2098,7 @@ export default function ChatScreen() {
                 pointerEvents={upgradeNoticeKind ? 'auto' : 'none'}
                 className="absolute left-3 right-3 rounded-2xl border px-3 py-2"
                 style={{
-                  bottom: 102 + (Platform.OS === 'android' ? androidComposerOffset : 0),
+                  bottom: 102 + composerBottomInset,
                   borderColor: colors.primary,
                   backgroundColor: isDark ? 'rgba(23,23,28,0.96)' : 'rgba(255,255,255,0.98)',
                 }}
@@ -2083,7 +2154,7 @@ export default function ChatScreen() {
                 pointerEvents="none"
                 className="absolute left-3 right-3 rounded-2xl border px-3 py-2.5"
                 style={{
-                  bottom: 154 + (Platform.OS === 'android' ? androidComposerOffset : 0),
+                  bottom: 154 + composerBottomInset,
                   borderColor: '#22C55E',
                   backgroundColor: isDark ? 'rgba(6,78,59,0.95)' : 'rgba(236,253,245,0.98)',
                 }}

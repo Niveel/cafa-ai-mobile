@@ -41,14 +41,20 @@ export function TopAuthNav() {
         accessibilityLabel={t('nav.accountActions')}
         className="rounded-full border p-1"
         style={{
-          alignSelf: 'flex-start',
-          maxWidth: '100%',
-          borderColor: 'transparent',
-          backgroundColor: isDark ? 'rgba(10, 10, 10, 0.92)' : 'rgba(255, 255, 255, 0.95)',
+          alignSelf: 'stretch',
+          width: '100%',
+          borderWidth: 1.8,
+          borderColor: colors.primary,
+          backgroundColor: isDark ? 'rgba(20, 14, 32, 0.96)' : 'rgba(249, 245, 255, 0.98)',
+          shadowColor: colors.primary,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: isDark ? 0.26 : 0.14,
+          shadowRadius: 14,
+          elevation: 8,
         }}
         >
-        <View className="flex-row items-center gap-1">
-          <View className="flex-row items-center" style={{ marginRight: 10 }}>
+        <View className="flex-row items-center justify-between px-1">
+          <View className="flex-row items-center pr-2">
             <View style={{ marginRight: 6 }}>
               <AppLogo size={20} compact showWordmark={false} />
             </View>
@@ -56,41 +62,43 @@ export function TopAuthNav() {
               {t('app.name')}
             </Text>
           </View>
-          {!isAuthenticated ? (
-            <>
+          <View className="flex-row items-center gap-1">
+            {!isAuthenticated ? (
+              <>
+                <AppButton
+                  label={t('auth.login')}
+                  onPress={() => router.push('/(auth)/login')}
+                  variant="outline"
+                  iconName="log-in-outline"
+                  minWidth={64}
+                  width={82}
+                  compact
+                />
+                <AppButton
+                  label={t('auth.signup')}
+                  onPress={() => router.push('/(auth)/signup')}
+                  variant="solid"
+                  iconName="person-add-outline"
+                  minWidth={68}
+                  width={82}
+                  compact
+                />
+              </>
+            ) : (
               <AppButton
-                label={t('auth.login')}
-                onPress={() => router.push('/(auth)/login')}
-                variant="outline"
-                iconName="log-in-outline"
-                minWidth={64}
-                width={82}
+                label={t('auth.signout')}
+                onPress={() => {
+                  hapticImpact();
+                  setShowSignOutPrompt(true);
+                }}
+                variant="danger"
+                iconName="log-out-outline"
+                minWidth={84}
+                width={102}
                 compact
               />
-              <AppButton
-                label={t('auth.signup')}
-                onPress={() => router.push('/(auth)/signup')}
-                variant="solid"
-                iconName="person-add-outline"
-                minWidth={68}
-                width={82}
-                compact
-              />
-            </>
-          ) : (
-            <AppButton
-              label={t('auth.signout')}
-              onPress={() => {
-                hapticImpact();
-                setShowSignOutPrompt(true);
-              }}
-              variant="danger"
-              iconName="log-out-outline"
-              minWidth={84}
-              width={102}
-              compact
-            />
-          )}
+            )}
+          </View>
         </View>
       </Animated.View>
     </>

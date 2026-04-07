@@ -1,5 +1,6 @@
 import { Drawer } from 'expo-router/drawer';
 import { Ionicons } from '@expo/vector-icons';
+import { View } from 'react-native';
 import { useAppTheme, useI18n } from '@/hooks';
 import { AppDrawerContent } from '@/components/ui/AppDrawerContent';
 import { useAppContext } from '@/context';
@@ -22,7 +23,9 @@ export default function DrawerLayout() {
 
   return (
     <Drawer
-      drawerContent={(props) => <AppDrawerContent {...props} />}
+      drawerContent={(props) =>
+        isAuthenticated ? <AppDrawerContent {...props} /> : <View style={{ flex: 1, backgroundColor: colors.surface }} />
+      }
       screenOptions={({ route }) => ({
         headerShown: false,
         sceneStyle: {
@@ -30,12 +33,6 @@ export default function DrawerLayout() {
         },
         drawerActiveTintColor: colors.primary,
         drawerInactiveTintColor: colors.textSecondary,
-        drawerStyle: {
-          backgroundColor: colors.surface,
-          borderRightColor: colors.border,
-          borderRightWidth: 1,
-          width: 320,
-        },
         drawerLabelStyle: {
           marginLeft: -6,
           fontSize: 16,
@@ -49,6 +46,12 @@ export default function DrawerLayout() {
         swipeEdgeWidth: 80,
         drawerType: 'slide',
         overlayColor: 'transparent',
+        drawerStyle: {
+          backgroundColor: colors.surface,
+          borderRightColor: colors.border,
+          borderRightWidth: 1,
+          width: isAuthenticated ? 320 : 0,
+        },
         drawerIcon: ({ color, size }) => (
           <Ionicons name={drawerIcons[route.name] ?? 'ellipse-outline'} size={size} color={color} />
         ),

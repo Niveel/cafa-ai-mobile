@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -67,10 +67,25 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <View className="flex-1 justify-end">
+      <View
+        className="flex-1 justify-end"
+        style={{
+          backgroundColor: isDark ? 'rgba(4, 6, 12, 0.72)' : 'rgba(241, 244, 255, 0.72)',
+        }}
+      >
         <Animated.View style={[{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, overlayStyle]}>
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              backgroundColor: isDark ? 'rgba(4, 6, 12, 0.38)' : 'rgba(246, 248, 255, 0.42)',
+            }}
+          />
           <BlurView
-            intensity={isDark ? 40 : 55}
+            intensity={isDark ? 75 : 82}
             tint={isDark ? 'dark' : 'light'}
             style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
           />
@@ -84,24 +99,25 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
         />
 
-        <Animated.View
-          accessibilityViewIsModal
-          className="rounded-t-3xl"
-          style={[
-            sheetStyle,
-            {
-              minHeight: '84%',
-              maxHeight: '92%',
-              backgroundColor: isDark ? '#0E0E12' : '#FFFFFF',
-              borderTopWidth: 1.5,
-              borderColor: colors.primary,
-              paddingTop: Math.max(10, insets.top * 0.25),
-              paddingHorizontal: 10,
-              paddingBottom: Math.max(insets.bottom + 8, 16),
-            },
-          ]}
-        >
-          <View className="mb-3 flex-row items-center justify-between">
+        <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 10}>
+          <Animated.View
+            accessibilityViewIsModal
+            className="rounded-t-3xl"
+            style={[
+              sheetStyle,
+              {
+                minHeight: '84%',
+                maxHeight: '92%',
+                backgroundColor: isDark ? '#0E0E12' : '#FFFFFF',
+                borderTopWidth: 1.5,
+                borderColor: colors.primary,
+                paddingTop: Math.max(10, insets.top * 0.25),
+                paddingHorizontal: 10,
+                paddingBottom: Math.max(insets.bottom + 8, 16),
+              },
+            ]}
+          >
+            <View className="mb-3 flex-row items-center justify-between">
             <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>
               {t('settings.title')}
             </Text>
@@ -165,7 +181,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
             </ScrollView>
           </View>
 
-          <ScrollView
+            <ScrollView
             className="flex-1 rounded-2xl"
             style={{
               borderWidth: 1,
@@ -346,8 +362,9 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                 </Text>
               </Animated.View>
             )}
-          </ScrollView>
-        </Animated.View>
+            </ScrollView>
+          </Animated.View>
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );

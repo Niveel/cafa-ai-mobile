@@ -64,6 +64,7 @@ type GuestCacheOptions = { force?: boolean };
 
 let sessionCache: GuestSessionPayload | null = null;
 let sessionPromise: Promise<GuestSessionPayload> | null = null;
+let guestApiUnavailableError: GuestApiError | null = null;
 const GUEST_LIST_TTL_MS = 20_000;
 const GUEST_DETAIL_TTL_MS = 12_000;
 let guestListCache: { value: GuestConversationSummary[]; expiresAt: number } | null = null;
@@ -113,25 +114,33 @@ export function invalidateGuestChatCache(conversationId?: string) {
   guestDetailPromises.clear();
 }
 
-async function parseGuestResponseError(response: Response, fallback: string) {
-  if (response.status === 404) {
-    return toGuestApiError(
-      'Guest mode API is not available on this backend yet.',
-      'GUEST_ENDPOINT_UNAVAILABLE',
-      response.status,
-    );
-  }
+async function parseGuestResponseError(response: Response, fallback: string, endpoint?: string) {
   const payload = (await response.json().catch(() => null)) as GuestApiResponse<unknown> | null;
-  return toGuestApiError(payload?.message ?? fallback, payload?.code ?? payload?.error, response.status);
+  const backendMessage = payload?.message ?? fallback;
+  const backendCode = payload?.code ?? payload?.error;
+
+  if (response.status === 404 && (backendCode === 'NOT_FOUND' || endpoint?.includes('/guest/'))) {
+    const message = endpoint
+      ? `Guest mode is unavailable on this backend (${endpoint}).`
+      : 'Guest mode is unavailable on this backend.';
+    return toGuestApiError(message, 'GUEST_ENDPOINT_UNAVAILABLE', response.status);
+  }
+
+  return toGuestApiError(backendMessage, backendCode, response.status);
 }
 
 async function createGuestSession(): Promise<GuestSessionPayload> {
-  const response = await fetch(`${API_BASE_URL}/guest/session`, {
+  const endpoint = `${API_BASE_URL}/guest/session`;
+  const response = await fetch(endpoint, {
     method: 'POST',
   });
 
   if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not create guest session.');
+    const error = await parseGuestResponseError(response, 'Could not create guest session.', endpoint);
+    if (error.code === 'GUEST_ENDPOINT_UNAVAILABLE') {
+      guestApiUnavailableError = error;
+    }
+    throw error;
   }
 
   const payload = (await response.json()) as GuestApiResponse<GuestSessionPayload>;
@@ -149,6 +158,10 @@ async function createGuestSession(): Promise<GuestSessionPayload> {
 }
 
 export async function ensureGuestSession() {
+  if (guestApiUnavailableError) {
+    throw guestApiUnavailableError;
+  }
+
   if (sessionCache?.guestSessionToken && !isLikelyExpired(sessionCache.expiresAt)) {
     return sessionCache;
   }
@@ -332,7 +345,7 @@ export async function sendGuestMessageStream(
     );
 
     if (!nonStreamResponse.ok) {
-      throw await parseGuestResponseError(nonStreamResponse, 'Could not send guest message.');
+      throw await parseGuestResponseError(nonStreamResponse, 'Could not send guest message.', `${API_BASE_URL}/guest/chat/${conversationId}/messages`);
     }
 
     const payload = (await nonStreamResponse.json().catch(() => null)) as GuestApiResponse<{
@@ -396,7 +409,7 @@ export async function sendGuestMessageStream(
   );
 
   if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not send guest message.');
+    throw await parseGuestResponseError(response, 'Could not send guest message.', `${API_BASE_URL}/guest/chat/${conversationId}/messages`);
   }
 
   const contentType = response.headers.get('content-type') ?? '';

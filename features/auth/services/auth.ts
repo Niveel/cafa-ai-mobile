@@ -35,6 +35,37 @@ export async function verifyOtp(request: VerifyOtpRequest) {
   }
 }
 
+export async function resendOtp(email: string) {
+  try {
+    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.resendOtp, { email });
+    return response.data?.message ?? 'Verification code sent to your email';
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function forgotPassword(email: string) {
+  try {
+    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.forgotPassword, { email });
+    return response.data?.message ?? 'If that email is registered, a reset code has been sent';
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function resetPassword(email: string, otp: string, newPassword: string) {
+  try {
+    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.resetPassword, {
+      email,
+      otp,
+      newPassword,
+    });
+    return response.data?.message ?? 'Password reset successful';
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
 export async function refreshAccessToken(refreshToken?: string) {
   try {
     const response: AxiosResponse<{ data: { accessToken: string; refreshToken?: string } }> = await apiClient.post(

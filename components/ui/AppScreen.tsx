@@ -14,6 +14,7 @@ type AppScreenProps = {
   showTopChrome?: boolean;
   showHeading?: boolean;
   topChromeOffset?: number;
+  contentTopOffset?: number;
 };
 
 export function AppScreen({
@@ -23,6 +24,7 @@ export function AppScreen({
   showTopChrome = true,
   showHeading = true,
   topChromeOffset = 0,
+  contentTopOffset = 0,
 }: AppScreenProps) {
   const { colors } = useAppTheme();
   const { isAuthenticated } = useAppContext();
@@ -30,7 +32,7 @@ export function AppScreen({
   const horizontalPadding = 10;
   const floatingTop = insets.top + 8 + topChromeOffset;
   const contentTop = showTopChrome
-    ? insets.top + 70 + topChromeOffset
+    ? insets.top + 70 + topChromeOffset + contentTopOffset
     : insets.top + (showHeading ? 20 : 8);
   const contentGapTop = showHeading ? (subtitle ? 20 : 8) : 0;
 
@@ -47,7 +49,14 @@ export function AppScreen({
           </View>
         </View>
       ) : null}
-      <View className="flex-1 pb-8" style={{ paddingTop: contentTop, paddingHorizontal: horizontalPadding }}>
+      <View
+        className="flex-1"
+        style={{
+          paddingTop: contentTop,
+          paddingHorizontal: horizontalPadding,
+          paddingBottom: Math.max(insets.bottom + 8, 16),
+        }}
+      >
         {showHeading ? (
           <>
             <Text

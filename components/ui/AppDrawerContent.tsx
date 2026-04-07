@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, Share, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,7 +59,6 @@ type ChatRowProps = {
   menuOpen: boolean;
   onPress: (id: string) => void;
   onToggleMenu: (id: string) => void;
-  onShare: (id: string) => void;
   onRename: (id: string) => void;
   onPin: (id: string) => void;
   onArchive: (id: string) => void;
@@ -79,7 +78,6 @@ const ChatRow = memo(function ChatRow({
   menuOpen,
   onPress,
   onToggleMenu,
-  onShare,
   onRename,
   onPin,
   onArchive,
@@ -94,23 +92,24 @@ const ChatRow = memo(function ChatRow({
 }: ChatRowProps) {
   return (
     <View className="relative">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('drawer.openChat', { title: item.title })}
-        accessibilityHint={t('drawer.openChatHint')}
-        onPress={() => onPress(item.id)}
-        style={({ pressed }) => ({
-          borderWidth: 1,
-          borderColor: active ? activeTint : borderColor,
-          backgroundColor: active ? `${activeTint}1A` : 'transparent',
-          borderRadius: 14,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          opacity: pressed ? 0.9 : 1,
-        })}
-      >
-        <View className="flex-row items-start justify-between">
-          <View className="mr-3 flex-1">
+      <View className="flex-row items-stretch">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('drawer.openChat', { title: item.title })}
+          accessibilityHint={t('drawer.openChatHint')}
+          onPress={() => onPress(item.id)}
+          style={({ pressed }) => ({
+            flex: 1,
+            borderWidth: 1,
+            borderColor: active ? activeTint : borderColor,
+            backgroundColor: active ? `${activeTint}1A` : 'transparent',
+            borderRadius: 14,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          <View className="mr-2 flex-1">
             <View className="flex-row items-center">
               {isPinned ? (
                 <Ionicons name="pin" size={12} color={activeTint} style={{ marginRight: 6 }} />
@@ -123,34 +122,32 @@ const ChatRow = memo(function ChatRow({
               {item.preview}
             </Text>
           </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
-            accessibilityHint={t('drawer.chatMenuHint')}
-            onPress={() => onToggleMenu(item.id)}
-            className="rounded-full p-1.5"
-            hitSlop={8}
-          >
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
+          accessibilityHint={t('drawer.chatMenuHint')}
+          onPress={() => onToggleMenu(item.id)}
+          className="ml-2 items-center justify-center rounded-full"
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={{
+            width: 34,
+            minHeight: 34,
+            alignSelf: 'center',
+          }}
+          android_ripple={{ color: `${activeTint}22`, borderless: true }}
+        >
+          <View pointerEvents="none" className="rounded-full p-1.5">
             <Ionicons name="ellipsis-horizontal" size={16} color={textSecondary} />
-          </Pressable>
-        </View>
-      </Pressable>
+          </View>
+        </Pressable>
+      </View>
 
       {menuOpen ? (
         <View
           className="absolute right-2 top-11 z-50 min-w-[158px] rounded-xl border p-1"
           style={{ borderColor, backgroundColor: '#0F0F0F' }}
         >
-          <Pressable
-            onPress={() => onShare(item.id)}
-            accessibilityRole="button"
-            accessibilityLabel={t('drawer.share')}
-            className="flex-row items-center rounded-lg px-2.5 py-2"
-          >
-            <Ionicons name="share-social-outline" size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.share')}</Text>
-          </Pressable>
           <Pressable
             onPress={() => onRename(item.id)}
             accessibilityRole="button"
@@ -370,18 +367,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     [navigation, openRoute],
   );
 
-  const onShareChat = useCallback(
-    async (chatId: string) => {
-      setChatActionMenuId(null);
-      const chat = chats.find((item) => item.id === chatId);
-      if (!chat) return;
-      await Share.share({
-        message: `${t('app.name')} ${t('drawer.newChat').toLowerCase()}\n\n${customTitles[chat.id] || chat.title}\n${chat.preview}`,
-      });
-    },
-    [chats, customTitles, t],
-  );
-
   const onRenameChat = useCallback((chatId: string) => {
     setChatActionMenuId(null);
     setRenameChatId(chatId);
@@ -461,7 +446,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         menuOpen={chatActionMenuId === item.id}
         onPress={openChat}
         onToggleMenu={(id) => setChatActionMenuId((prev) => (prev === id ? null : id))}
-        onShare={onShareChat}
         onRename={onRenameChat}
         onPin={onTogglePinChat}
         onArchive={onArchiveChat}
@@ -486,7 +470,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       onArchiveChat,
       onRenameChat,
       onRequestDeleteChat,
-      onShareChat,
       onTogglePinChat,
       openChat,
       pinnedIds,
@@ -502,8 +485,13 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   return (
     <View
-      className="flex-1 pb-4"
-      style={{ backgroundColor: colors.surface, paddingTop: Math.max(insets.top, 12), paddingHorizontal: 10 }}
+      className="flex-1"
+      style={{
+        backgroundColor: colors.surface,
+        paddingTop: Math.max(insets.top, 12),
+        paddingHorizontal: 10,
+        paddingBottom: Math.max(insets.bottom, 12),
+      }}
     >
       <AppPromptModal
         visible={showSignoutPrompt}
@@ -515,8 +503,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         iconName="log-out-outline"
         onCancel={() => setShowSignoutPrompt(false)}
         onConfirm={() => {
+          navigation.closeDrawer();
           setShowSignoutPrompt(false);
+          setMenuOpen(false);
+          setChatActionMenuId(null);
           signOut();
+          router.replace('/(drawer)');
         }}
       />
 
@@ -607,7 +599,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           <View
             className="absolute left-0 right-0 rounded-2xl p-2"
             style={{
-              bottom: 74,
+              bottom: 74 + Math.max(insets.bottom, 8),
               borderWidth: 1.5,
               borderColor: colors.primary,
               backgroundColor: isDark ? '#0F0F0F' : '#FFFFFF',
