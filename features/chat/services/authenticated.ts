@@ -433,11 +433,11 @@ export async function deleteAuthenticatedConversation(conversationId: string) {
 export async function sendAuthenticatedMessageStream(
   conversationId: string,
   message: string,
-  attachments: Array<{
+  attachments: {
     uri: string;
     fileName?: string;
     mimeType?: string;
-  }>,
+  }[],
   onEvent: (event: AuthChatStreamEvent) => void,
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',

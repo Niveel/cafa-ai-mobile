@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Dimensions, FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,7 @@ import {
   setPinnedChat,
 } from '@/services/storage/chatPreferences';
 import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
+import { subscribeToChatMutated } from '@/services';
 import { hapticSelection } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
@@ -52,6 +53,28 @@ type DrawerChatItem = {
   preview: string;
   updatedAt: string;
 };
+
+function toTitleCase(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function deriveSmartChatTitle(preview: string, fallback: string) {
+  const cleaned = preview.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return fallback;
+  const lower = cleaned.toLowerCase();
+  if (/^(hi|hello|hey)\b/.test(lower) || lower.includes('how are you')) {
+    return 'Casual Greeting';
+  }
+  if (lower.includes('how to be rich') || lower.includes('make money') || lower.includes('wealth')) {
+    return 'Wealth Building Advice';
+  }
+  const words = cleaned.replace(/[^\p{L}\p{N}\s'-]/gu, '').split(/\s+/).slice(0, 5).join(' ');
+  return toTitleCase(words || fallback);
+}
 
 type ChatRowProps = {
   item: DrawerChatItem;
@@ -90,63 +113,117 @@ const ChatRow = memo(function ChatRow({
   isAuthenticated,
   t,
 }: ChatRowProps) {
+  const menuTriggerRef = useRef<View | null>(null);
+  const [menuOpenUpward, setMenuOpenUpward] = useState(false);
+  const cardBg = active ? `${activeTint}1F` : 'transparent';
+  const cardBorder = active ? activeTint : borderColor;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    requestAnimationFrame(() => {
+      menuTriggerRef.current?.measureInWindow((_x, y, _width, height) => {
+        const viewportHeight = Dimensions.get('window').height;
+        const estimatedMenuHeight = isAuthenticated ? 178 : 118;
+        const spaceBelow = viewportHeight - (y + height);
+        const spaceAbove = y;
+        setMenuOpenUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
+      });
+    });
+  }, [isAuthenticated, menuOpen]);
+
   return (
     <View className="relative">
-      <View className="flex-row items-stretch">
+      <View
+        className="relative rounded-2xl"
+        style={{
+          borderWidth: 1.2,
+          borderColor: cardBorder,
+          backgroundColor: cardBg,
+          minHeight: 68,
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingLeft: 12,
+          paddingRight: 8,
+          paddingVertical: 8,
+        }}
+      >
+        {active ? (
+          <View
+            className="absolute left-1 top-2 bottom-2 w-1 rounded-full"
+            style={{ backgroundColor: activeTint }}
+          />
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('drawer.openChat', { title: item.title })}
           accessibilityHint={t('drawer.openChatHint')}
           onPress={() => onPress(item.id)}
           style={({ pressed }) => ({
-            flex: 1,
-            borderWidth: 1,
-            borderColor: active ? activeTint : borderColor,
-            backgroundColor: active ? `${activeTint}1A` : 'transparent',
-            borderRadius: 14,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
+            width: '100%',
+            minWidth: 0,
+            paddingLeft: active ? 8 : 2,
+            paddingRight: 56,
+            paddingVertical: 4,
             opacity: pressed ? 0.9 : 1,
           })}
         >
-          <View className="mr-2 flex-1">
-            <View className="flex-row items-center">
+          <View style={{ minHeight: 40, justifyContent: 'center', width: '100%', maxWidth: '100%' }}>
+            <View className="flex-row items-center" style={{ minWidth: 0 }}>
               {isPinned ? (
-                <Ionicons name="pin" size={12} color={activeTint} style={{ marginRight: 6 }} />
+                <Ionicons name="pin" size={11} color={activeTint} style={{ marginRight: 6 }} />
               ) : null}
-              <Text numberOfLines={1} style={{ color: textPrimary, fontWeight: '600', fontSize: 14, flexShrink: 1 }}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{ color: textPrimary, fontWeight: '600', fontSize: 12, lineHeight: 16, flexShrink: 1, minWidth: 0 }}
+              >
                 {item.title}
               </Text>
             </View>
-            <Text numberOfLines={1} style={{ marginTop: 2, color: textSecondary, fontSize: 12 }}>
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{ marginTop: 4, color: textSecondary, fontSize: 11, lineHeight: 14, minWidth: 0 }}
+            >
               {item.preview}
             </Text>
           </View>
         </Pressable>
+
         <Pressable
+          ref={menuTriggerRef}
           accessibilityRole="button"
           accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
           accessibilityHint={t('drawer.chatMenuHint')}
           onPress={() => onToggleMenu(item.id)}
-          className="ml-2 items-center justify-center rounded-full"
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          className="absolute items-center justify-center rounded-full"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{
-            width: 34,
-            minHeight: 34,
-            alignSelf: 'center',
+            right: 10,
+            top: '50%',
+            transform: [{ translateY: -16 }],
+            width: 32,
+            height: 32,
+            borderWidth: 1,
+            borderColor: active ? activeTint : borderColor,
+            backgroundColor: active ? activeTint : '#16161A',
+            zIndex: 2,
           }}
-          android_ripple={{ color: `${activeTint}22`, borderless: true }}
+          android_ripple={{ color: `${activeTint}30`, borderless: false }}
         >
-          <View pointerEvents="none" className="rounded-full p-1.5">
-            <Ionicons name="ellipsis-horizontal" size={16} color={textSecondary} />
-          </View>
+          <Ionicons name="ellipsis-vertical" size={16} color={active ? '#FFFFFF' : textPrimary} />
         </Pressable>
       </View>
 
       {menuOpen ? (
         <View
-          className="absolute right-2 top-11 z-50 min-w-[158px] rounded-xl border p-1"
-          style={{ borderColor, backgroundColor: '#0F0F0F' }}
+          className="absolute right-2 z-50 min-w-[158px] rounded-xl border p-1"
+          style={{
+            borderColor,
+            backgroundColor: '#0F0F0F',
+            top: menuOpenUpward ? undefined : 42,
+            bottom: menuOpenUpward ? 42 : undefined,
+          }}
         >
           <Pressable
             onPress={() => onRename(item.id)}
@@ -268,26 +345,34 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         if (staleArchived.length) {
           await Promise.all(staleArchived.map((chatId) => removeArchivedChatSnapshot(chatId)));
         }
-        setChats(
-          conversationList.map((item) => ({
-            id: item.id,
-            title: item.title,
-            preview: item.preview || t('drawer.openChatHint'),
-            updatedAt: item.updatedAt,
-          })),
-        );
-        setActiveChatId((prev) => prev || conversationList[0]?.id || '');
+        const mappedChats = conversationList.map((item) => {
+            const preview = item.preview || t('drawer.openChatHint');
+            const rawTitle = (item.title || '').trim();
+            const isUntitled = !rawTitle || rawTitle.toLowerCase() === 'new chat';
+            return {
+              id: item.id,
+              title: isUntitled ? deriveSmartChatTitle(preview, t('drawer.newChat')) : rawTitle,
+              preview,
+              updatedAt: item.updatedAt,
+            };
+          });
+        setChats(mappedChats);
+        setActiveChatId((prev) => (mappedChats.some((chat) => chat.id === prev) ? prev : mappedChats[0]?.id || ''));
       } else {
         const conversationList = await listGuestConversations();
-        setChats(
-          conversationList.map((item) => ({
-            id: item._id,
-            title: item.title,
-            preview: item.lastMessagePreview || t('drawer.newChat'),
-            updatedAt: item.updatedAt,
-          })),
-        );
-        setActiveChatId((prev) => prev || conversationList[0]?._id || '');
+        const mappedChats = conversationList.map((item) => {
+            const preview = item.lastMessagePreview || t('drawer.newChat');
+            const rawTitle = (item.title || '').trim();
+            const isUntitled = !rawTitle || rawTitle.toLowerCase() === 'new chat';
+            return {
+              id: item._id,
+              title: isUntitled ? deriveSmartChatTitle(preview, t('drawer.newChat')) : rawTitle,
+              preview,
+              updatedAt: item.updatedAt,
+            };
+          });
+        setChats(mappedChats);
+        setActiveChatId((prev) => (mappedChats.some((chat) => chat.id === prev) ? prev : mappedChats[0]?.id || ''));
       }
     } catch {
       // Keep UI resilient; errors are non-fatal for drawer rendering.
@@ -298,6 +383,13 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   useEffect(() => {
     void loadChats();
+  }, [loadChats]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToChatMutated(() => {
+      void loadChats();
+    });
+    return unsubscribe;
   }, [loadChats]);
 
   const filteredChats = useMemo(() => {
@@ -334,7 +426,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       hapticSelection();
       setChatActionMenuId(null);
       setActiveChatId(chatId);
-      (navigation as any).navigate('index', { conversationId: chatId });
+      (navigation as any).navigate('index', { conversationId: chatId, newChat: undefined });
       navigation.closeDrawer();
     },
     [navigation],
@@ -342,9 +434,21 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const createNewChat = useCallback(() => {
     hapticSelection();
-    (navigation as any).navigate('index', { newChat: '1' });
+    const tempId = `temp-new-chat-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    setActiveChatId(tempId);
+    setChats((prev) => [
+      {
+        id: tempId,
+        title: t('drawer.newChat'),
+        preview: t('drawer.openChatHint'),
+        updatedAt: nowIso,
+      },
+      ...prev.filter((chat) => !chat.id.startsWith('temp-new-chat-')),
+    ]);
+    (navigation as any).navigate('index', { newChat: `${Date.now()}`, conversationId: undefined });
     navigation.closeDrawer();
-  }, [navigation]);
+  }, [navigation, t]);
 
   const onUserOption = useCallback(
     (action: 'settings' | 'plans' | 'help' | 'privacy' | 'terms' | 'login' | 'signup' | 'signout') => {
@@ -493,6 +597,18 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         paddingBottom: Math.max(insets.bottom, 12),
       }}
     >
+      {menuOpen || chatActionMenuId ? (
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            setChatActionMenuId(null);
+          }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.close')}
+        />
+      ) : null}
+
       <AppPromptModal
         visible={showSignoutPrompt}
         title={t('drawer.signoutPromptTitle')}
@@ -540,7 +656,13 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         }}
       />
 
-      <SettingsModal visible={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
+      <SettingsModal
+        visible={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        onChatsMutated={() => {
+          void loadChats();
+        }}
+      />
 
       <View>
         <View className="mb-3 mt-2 gap-2">

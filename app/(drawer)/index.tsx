@@ -77,7 +77,7 @@ import {
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
-import { getAccessToken, getDefaultVoicePreference } from '@/services';
+import { emitChatMutated, getAccessToken, getDefaultVoicePreference } from '@/services';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
 
 export default function ChatScreen() {
@@ -349,6 +349,7 @@ export default function ChatScreen() {
       let lastEndpoint = `${API_BASE_URL}/chat`;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
       const attachmentsForSend = [...attachedAssets];
+      let didMutateChats = false;
 
       const userMessage: UiMessage = {
         id: `user-${Date.now()}`,
@@ -417,6 +418,7 @@ export default function ChatScreen() {
             const created = await createGuestConversation(getPromptTitle(trimmed, t('drawer.newChat')));
             conversationId = created.conversationId;
             setGuestConversationId(conversationId);
+            didMutateChats = true;
           }
 
           lastEndpoint = `${API_BASE_URL}/guest/chat/${conversationId}/messages`;
@@ -448,6 +450,7 @@ export default function ChatScreen() {
             createIdempotencyKey(conversationId),
             language,
           );
+          didMutateChats = true;
           return;
         }
 
@@ -457,6 +460,7 @@ export default function ChatScreen() {
           const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
           conversationId = created.conversationId;
           setAuthConversationId(conversationId);
+          didMutateChats = true;
         }
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
@@ -553,6 +557,7 @@ export default function ChatScreen() {
           }
           hapticSuccess();
           videoGenerationInFlightRef.current = false;
+          didMutateChats = true;
           return;
         }
 
@@ -613,6 +618,7 @@ export default function ChatScreen() {
             );
           }
           hapticSuccess();
+          didMutateChats = true;
           return;
         }
 
@@ -661,6 +667,7 @@ export default function ChatScreen() {
             }
           }
         }, language, activeModel);
+        didMutateChats = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         const isLimitError = isLimitOrUpgradeError(error);
@@ -705,6 +712,9 @@ export default function ChatScreen() {
         }
         setStreamingModelLabel(null);
         setIsSending(false);
+        if (didMutateChats) {
+          emitChatMutated();
+        }
       }
     };
 
@@ -1263,10 +1273,13 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
-    const shouldStartNewChat = params.newChat === '1';
+    const shouldStartNewChat = typeof params.newChat === 'string' && params.newChat.trim().length > 0;
     if (shouldStartNewChat) {
       setAuthConversationId(null);
       setGuestConversationId(null);
+      setInput('');
+      inputValueRef.current = '';
+      setAttachedAssets([]);
       setMessages([createWelcomeMessage()]);
       return;
     }

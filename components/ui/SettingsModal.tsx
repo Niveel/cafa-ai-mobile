@@ -27,9 +27,10 @@ type SettingsTabKey = (typeof SETTINGS_TABS)[number]['key'];
 type SettingsModalProps = {
   visible: boolean;
   onClose: () => void;
+  onChatsMutated?: () => void;
 };
 
-export function SettingsModal({ visible, onClose }: SettingsModalProps) {
+export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModalProps) {
   const { colors, isDark, isAuthenticated, authUser, refreshAuthUser, signOut, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
   const { language, setLanguage, supportedLanguages, getLanguageLabel, t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -321,6 +322,7 @@ export function SettingsModal({ visible, onClose }: SettingsModalProps) {
                   isDark={isDark}
                   colors={colors}
                   t={t}
+                  onChatsMutated={onChatsMutated}
                 />
               </Animated.View>
             ) : activeTab === 'security' ? (

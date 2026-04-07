@@ -20,6 +20,7 @@ type DataControlsSectionProps = {
   visible: boolean;
   isAuthenticated: boolean;
   isDark: boolean;
+  onChatsMutated?: () => void;
   colors: {
     primary: string;
     border: string;
@@ -47,7 +48,7 @@ async function runInBatches<T>(items: T[], size: number, handler: (item: T) => P
   return { done, failed };
 }
 
-export function DataControlsSection({ visible, isAuthenticated, isDark, colors, t }: DataControlsSectionProps) {
+export function DataControlsSection({ visible, isAuthenticated, isDark, colors, t, onChatsMutated }: DataControlsSectionProps) {
   const [archivedItems, setArchivedItems] = useState<ArchivedChatSnapshot[]>([]);
   const [loadingArchived, setLoadingArchived] = useState(false);
   const [busyIds, setBusyIds] = useState<string[]>([]);
@@ -110,6 +111,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         }));
         const next = await upsertArchivedChatSnapshots(archivedSnapshots);
         setArchivedItems(next);
+        onChatsMutated?.();
       }
 
       if (result.failed.length) {
@@ -151,6 +153,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
       if (result.done.length) {
         const next = await removeArchivedChatSnapshots(result.done);
         setArchivedItems(next);
+        onChatsMutated?.();
       }
 
       if (result.failed.length) {
@@ -168,7 +171,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     } finally {
       setWorking(false);
     }
-  }, [isAuthenticated, t]);
+  }, [isAuthenticated, onChatsMutated, t]);
 
   const unarchiveChat = useCallback(
     async (chatId: string) => {
@@ -178,13 +181,14 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         const next = await removeArchivedChatSnapshot(chatId);
         setArchivedItems(next);
         setStatusText(t('settings.data.unarchiveSuccess'));
+        onChatsMutated?.();
       } catch (error) {
         setStatusText(error instanceof Error ? error.message : t('settings.data.unarchiveError'));
       } finally {
         applyBusy(chatId, false);
       }
     },
-    [applyBusy, t],
+    [applyBusy, onChatsMutated, t],
   );
 
   const deleteArchivedChat = useCallback(
@@ -195,13 +199,14 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         const next = await removeArchivedChatSnapshot(chatId);
         setArchivedItems(next);
         setStatusText(t('settings.data.deleteArchivedSuccess'));
+        onChatsMutated?.();
       } catch (error) {
         setStatusText(error instanceof Error ? error.message : t('settings.data.deleteArchivedError'));
       } finally {
         applyBusy(chatId, false);
       }
     },
-    [applyBusy, t],
+    [applyBusy, onChatsMutated, t],
   );
 
   const canRun = isAuthenticated && !working;
@@ -332,4 +337,3 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     </View>
   );
 }
-
