@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { SignupFormValues, SignupValidationSchema } from '@/data';
 import { useAppTheme, useI18n } from '@/hooks';
 
@@ -54,6 +54,7 @@ export default function SignupScreen() {
                     gap: 12,
                   }}
                 >
+                  <AppLogo compact />
                   <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.signup')}</Text>
                   <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
                     {t('auth.signupBlurb')}

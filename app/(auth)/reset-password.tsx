@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppScreen, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SubmitButton } from '@/components';
 import { PasswordResetFormValues, PasswordResetValidationSchema } from '@/data';
 import { useAppTheme, useI18n } from '@/hooks';
 
@@ -12,6 +12,7 @@ export default function ResetPasswordScreen() {
   return (
     <AppScreen title={t('auth.resetPassword')} subtitle={t('auth.resetPasswordSubtitle')} showTopChrome={false}>
       <View className="gap-3">
+        <AppLogo compact />
         <Text style={{ color: colors.textSecondary }}>{t('auth.resetPasswordBlurb')}</Text>
         <AppForm<PasswordResetFormValues>
           initialValues={{ password: '', confirmPassword: '' }}

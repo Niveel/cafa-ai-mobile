@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Yup from 'yup';
 import { Text, TouchableOpacity, View } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { useAppTheme, useI18n } from '@/hooks';
 import { useAppContext } from '@/context';
 import { setAccessToken, setRefreshToken } from '@/services';
@@ -64,6 +64,7 @@ export default function VerifyOtpScreen() {
               gap: 12,
             }}
           >
+            <AppLogo compact />
             <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.verifyEmail')}</Text>
             <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>{flowMessage}</Text>
             <AppForm<VerifyOtpScreenValues>

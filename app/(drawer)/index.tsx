@@ -39,6 +39,7 @@ import {
   ChatVideoCard,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
+  IMAGE_MODE_PROMPTS,
   ImageGenerationPlaceholder,
   ImageMessageActionsRow,
   MessageActionsRow,
@@ -47,6 +48,7 @@ import {
   extractVideoPrompt,
   resolveModelBadgeLabel,
   UserPromptActionsRow,
+  VIDEO_MODE_PROMPTS,
   VideoGenerationPlaceholder,
   createIdempotencyKey,
   getPromptTitle,
@@ -92,8 +94,8 @@ export default function ChatScreen() {
     [t],
   );
   const quickPrompts = [t('chat.prompt.quick1'), t('chat.prompt.quick2'), t('chat.prompt.quick3')];
-  const imageModePrompts = [t('chat.prompt.image1'), t('chat.prompt.image2'), t('chat.prompt.image3'), t('chat.prompt.image4')];
-  const videoModePrompts = [t('chat.prompt.video1'), t('chat.prompt.video2'), t('chat.prompt.video3'), t('chat.prompt.video4')];
+  const imageModePrompts = IMAGE_MODE_PROMPTS;
+  const videoModePrompts = VIDEO_MODE_PROMPTS;
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -143,6 +145,7 @@ export default function ChatScreen() {
   const voiceNameByIdRef = useRef<Record<string, string>>({});
   const videoGenerationInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
+  const lastPromptIndexRef = useRef<{ image: number; video: number }>({ image: -1, video: -1 });
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
@@ -692,7 +695,13 @@ export default function ChatScreen() {
 
   const applyRandomPrompt = (kind: 'image' | 'video') => {
     const pool = kind === 'image' ? imageModePrompts : videoModePrompts;
-    const picked = pool[Math.floor(Math.random() * pool.length)];
+    if (pool.length === 0) return;
+    let pickedIndex = Math.floor(Math.random() * pool.length);
+    if (pool.length > 1 && pickedIndex === lastPromptIndexRef.current[kind]) {
+      pickedIndex = (pickedIndex + 1 + Math.floor(Math.random() * (pool.length - 1))) % pool.length;
+    }
+    lastPromptIndexRef.current[kind] = pickedIndex;
+    const picked = pool[pickedIndex];
     inputValueRef.current = picked;
     setInput(picked);
   };

@@ -11,13 +11,22 @@ import {
   logout as logoutRequest,
 } from '@/features';
 import { clearSessionTokens, getRefreshToken } from '@/services/storage/session';
-import { getAccessToken, getAppPreferences, setAppPreferences, type AnimationLevel } from '@/services';
+import {
+  getAccessToken,
+  getAppPreferences,
+  setAppPreferences,
+  getOnboardingCompleted,
+  setOnboardingCompleted,
+  type AnimationLevel,
+} from '@/services';
 import { AuthUser } from '@/types';
 import { setAnimationLevel as applyAnimationLevel, setHapticsEnabled as applyHapticsEnabled } from '@/utils';
 
 type AppContextValue = {
   isReady: boolean;
   setIsReady: (value: boolean) => void;
+  hasCompletedOnboarding: boolean;
+  completeOnboarding: () => void;
   themeMode: ThemeMode;
   setThemeMode: (mode: ThemeMode) => void;
   toggleThemeMode: () => void;
@@ -48,6 +57,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const posthog = usePostHog();
   const systemColorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const initialThemeMode = systemColorScheme === 'dark' ? 'dark' : 'light';
   const [themeMode, setThemeMode] = useState<ThemeMode>(initialThemeMode);
   const [language, setLanguage] = useState<AppLanguage>('en');
@@ -87,11 +97,15 @@ export function AppProvider({ children }: AppProviderProps) {
 
     const hydrateApp = async () => {
       try {
-        const prefs = await getAppPreferences();
+        const [prefs, onboardingDone] = await Promise.all([
+          getAppPreferences(),
+          getOnboardingCompleted(),
+        ]);
         setThemeMode(prefs.themeMode);
         setLanguage(prefs.language);
         setHapticsEnabled(prefs.hapticsEnabled);
         setAnimationLevel(prefs.animationLevel);
+        setHasCompletedOnboarding(onboardingDone);
       } catch {
         // Safe fallback defaults are already set.
       }
@@ -158,10 +172,17 @@ export function AppProvider({ children }: AppProviderProps) {
     void hydrateAuth();
   }, [hydrateAuth]);
 
+  const completeOnboarding = useCallback(() => {
+    setHasCompletedOnboarding(true);
+    void setOnboardingCompleted(true);
+  }, []);
+
   const value = useMemo(
     () => ({
       isReady,
       setIsReady,
+      hasCompletedOnboarding,
+      completeOnboarding,
       themeMode,
       setThemeMode,
       toggleThemeMode: () => setThemeMode((prevMode) => (prevMode === 'dark' ? 'light' : 'dark')),
@@ -181,7 +202,23 @@ export function AppProvider({ children }: AppProviderProps) {
       setAnimationLevel,
       t: (key: string, params?: Record<string, string>) => translate(language, key, params),
     }),
-    [animationLevel, authUser, colors, hapticsEnabled, hydrateAuth, isAuthenticated, isDark, isReady, language, login, signOut, signup, themeMode],
+    [
+      animationLevel,
+      authUser,
+      colors,
+      completeOnboarding,
+      hasCompletedOnboarding,
+      hapticsEnabled,
+      hydrateAuth,
+      isAuthenticated,
+      isDark,
+      isReady,
+      language,
+      login,
+      signOut,
+      signup,
+      themeMode,
+    ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

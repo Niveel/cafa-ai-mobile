@@ -6,6 +6,7 @@ import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { AppButton } from './AppButton';
+import { AppLogo } from './AppLogo';
 import { AppPromptModal } from './AppPromptModal';
 import { MOTION, hapticImpact } from '@/utils';
 
@@ -45,15 +46,16 @@ export function TopAuthNav() {
           borderColor: 'transparent',
           backgroundColor: isDark ? 'rgba(10, 10, 10, 0.92)' : 'rgba(255, 255, 255, 0.95)',
         }}
-      >
+        >
         <View className="flex-row items-center gap-1">
-          <Text
-            numberOfLines={1}
-            style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginRight: 4 }}
-            accessibilityRole="text"
-          >
-            {t('app.name')}
-          </Text>
+          <View className="flex-row items-center" style={{ marginRight: 10 }}>
+            <View style={{ marginRight: 6 }}>
+              <AppLogo size={20} compact showWordmark={false} />
+            </View>
+            <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }} accessibilityRole="text">
+              {t('app.name')}
+            </Text>
+          </View>
           {!isAuthenticated ? (
             <>
               <AppButton

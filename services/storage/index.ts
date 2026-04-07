@@ -6,3 +6,4 @@ export * from './personalizationPreferences';
 export * from './archivedChats';
 export * from './billingCheckout';
 export * from './downloads';
+export * from './onboarding';

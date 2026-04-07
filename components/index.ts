@@ -11,5 +11,6 @@ export * from './ui/AppInputPromptModal';
 export * from './ui/BlankRouteScreen';
 export * from './ui/LegalDocumentScreen';
 export * from './ui/SettingsModal';
+export * from './ui/AppLogo';
 export * from './chat';
 export * from './form';

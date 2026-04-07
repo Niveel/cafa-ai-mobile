@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppScreen, SecondaryNav, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { LoginFormValues, LoginValidationSchema } from '@/data';
 import { login as loginRequest } from '@/features';
 import { useAppContext } from '@/context';
@@ -63,6 +63,7 @@ export default function LoginScreen() {
                     gap: 12,
                   }}
                 >
+                  <AppLogo compact />
                   <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.login')}</Text>
                   <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
                     {t('auth.loginBlurb')}
@@ -153,9 +154,51 @@ export default function LoginScreen() {
                 </View>
               </LinearGradient>
               <View className="mt-4 px-2">
-                <Text style={{ color: colors.textSecondary, textAlign: 'center', fontSize: 12 }}>
-                  {t('auth.termsNotice')}
-                </Text>
+                <View className="flex-row flex-wrap items-center justify-center">
+                  <Text style={{ color: colors.textSecondary, textAlign: 'center', fontSize: 12 }}>
+                    {t('auth.termsPrefix')}
+                  </Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={t('drawer.userMenu.terms')}
+                    onPress={() => router.push('/(drawer)/terms-of-service')}
+                    className="mx-1"
+                  >
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontSize: 12,
+                        fontWeight: '700',
+                        textDecorationLine: 'underline',
+                      }}
+                    >
+                      {t('drawer.userMenu.terms')}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: colors.textSecondary, textAlign: 'center', fontSize: 12 }}>
+                    {t('auth.termsAnd')}
+                  </Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={t('drawer.userMenu.privacy')}
+                    onPress={() => router.push('/(drawer)/privacy-policy')}
+                    className="mx-1"
+                  >
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontSize: 12,
+                        fontWeight: '700',
+                        textDecorationLine: 'underline',
+                      }}
+                    >
+                      {t('drawer.userMenu.privacy')}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: colors.textSecondary, textAlign: 'center', fontSize: 12 }}>
+                    {t('auth.termsSuffix')}
+                  </Text>
+                </View>
               </View>
             </View>
           </ScrollView>

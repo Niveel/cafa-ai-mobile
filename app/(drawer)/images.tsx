@@ -248,7 +248,7 @@ export default function ImagesScreen() {
       setIsLoadingMore(false);
       setIsRefreshing(false);
     }
-  }, [hasNextPage, showNotice, t]);
+  }, [showNotice, t]);
 
   useEffect(() => {
     if (hasBootstrappedRef.current) return;

@@ -678,6 +678,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
                   source={userAvatarSource}
                   className="h-12 w-12 rounded-full"
                   style={{ borderWidth: 1.5, borderColor: colors.primary }}
+                  resizeMode="cover"
                   accessibilityLabel={`${t('drawer.userAvatar')}: ${userName}`}
                   onError={() => setAvatarLoadFailed(true)}
                 />
