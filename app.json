@@ -18,8 +18,9 @@
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera for avatar photos and chat attachments.",
         "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photo library for attachments and profile images.",
         "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save generated images and videos to your photo library.",
-        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone for speech-to-text and voice features.",
-        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to transcribe your speech into text prompts."
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone for speech-to-text.",
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to transcribe your speech into text.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -76,6 +77,18 @@
             }
           ]
         }
+      ],
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "androidStatusBar": {
@@ -147,6 +160,9 @@
       "eas": {
         "projectId": "f51ee322-7d82-43bd-a791-bd95e8e01363"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f51ee322-7d82-43bd-a791-bd95e8e01363"
     },
     "runtimeVersion": {
       "policy": "appVersion"
