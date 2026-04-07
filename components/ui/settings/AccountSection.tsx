@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import Constants from 'expo-constants';
 import * as Yup from 'yup';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -17,7 +18,7 @@ import { API_BASE_URL } from '@/lib';
 import { createBillingPortalSession, getSubscriptionStatus } from '@/features/billing/services/subscriptions';
 import { deleteCurrentUserAccount, updateCurrentUserProfile, uploadCurrentUserAvatar } from '@/features/auth/services/auth';
 import type { AuthUser } from '@/types';
-import type { SubscriptionStatus } from '@/types/billing.types';
+import type { SubscriptionLifecycle, SubscriptionStatus } from '@/types/billing.types';
 import { AppPromptModal } from '../AppPromptModal';
 
 type AccountSectionProps = {
@@ -88,6 +89,7 @@ export function AccountSection({
   signOut,
 }: AccountSectionProps) {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+  const [subscriptionLifecycle, setSubscriptionLifecycle] = useState<SubscriptionLifecycle | null>(null);
   const [loadingSubscription, setLoadingSubscription] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -95,6 +97,7 @@ export function AccountSection({
   const [showDeletePrompt, setShowDeletePrompt] = useState(false);
   const [showDeleteForm, setShowDeleteForm] = useState(false);
   const [avatarRenderError, setAvatarRenderError] = useState(false);
+  const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
 
   const displayName = useMemo(() => toTitleCase(authUser?.name ?? ''), [authUser?.name]);
   const resolvedAvatarUri = useMemo(
@@ -112,7 +115,8 @@ export function AccountSection({
     setLoadingSubscription(true);
     try {
       const data = await getSubscriptionStatus();
-      setSubscription(data);
+      setSubscription(data.subscription);
+      setSubscriptionLifecycle(data.subscriptionLifecycle ?? null);
     } catch {
       // Keep section resilient.
     } finally {
@@ -193,7 +197,11 @@ export function AccountSection({
   const onCancelSubscription = async () => {
     setStatusText('');
     try {
-      const { url } = await createBillingPortalSession();
+      const returnUrl = `${appScheme}://billing/return`;
+      const { url } = await createBillingPortalSession({
+        platform: 'mobile',
+        returnUrl,
+      });
       await Linking.openURL(url);
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : t('settings.account.portalError'));
@@ -292,6 +300,11 @@ export function AccountSection({
         <View className="mt-2 gap-1">
           <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{t('settings.account.currentPlan')}: {tierLabel(subscription?.tier ?? authUser?.subscriptionTier)}</Text>
           <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{t('settings.account.status')}: {subscription?.status ?? 'inactive'}</Text>
+          {subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
+            <Text style={{ color: '#B45309', fontSize: 12, marginTop: 2 }}>
+              {t('settings.account.cancelsOn', { date: new Date(subscriptionLifecycle.scheduledCancelAt).toLocaleDateString() })}
+            </Text>
+          ) : null}
           <Text style={{ color: colors.textPrimary, fontSize: 13 }}>
             {t('settings.account.renewsOn')}: {subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : '—'}
           </Text>

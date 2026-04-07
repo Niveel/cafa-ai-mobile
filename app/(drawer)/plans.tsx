@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RequireAuthRoute, SecondaryNav } from '@/components';
+import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
 import {
   createBillingPortalSession,
   createCheckoutSession,
@@ -33,7 +33,7 @@ function tierLabel(tier?: SubscriptionTier) {
 }
 
 function formatLimit(limit?: number | null) {
-  if (typeof limit !== 'number') return '∞';
+  if (typeof limit !== 'number' || limit < 0) return '\u221e';
   return `${limit}`;
 }
 
@@ -80,8 +80,14 @@ export default function PlansScreen() {
   const [dailyUsage, setDailyUsage] = useState<UsageSnapshot | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [statusText, setStatusText] = useState('');
+  const [showChangePlanPrompt, setShowChangePlanPrompt] = useState(false);
+  const [pendingTier, setPendingTier] = useState<SubscriptionTier | null>(null);
+  const [showPlanUpdatedPrompt, setShowPlanUpdatedPrompt] = useState(false);
+  const [updatedTier, setUpdatedTier] = useState<SubscriptionTier | null>(null);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
   const lastForegroundRefreshAtRef = useRef(0);
+  const portalFlowActiveRef = useRef(false);
+  const latestSubscriptionRef = useRef<{ tier: SubscriptionTier; status: string } | null>(null);
 
   const toErrorMessage = (error: unknown) => {
     if (error instanceof Error) return error.message;
@@ -96,6 +102,10 @@ export default function PlansScreen() {
         getDailyUsage({ force: options?.force }),
       ]);
       setOverview(nextOverview);
+      latestSubscriptionRef.current = {
+        tier: nextOverview.subscription.tier,
+        status: nextOverview.subscription.status,
+      };
       setPlans(nextPlansPayload.plans ?? []);
       setDailyUsage(nextDailyUsage);
       return nextOverview;
@@ -126,6 +136,48 @@ export default function PlansScreen() {
       await new Promise((resolve) => setTimeout(resolve, 4_000));
     }
     setStatusText(t('plans.upgradeSyncPending'));
+  }, [loadBillingData, t]);
+
+  const syncSubscriptionAfterPortalReturn = useCallback(async () => {
+    const previous = latestSubscriptionRef.current;
+    const timeoutAt = Date.now() + 24_000;
+    let latestOverview: SubscriptionOverview | null = null;
+    let hadError = false;
+
+    while (Date.now() < timeoutAt) {
+      try {
+        latestOverview = await loadBillingData({ force: true });
+        const changed =
+          !previous ||
+          previous.tier !== latestOverview.subscription.tier ||
+          previous.status !== latestOverview.subscription.status;
+        if (changed) {
+          setStatusText(
+            t('plans.portalSyncUpdated', {
+              plan: tierLabel(latestOverview.subscription.tier),
+              status: latestOverview.subscription.status,
+            }),
+          );
+          portalFlowActiveRef.current = false;
+          return;
+        }
+      } catch (error) {
+        hadError = true;
+        const typedError = error as { code?: string; status?: number } | undefined;
+        const message = toErrorMessage(error);
+        console.log(
+          `[plans-portal-sync:error] endpoints=${API_BASE_URL}/subscriptions/status,${API_BASE_URL}/subscriptions/plans,${API_BASE_URL}/users/me/usage code=${typedError?.code ?? 'unknown'} status=${typedError?.status ?? 'unknown'} message="${message}"`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+
+    if (hadError && !latestOverview) {
+      setStatusText(t('plans.portalSyncError'));
+    } else {
+      setStatusText(t('plans.portalSyncNoChange'));
+    }
+    portalFlowActiveRef.current = false;
   }, [loadBillingData, t]);
 
   useEffect(() => {
@@ -172,6 +224,10 @@ export default function PlansScreen() {
     const sub = AppState.addEventListener('change', (state) => {
       console.log(`[plans-appstate] state=${state}`);
       if (state !== 'active') return;
+      if (portalFlowActiveRef.current) {
+        void syncSubscriptionAfterPortalReturn();
+        return;
+      }
       if (Date.now() - lastForegroundRefreshAtRef.current < 12_000) return;
       lastForegroundRefreshAtRef.current = Date.now();
       void loadBillingData().catch((error) => {
@@ -183,9 +239,10 @@ export default function PlansScreen() {
       });
     });
     return () => sub.remove();
-  }, [loadBillingData]);
+  }, [loadBillingData, syncSubscriptionAfterPortalReturn]);
 
   const currentTier = overview?.subscription.tier ?? 'free';
+  const subscriptionLifecycle = overview?.subscriptionLifecycle;
   const currentPlan = useMemo(
     () => plans.find((plan) => plan.tier === currentTier),
     [currentTier, plans],
@@ -281,12 +338,22 @@ export default function PlansScreen() {
       });
       const resolvedSuccessUrl = checkout.successUrl || successUrl;
       const resolvedCancelUrl = checkout.cancelUrl || cancelUrl;
+      const checkoutMode = (checkout as { mode?: string }).mode ?? 'unknown';
       console.log(
-        `[plans-upgrade:checkout-session] tier=${tier} successUrl=${resolvedSuccessUrl} cancelUrl=${resolvedCancelUrl} checkoutUrl=${checkout.url}`,
+        `[plans-upgrade:checkout-session] tier=${tier} mode=${checkoutMode} successUrl=${resolvedSuccessUrl} cancelUrl=${resolvedCancelUrl} checkoutUrl=${checkout.url ?? 'none'}`,
       );
-      await openCheckoutUrl(checkout.url, 'checkout', resolvedSuccessUrl, resolvedCancelUrl);
-      setStatusText(t('plans.checkoutOpened'));
-      await syncSubscriptionAfterCheckout(tier);
+      const requiresCheckout = (checkout as { requiresCheckout?: boolean }).requiresCheckout !== false;
+      if (requiresCheckout && checkout.url) {
+        await openCheckoutUrl(checkout.url, 'checkout', resolvedSuccessUrl, resolvedCancelUrl);
+        setStatusText(t('plans.checkoutOpened'));
+        await syncSubscriptionAfterCheckout(tier);
+      } else {
+        await clearPendingBillingTier();
+        await loadBillingData({ force: true });
+        setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
+        setUpdatedTier(tier);
+        setShowPlanUpdatedPrompt(true);
+      }
     } catch (error) {
       const typedError = error as { message?: string; code?: string; status?: number; redirectUrl?: string } | undefined;
       const rawMessage = error instanceof Error ? error.message : t('plans.checkoutError');
@@ -317,16 +384,31 @@ export default function PlansScreen() {
     }
   };
 
+  const requestUpgrade = (tier: SubscriptionTier) => {
+    if (tier === 'free' || tier === currentTier) return;
+    const hasExistingPaidPlan = currentTier !== 'free' && (overview?.subscription.status === 'active' || overview?.subscription.status === 'past_due');
+    if (hasExistingPaidPlan) {
+      setPendingTier(tier);
+      setShowChangePlanPrompt(true);
+      return;
+    }
+    void onUpgrade(tier);
+  };
+
   const onOpenBillingPortal = async () => {
     setIsPortalLoading(true);
     setStatusText('');
     try {
-      const portal = await createBillingPortalSession();
-      await openCheckoutUrl(portal.url, 'portal');
-      setStatusText(t('plans.portalOpened'));
-      await loadBillingData({ force: true }).catch(() => {
-        // non-blocking
+      const returnUrl = `${appScheme}://billing/return`;
+      const portal = await createBillingPortalSession({
+        platform: 'mobile',
+        returnUrl,
       });
+      portalFlowActiveRef.current = true;
+      await openCheckoutUrl(portal.url, 'portal');
+      if (portalFlowActiveRef.current) {
+        await syncSubscriptionAfterPortalReturn();
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -344,6 +426,47 @@ export default function PlansScreen() {
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
+        <AppPromptModal
+          visible={showChangePlanPrompt}
+          title={t('plans.changePlanPromptTitle')}
+          message={t('plans.changePlanPromptMessage', {
+            currentPlan: tierLabel(currentTier),
+            nextPlan: tierLabel(pendingTier ?? 'free'),
+          })}
+          confirmLabel={t('plans.changePlanPromptConfirm')}
+          cancelLabel={t('common.cancel')}
+          iconName="swap-horizontal-outline"
+          onCancel={() => {
+            setShowChangePlanPrompt(false);
+            setPendingTier(null);
+          }}
+          onConfirm={() => {
+            const target = pendingTier;
+            setShowChangePlanPrompt(false);
+            setPendingTier(null);
+            if (target) {
+              void onUpgrade(target);
+            }
+          }}
+        />
+
+        <AppPromptModal
+          visible={showPlanUpdatedPrompt}
+          title={t('plans.planUpdatedTitle')}
+          message={t('plans.planUpdatedMessage', { plan: tierLabel(updatedTier ?? currentTier) })}
+          confirmLabel={t('common.confirm')}
+          cancelLabel={t('common.cancel')}
+          iconName="checkmark-circle-outline"
+          onCancel={() => {
+            setShowPlanUpdatedPrompt(false);
+            setUpdatedTier(null);
+          }}
+          onConfirm={() => {
+            setShowPlanUpdatedPrompt(false);
+            setUpdatedTier(null);
+          }}
+        />
+
         <SecondaryNav title={t('drawer.userMenu.upgrade')} topOffset={Math.max(insets.top, 0)} />
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -366,6 +489,11 @@ export default function PlansScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
             {t('plans.subscriptionStatus')}: {overview?.subscription.status ?? 'inactive'}
           </Text>
+          {subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
+            <Text style={{ color: '#B45309', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
+              {t('plans.cancelsOn', { date: new Date(subscriptionLifecycle.scheduledCancelAt).toLocaleDateString() })}
+            </Text>
+          ) : null}
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
             {t('plans.chatUsed')}: {stats.chatUsed} / {formatLimit(stats.chatLimit)}
           </Text>
@@ -392,9 +520,21 @@ export default function PlansScreen() {
               opacity: isPortalLoading ? 0.75 : 1,
             }}
           >
-            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
-              {isPortalLoading ? t('plans.portalOpening') : t('plans.managePortal')}
-            </Text>
+            <View className="flex-row items-center">
+              {isPortalLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : null}
+              <Text
+                style={{
+                  color: colors.primary,
+                  fontSize: 13,
+                  fontWeight: '700',
+                  marginLeft: isPortalLoading ? 8 : 0,
+                }}
+              >
+                {t('plans.managePortal')}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
 
@@ -474,7 +614,7 @@ export default function PlansScreen() {
                 }
                 disabled={isCurrent || isBusy || plan.isActive === false}
                 onPress={() => {
-                  void onUpgrade(plan.tier);
+                  requestUpgrade(plan.tier);
                 }}
                 className="mt-3 h-10 items-center justify-center rounded-full px-4"
                 style={{
@@ -512,6 +652,7 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
+
 
 
 

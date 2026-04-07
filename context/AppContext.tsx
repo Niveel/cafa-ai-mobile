@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
+import { usePostHog } from 'posthog-react-native';
 
 import { AppLanguage, colorsByMode, ThemeColors, ThemeMode, translate } from '@/config';
 import { setupAuthInterceptor } from '@/services';
@@ -44,6 +45,7 @@ type AppProviderProps = {
 };
 
 export function AppProvider({ children }: AppProviderProps) {
+  const posthog = usePostHog();
   const systemColorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
   const initialThemeMode = systemColorScheme === 'dark' ? 'dark' : 'light';
@@ -119,6 +121,16 @@ export function AppProvider({ children }: AppProviderProps) {
     });
   }, [animationLevel, hapticsEnabled, isReady, language, themeMode]);
 
+  useEffect(() => {
+    if (!isReady || !isAuthenticated || !authUser?.id) return;
+
+    posthog.identify(authUser.id, {
+      email: authUser.email,
+      name: authUser.name,
+      subscriptionTier: authUser.subscriptionTier ?? 'free',
+    });
+  }, [authUser?.email, authUser?.id, authUser?.name, authUser?.subscriptionTier, isAuthenticated, isReady, posthog]);
+
   const signOut = useCallback(async () => {
     const refreshToken = await getRefreshToken();
 
@@ -127,6 +139,7 @@ export function AppProvider({ children }: AppProviderProps) {
     } catch {
       // Intentionally ignore logout transport failures and always clear local session.
     } finally {
+      posthog.reset();
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
       await clearSessionTokens();

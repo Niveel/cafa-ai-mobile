@@ -4,6 +4,7 @@ import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import {
   DailyUsagePayload,
   SubscriptionOverview,
+  SubscriptionLifecycle,
   SubscriptionPlansPayload,
   SubscriptionStatus,
   SubscriptionTier,
@@ -39,10 +40,10 @@ export function invalidateBillingCache() {
 
 export async function getSubscriptionStatus() {
   try {
-    const response: AxiosResponse<{ data: { subscription: SubscriptionStatus } }> = await apiClient.get(
+    const response: AxiosResponse<{ data: { subscription: SubscriptionStatus; subscriptionLifecycle?: SubscriptionLifecycle } }> = await apiClient.get(
       apiEndpoints.subscriptions.status,
     );
-    return response.data.data.subscription;
+    return response.data.data;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -110,6 +111,20 @@ export async function createCheckoutSession(
     cancelUrl?: string;
   },
 ) {
+  type CheckoutResponseData = {
+    mode?: 'checkout_started' | 'subscription_updated' | string;
+    url?: string;
+    checkoutUrl?: string;
+    checkout_url?: string;
+    sessionUrl?: string;
+    session_url?: string;
+    sessionId?: string;
+    successUrl?: string;
+    cancelUrl?: string;
+    success_url?: string;
+    cancel_url?: string;
+  };
+
   type CheckoutPayload = {
     tier: Exclude<SubscriptionTier, 'free'>;
     platform?: 'mobile';
@@ -125,13 +140,40 @@ export async function createCheckoutSession(
       cancelUrl: options?.cancelUrl,
     };
 
-    const response: AxiosResponse<{
-      data: { url: string; sessionId?: string; successUrl?: string; cancelUrl?: string };
-    }> = await apiClient.post(
+    const response: AxiosResponse<{ data?: CheckoutResponseData }> = await apiClient.post(
       apiEndpoints.subscriptions.checkout,
       payload,
     );
-    return response.data.data;
+
+    const raw = response.data?.data ?? {};
+    const resolvedUrl =
+      raw.url ??
+      raw.checkoutUrl ??
+      raw.checkout_url ??
+      raw.sessionUrl ??
+      raw.session_url;
+
+    const mode = raw.mode;
+    const isSubscriptionUpdatedMode = mode === 'subscription_updated';
+    const isCheckoutStartedMode = mode === 'checkout_started';
+    if (!resolvedUrl && isCheckoutStartedMode) {
+      const contractError = new Error('Backend checkout response is missing URL for checkout_started mode.') as Error & {
+        code?: string;
+        status?: number;
+      };
+      contractError.code = 'CHECKOUT_URL_MISSING';
+      contractError.status = response.status;
+      throw contractError;
+    }
+
+    return {
+      ...raw,
+      mode,
+      url: resolvedUrl,
+      successUrl: raw.successUrl ?? raw.success_url,
+      cancelUrl: raw.cancelUrl ?? raw.cancel_url,
+      requiresCheckout: isCheckoutStartedMode || (!isSubscriptionUpdatedMode && Boolean(resolvedUrl)),
+    };
   } catch (error) {
     if (error instanceof AxiosError) {
       const responsePayload = error.response?.data as {
@@ -194,11 +236,18 @@ export async function getDailyUsage(options?: { force?: boolean }) {
   return usageInFlight;
 }
 
-export async function createBillingPortalSession() {
+export async function createBillingPortalSession(options?: {
+  platform?: 'mobile';
+  returnUrl?: string;
+}) {
   try {
+    const payload = {
+      platform: options?.platform,
+      returnUrl: options?.returnUrl,
+    };
     const response: AxiosResponse<{ data: { url: string } }> = await apiClient.post(
       apiEndpoints.subscriptions.portal,
-      {},
+      payload,
     );
     return response.data.data;
   } catch (error) {

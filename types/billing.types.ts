@@ -4,6 +4,14 @@ export type SubscriptionStatus = {
   tier: SubscriptionTier;
   status: 'inactive' | 'active' | 'past_due' | 'canceled';
   currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  canceledAt?: string | null;
+};
+
+export type SubscriptionLifecycle = {
+  willCancelAtPeriodEnd?: boolean;
+  scheduledCancelAt?: string | null;
+  canceledAt?: string | null;
 };
 
 export type SubscriptionLimits = {
@@ -27,6 +35,7 @@ export type SubscriptionUsage = {
 
 export type SubscriptionOverview = {
   subscription: SubscriptionStatus;
+  subscriptionLifecycle?: SubscriptionLifecycle;
   limits?: SubscriptionLimits;
   usage?: SubscriptionUsage;
 };
