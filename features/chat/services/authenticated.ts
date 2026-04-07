@@ -20,14 +20,22 @@ type AuthConversationDetailDto = {
   aiModel?: string;
   totalTokens?: number;
   lastMessagePreview?: string;
-  messages?: Array<{
+  messages?: {
     _id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
     createdAt: string;
     tokens?: number;
     reactions?: { liked?: boolean; disliked?: boolean };
-  }>;
+    attachments?: {
+      _id?: string;
+      fileType?: string;
+      mimeType?: string;
+      originalName?: string;
+      url?: string;
+      thumbnailUrl?: string;
+    }[];
+  }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -45,14 +53,20 @@ export type AuthConversationDetail = {
   title: string;
   model: string;
   updatedAt: string;
-  messages: Array<{
+  messages: {
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
     createdAt: string;
     tokens?: number;
     reactions?: { liked: boolean; disliked: boolean };
-  }>;
+    imageUrl?: string;
+    imagePrompt?: string;
+    imageId?: string;
+    videoUrl?: string;
+    videoPrompt?: string;
+    videoId?: string;
+  }[];
 };
 
 export type AuthChatStreamEvent =
@@ -120,17 +134,33 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
     title: dto.title,
     model: dto.aiModel ?? 'gpt-4o-mini',
     updatedAt: dto.updatedAt,
-    messages: (dto.messages ?? []).map((message) => ({
-      id: message._id,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt,
-      tokens: message.tokens,
-      reactions: {
-        liked: Boolean(message.reactions?.liked),
-        disliked: Boolean(message.reactions?.disliked),
-      },
-    })),
+    messages: (dto.messages ?? []).map((message) => {
+      const firstImageAttachment = message.attachments?.find((attachment) =>
+        (attachment.mimeType ?? '').startsWith('image/')
+        || attachment.fileType === 'image',
+      );
+      const firstVideoAttachment = message.attachments?.find((attachment) =>
+        (attachment.mimeType ?? '').startsWith('video/')
+        || attachment.fileType === 'video',
+      );
+      return {
+        id: message._id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        tokens: message.tokens,
+        reactions: {
+          liked: Boolean(message.reactions?.liked),
+          disliked: Boolean(message.reactions?.disliked),
+        },
+        imageUrl: firstImageAttachment?.thumbnailUrl ?? firstImageAttachment?.url,
+        imagePrompt: firstImageAttachment ? message.content : undefined,
+        imageId: firstImageAttachment?._id ?? undefined,
+        videoUrl: firstVideoAttachment?.url,
+        videoPrompt: firstVideoAttachment ? message.content : undefined,
+        videoId: firstVideoAttachment?._id ?? undefined,
+      };
+    }),
   };
 }
 

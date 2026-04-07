@@ -4,6 +4,14 @@ export type UiMessage = {
   content: string;
   createdAt: number;
   tokens?: number;
+  imageUrl?: string;
+  imagePrompt?: string;
+  imageId?: string;
+  isImageGenerating?: boolean;
+  videoUrl?: string;
+  videoPrompt?: string;
+  videoId?: string;
+  isVideoGenerating?: boolean;
 };
 
 export type AttachedAsset = {

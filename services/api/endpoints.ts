@@ -29,6 +29,9 @@ export const apiEndpoints = {
     generate: `${API_BASE_PATH}/images/generate`,
     history: `${API_BASE_PATH}/images/history`,
     detail: (imageId: string) => `${API_BASE_PATH}/images/${imageId}`,
+    download: (imageId: string) => `${API_BASE_PATH}/images/${imageId}/download`,
+    downloadZip: `${API_BASE_PATH}/images/download-zip`,
+    downloadZipJob: (jobId: string) => `${API_BASE_PATH}/images/download-zip/${jobId}`,
   },
 
   videos: {
@@ -36,6 +39,8 @@ export const apiEndpoints = {
     job: (jobId: string) => `${API_BASE_PATH}/videos/generate/${jobId}`,
     history: `${API_BASE_PATH}/videos/history`,
     download: (videoId: string) => `${API_BASE_PATH}/videos/${videoId}/download`,
+    downloadZip: `${API_BASE_PATH}/videos/download-zip`,
+    downloadZipJob: (jobId: string) => `${API_BASE_PATH}/videos/download-zip/${jobId}`,
   },
 
   subscriptions: {

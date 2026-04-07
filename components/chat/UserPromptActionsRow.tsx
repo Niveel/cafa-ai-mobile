@@ -27,6 +27,7 @@ export function UserPromptActionsRow({
     <View className="mt-1 flex-row items-center gap-1 self-end">
       <Pressable
         onPress={onCopy}
+        delayLongPress={180}
         onLongPress={(event) => onTooltip(labels.copy, event)}
         accessibilityRole="button"
         accessibilityLabel={labels.copy}
@@ -39,6 +40,7 @@ export function UserPromptActionsRow({
 
       <Pressable
         onPress={onEdit}
+        delayLongPress={180}
         onLongPress={(event) => onTooltip(labels.edit, event)}
         accessibilityRole="button"
         accessibilityLabel={labels.edit}

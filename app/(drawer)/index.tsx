@@ -21,24 +21,33 @@ import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
+import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Animated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
   FadeOutDown,
   LinearTransition,
+  ZoomIn,
+  ZoomOut,
 } from 'react-native-reanimated';
 
 import {
   AppScreen,
+  ChatVideoCard,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
+  ImageGenerationPlaceholder,
+  ImageMessageActionsRow,
   MessageActionsRow,
   RecordingWaves,
+  extractImagePrompt,
+  extractVideoPrompt,
   resolveModelBadgeLabel,
   UserPromptActionsRow,
+  VideoGenerationPlaceholder,
   createIdempotencyKey,
   getPromptTitle,
   isMediaGenerationPrompt,
@@ -50,20 +59,23 @@ import {
   createAuthenticatedConversation,
   createGuestConversation,
   ensureGuestSession,
+  generateImage,
   getAuthenticatedConversation,
   getGuestConversation,
   listAuthenticatedConversations,
   listGuestConversations,
   getVoiceCatalog,
+  pollVideoJob,
   sendAuthenticatedMessageStream,
   sendGuestMessageStream,
+  startVideoGeneration,
   synthesizeVoice,
   toggleAuthenticatedMessageReaction,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
-import { getDefaultVoicePreference } from '@/services';
-import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess } from '@/utils';
+import { getAccessToken, getDefaultVoicePreference } from '@/services';
+import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
 
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 4;
@@ -98,6 +110,8 @@ export default function ChatScreen() {
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
+  const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
+  const [downloadToastNotice, setDownloadToastNotice] = useState('');
   const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
@@ -112,6 +126,7 @@ export default function ChatScreen() {
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const downloadToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuTouchRef = useRef(false);
@@ -126,8 +141,44 @@ export default function ChatScreen() {
   const ttsPlayerSubRef = useRef<{ remove: () => void } | null>(null);
   const ttsFilesRef = useRef<File[]>([]);
   const voiceNameByIdRef = useRef<Record<string, string>>({});
+  const videoGenerationInFlightRef = useRef(false);
+  const lastVideoGenerationStartAtRef = useRef(0);
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
+  const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+
+  const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
+    if (!rawUrl) return null;
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    if (rawUrl.startsWith('/')) return `${backendOrigin}${rawUrl}`;
+    return `${backendOrigin}/${rawUrl}`;
+  }, [backendOrigin]);
+
+  const mapAuthMessageToUiMessage = useCallback((message: {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    createdAt: string;
+    tokens?: number;
+    imageUrl?: string;
+    imagePrompt?: string;
+    imageId?: string;
+    videoUrl?: string;
+    videoPrompt?: string;
+    videoId?: string;
+  }): UiMessage => ({
+    id: message.id,
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    content: message.content,
+    createdAt: new Date(message.createdAt).getTime(),
+    tokens: message.tokens,
+    imageUrl: resolveBackendAssetUrl(message.imageUrl) ?? undefined,
+    imagePrompt: message.imagePrompt,
+    imageId: message.imageId,
+    videoUrl: resolveBackendAssetUrl(message.videoUrl) ?? undefined,
+    videoPrompt: message.videoPrompt,
+    videoId: message.videoId,
+  }), [resolveBackendAssetUrl]);
 
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
@@ -135,7 +186,63 @@ export default function ChatScreen() {
     });
   };
 
+  const waitForVideoGeneration = useCallback(async (jobId: string) => {
+    const maxAttempts = 180;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const status = await pollVideoJob(jobId);
+      if (status.status === 'completed') {
+        const resolvedVideoUrl = resolveBackendAssetUrl(status.result?.videoUrl ?? status.videoUrl);
+        return {
+          videoId: status.result?.id,
+          videoPrompt: status.result?.prompt,
+          videoUrl: resolvedVideoUrl,
+        };
+      }
+      if (status.status === 'failed') {
+        throw new Error(status.error || status.message || 'Video generation failed.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+    }
+
+    throw new Error('Video generation is still processing. Please check again shortly.');
+  }, [resolveBackendAssetUrl]);
+
+  const isLimitOrUpgradeError = (error: unknown) => {
+    const typed = error as { code?: string; status?: number; message?: string } | undefined;
+    const code = (typed?.code ?? '').toUpperCase();
+    const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+    if (code === 'DAILY_LIMIT_EXCEEDED' || code === 'GUEST_DAILY_LIMIT_EXCEEDED' || code === 'UPGRADE_REQUIRED') {
+      return true;
+    }
+    return message.includes('limit') || message.includes('quota') || message.includes('upgrade required');
+  };
+
+  const isRateLimitedError = (error: unknown) => {
+    const typed = error as { code?: string; status?: number; message?: string } | undefined;
+    const code = (typed?.code ?? '').toUpperCase();
+    const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+    return typed?.status === 429 || code.includes('RATE_LIMIT') || message.includes('too many');
+  };
+
+  const getLimitNoticeMessage = useCallback((kind: 'chat' | 'image' | 'video') => {
+    if (kind === 'image') return t('chat.limit.imageReached');
+    if (kind === 'video') return t('chat.limit.videoReached');
+    return t('chat.limit.chatReached');
+  }, [t]);
+
+  const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video') => {
+    setUpgradeNoticeKind(kind);
+    setStatusNotice(getLimitNoticeMessage(kind));
+    if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+    noticeTimeoutRef.current = setTimeout(() => {
+      setStatusNotice('');
+      setUpgradeNoticeKind(null);
+      noticeTimeoutRef.current = null;
+    }, 5200);
+  }, [getLimitNoticeMessage]);
+
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
+    hapticSelection();
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
 
     const fallbackX = screenWidth / 2;
@@ -149,6 +256,15 @@ export default function ChatScreen() {
       tooltipTimeoutRef.current = null;
     }, 1200);
   };
+
+  const showDownloadToast = useCallback((message: string) => {
+    setDownloadToastNotice(message);
+    if (downloadToastTimeoutRef.current) clearTimeout(downloadToastTimeoutRef.current);
+    downloadToastTimeoutRef.current = setTimeout(() => {
+      setDownloadToastNotice('');
+      downloadToastTimeoutRef.current = null;
+    }, 2400);
+  }, []);
 
   const showTtsToast = useCallback((message: string) => {
     setTtsToastNotice(message);
@@ -219,6 +335,7 @@ export default function ChatScreen() {
       const trimmed = inputValueRef.current.trim();
       if (!trimmed || isSending) return;
       let lastEndpoint = `${API_BASE_URL}/chat`;
+      let requestKind: 'chat' | 'image' | 'video' = 'chat';
 
       const userMessage: UiMessage = {
         id: `user-${Date.now()}`,
@@ -326,6 +443,161 @@ export default function ChatScreen() {
           setAuthConversationId(conversationId);
         }
 
+        const extractedVideoPrompt = extractVideoPrompt(trimmed);
+        if (extractedVideoPrompt) {
+          requestKind = 'video';
+          if (videoGenerationInFlightRef.current) {
+            const inProgressMessage = t('chat.videoGenerationInProgress');
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: inProgressMessage,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+            showTransientNotice(inProgressMessage, 5000);
+            return;
+          }
+          const now = Date.now();
+          const elapsedSinceLastStart = now - lastVideoGenerationStartAtRef.current;
+          if (elapsedSinceLastStart < 8000) {
+            const waitSeconds = Math.max(1, Math.ceil((8000 - elapsedSinceLastStart) / 1000));
+            const cooldownMessage = t('chat.videoGenerationCooldown', { seconds: `${waitSeconds}` });
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: cooldownMessage,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+            showTransientNotice(cooldownMessage, 5000);
+            return;
+          }
+          videoGenerationInFlightRef.current = true;
+          lastVideoGenerationStartAtRef.current = now;
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: extractedVideoPrompt,
+                    videoPrompt: extractedVideoPrompt,
+                    isVideoGenerating: true,
+                  }
+                : item,
+            ),
+          );
+          lastEndpoint = `${API_BASE_URL}/videos/generate`;
+          const job = await startVideoGeneration({
+            conversationId,
+            prompt: extractedVideoPrompt,
+            aspectRatio: '16:9',
+          });
+
+          const resolvedVideo = await waitForVideoGeneration(job.jobId);
+
+          try {
+            const detail = await getAuthenticatedConversation(conversationId, { force: true });
+            setMessages(detail.messages.map(mapAuthMessageToUiMessage));
+            setMessageReactions(() =>
+              detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
+                if (message.role !== 'assistant') return acc;
+                acc[message.id] = message.reactions?.liked
+                  ? 'like'
+                  : message.reactions?.disliked
+                    ? 'dislike'
+                    : undefined;
+                return acc;
+              }, {}),
+            );
+          } catch {
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: resolvedVideo.videoPrompt || extractedVideoPrompt,
+                      videoId: resolvedVideo.videoId,
+                      videoPrompt: resolvedVideo.videoPrompt || extractedVideoPrompt,
+                      videoUrl: resolvedVideo.videoUrl ?? undefined,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+          }
+          hapticSuccess();
+          videoGenerationInFlightRef.current = false;
+          return;
+        }
+
+        const extractedImagePrompt = extractImagePrompt(trimmed);
+        if (extractedImagePrompt) {
+          requestKind = 'image';
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: extractedImagePrompt,
+                    imagePrompt: extractedImagePrompt,
+                    isImageGenerating: true,
+                  }
+                : item,
+            ),
+          );
+          lastEndpoint = `${API_BASE_URL}/images/generate`;
+          const generated = await generateImage({
+            conversationId,
+            prompt: extractedImagePrompt,
+            style: 'cinematic',
+          });
+          const resolvedImageUrl = resolveBackendAssetUrl(generated.imageUrl);
+          if (!resolvedImageUrl) {
+            throw new Error('Image generated but no image URL was returned.');
+          }
+          try {
+            const detail = await getAuthenticatedConversation(conversationId, { force: true });
+            setMessages(detail.messages.map(mapAuthMessageToUiMessage));
+            setMessageReactions(() =>
+              detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
+                if (message.role !== 'assistant') return acc;
+                acc[message.id] = message.reactions?.liked
+                  ? 'like'
+                  : message.reactions?.disliked
+                    ? 'dislike'
+                    : undefined;
+                return acc;
+              }, {}),
+            );
+          } catch {
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: generated.prompt || extractedImagePrompt,
+                      imageId: generated.id,
+                      imagePrompt: generated.prompt || extractedImagePrompt,
+                      imageUrl: resolvedImageUrl,
+                      isImageGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+          }
+          hapticSuccess();
+          return;
+        }
+
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
         await sendAuthenticatedMessageStream(conversationId, trimmed, (event) => {
           if (event.type === 'meta') {
@@ -373,19 +645,33 @@ export default function ChatScreen() {
         }, language, activeModel);
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
+        const isLimitError = isLimitOrUpgradeError(error);
+        const isRateLimited = isRateLimitedError(error);
+        if (requestKind === 'video') {
+          videoGenerationInFlightRef.current = false;
+        }
+        if (isLimitError) {
+          showLimitNotice(requestKind);
+        }
         console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
         hapticError();
         setStreamingModelLabel(null);
 
-        setStatusNotice(message);
+        if (!isLimitError) {
+          showTransientNotice(message, isRateLimited ? 5000 : 3200);
+        }
         setMessages((prev) =>
           prev.map((item) =>
             item.id === assistantId
               ? {
                   ...item,
-                  content: message.includes('GUEST_DAILY_LIMIT_EXCEEDED')
-                    ? t('chat.limitReached')
-                    : message,
+                  isImageGenerating: false,
+                  isVideoGenerating: false,
+                  content: isLimitError
+                    ? getLimitNoticeMessage(requestKind)
+                    : message.includes('GUEST_DAILY_LIMIT_EXCEEDED')
+                      ? t('chat.limitReached')
+                      : message,
                 }
               : item,
           ),
@@ -505,13 +791,14 @@ export default function ChatScreen() {
     setAttachedAssets((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const showTransientNotice = (message: string) => {
+  const showTransientNotice = (message: string, durationMs = 3200) => {
+    setUpgradeNoticeKind(null);
     setStatusNotice(message);
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = setTimeout(() => {
       setStatusNotice('');
       noticeTimeoutRef.current = null;
-    }, 2200);
+    }, durationMs);
   };
 
   const toggleReaction = async (messageId: string, reaction: 'like' | 'dislike') => {
@@ -538,6 +825,92 @@ export default function ChatScreen() {
         [messageId]: previous,
       }));
       showTransientNotice(t('chat.reactionFailed'));
+    }
+  };
+
+  const toggleLocalReaction = (messageId: string, reaction: 'like' | 'dislike') => {
+    const previous = messageReactions[messageId];
+    const next = previous === reaction ? undefined : reaction;
+    setMessageReactions((prev) => ({
+      ...prev,
+      [messageId]: next,
+    }));
+    hapticSelection();
+  };
+
+  const downloadImageMessage = async (message: UiMessage) => {
+    const resolvedUrl = resolveBackendAssetUrl(message.imageUrl);
+    if (!resolvedUrl) {
+      showTransientNotice(t('chat.imageDownloadFailed'));
+      return;
+    }
+
+    hapticSelection();
+    showTransientNotice(t('chat.imageDownloadStarting'));
+
+    try {
+      const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+      const extension = extensionMatch?.[1]?.toLowerCase() || 'jpg';
+      const fileName = `cafa-ai-image-${message.imageId ?? Date.now()}.${extension}`;
+      const target = new File(Paths.cache, fileName);
+      if (target.exists) {
+        target.delete();
+      }
+
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      await saveMediaToCafaAlbum(downloaded.uri);
+      showDownloadToast(t('chat.imageDownloadSuccess'));
+      hapticSuccess();
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown image download failure';
+      console.log(
+        `[chat-image-download:error] endpoint=${resolvedUrl} message="${messageText}"`,
+      );
+      showTransientNotice(t('chat.imageDownloadFailed'));
+      hapticError();
+    }
+  };
+
+  const downloadVideoMessage = async (message: UiMessage) => {
+    const resolvedUrl = resolveBackendAssetUrl(message.videoUrl);
+    if (!resolvedUrl) {
+      showTransientNotice(t('chat.videoDownloadFailed'));
+      return;
+    }
+
+    hapticSelection();
+    showTransientNotice(t('chat.videoDownloadStarting'));
+
+    try {
+      const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+      const extension = extensionMatch?.[1]?.toLowerCase() || 'mp4';
+      const fileName = `cafa-ai-video-${message.videoId ?? Date.now()}.${extension}`;
+      const target = new File(Paths.cache, fileName);
+      if (target.exists) {
+        target.delete();
+      }
+
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      await saveMediaToCafaAlbum(downloaded.uri);
+      showDownloadToast(t('chat.videoDownloadSuccess'));
+      hapticSuccess();
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown video download failure';
+      console.log(
+        `[chat-video-download:error] endpoint=${resolvedUrl} message="${messageText}"`,
+      );
+      showTransientNotice(t('chat.videoDownloadFailed'));
+      hapticError();
     }
   };
 
@@ -791,6 +1164,7 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+      if (downloadToastTimeoutRef.current) clearTimeout(downloadToastTimeoutRef.current);
       if (ttsToastTimeoutRef.current) clearTimeout(ttsToastTimeoutRef.current);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
@@ -826,13 +1200,7 @@ export default function ChatScreen() {
         if (!detail.messages.length) return;
 
         setMessages(
-          detail.messages.map((message) => ({
-            id: message.id,
-            role: message.role === 'assistant' ? 'assistant' : 'user',
-            content: message.content,
-            createdAt: new Date(message.createdAt).getTime(),
-            tokens: message.tokens,
-          })),
+          detail.messages.map(mapAuthMessageToUiMessage),
         );
 
         setMessageReactions(() =>
@@ -857,7 +1225,7 @@ export default function ChatScreen() {
 
     setIsHydratingAuthChat(true);
     void loadAuthenticatedState();
-  }, [createWelcomeMessage, isAuthenticated, t]);
+  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, t]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -876,13 +1244,7 @@ export default function ChatScreen() {
           const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
           setAuthConversationId(targetConversationId);
           setMessages(
-            detail.messages.map((message) => ({
-              id: message.id,
-              role: message.role === 'assistant' ? 'assistant' : 'user',
-              content: message.content,
-              createdAt: new Date(message.createdAt).getTime(),
-              tokens: message.tokens,
-            })),
+            detail.messages.map(mapAuthMessageToUiMessage),
           );
           setMessageReactions(() =>
             detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
@@ -914,7 +1276,7 @@ export default function ChatScreen() {
     };
 
     void hydrateTarget();
-  }, [createWelcomeMessage, isAuthenticated, params.conversationId, params.newChat]);
+  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -1021,11 +1383,6 @@ export default function ChatScreen() {
                 <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
                   {t('chat.guestNotice')}
                 </Text>
-              </Animated.View>
-            ) : null}
-            {!!statusNotice ? (
-              <Animated.View entering={FadeInDown.duration(MOTION.duration.normal)} className="mb-2 rounded-xl border px-3 py-2" style={{ borderColor: colors.border }}>
-                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{statusNotice}</Text>
               </Animated.View>
             ) : null}
             {isAuthenticated && !!readAloudSpeaker ? (
@@ -1227,21 +1584,153 @@ export default function ChatScreen() {
                 const isUser = item.role === 'user';
                 const reaction = messageReactions[item.id];
                 const isReading = readingMessageId === item.id;
+                const isImageGenerating = !isUser && item.isImageGenerating && !item.imageUrl;
+                const isVideoGenerating = !isUser && item.isVideoGenerating && !item.videoUrl;
+                const isImageMessage = !isUser && Boolean(item.imageUrl);
+                const isVideoMessage = !isUser && Boolean(item.videoUrl);
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View className="max-w-[88%]">
-                      <View
-                        className="rounded-2xl px-3 py-2"
-                        style={{
-                          backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
-                        }}
-                      >
-                        <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
-                          {item.content || (isSending && !isUser ? streamingDots : '')}
-                        </Text>
-                      </View>
+                      {isImageGenerating ? (
+                        <ImageGenerationPlaceholder
+                          width={236}
+                          height={248}
+                          isDark={isDark}
+                          accentColor={colors.primary}
+                        />
+                      ) : null}
 
-                      {!isUser && item.content.trim() ? (
+                      {isVideoGenerating ? (
+                        <VideoGenerationPlaceholder
+                          width={236}
+                          height={133}
+                          isDark={isDark}
+                          accentColor={colors.primary}
+                        />
+                      ) : null}
+
+                      {!isImageGenerating && !isVideoGenerating && isImageMessage ? (
+                        <View
+                          className="overflow-hidden rounded-2xl border"
+                          style={{
+                            width: 236,
+                            height: 248,
+                            borderColor: colors.border,
+                            backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                          }}
+                        >
+                          <ExpoImage
+                            source={{ uri: item.imageUrl! }}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              transform: [{ scale: 1.06 }],
+                            }}
+                            contentFit="cover"
+                            contentPosition="center"
+                            transition={0}
+                            accessible
+                            accessibilityLabel={item.imagePrompt?.trim()
+                              ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
+                              : t('chat.generatedImageAlt')}
+                          />
+                        </View>
+                      ) : null}
+
+                      {!isImageGenerating && !isVideoGenerating && isVideoMessage ? (
+                        <ChatVideoCard
+                          uri={item.videoUrl!}
+                          width={236}
+                          height={133}
+                          borderColor={colors.border}
+                          backgroundColor={isDark ? '#101010' : '#FFFFFF'}
+                          accessibilityLabel={item.videoPrompt?.trim()
+                            ? `${t('chat.generatedVideoAlt')}: ${item.videoPrompt.trim()}`
+                            : t('chat.generatedVideoAlt')}
+                        />
+                      ) : null}
+
+                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage ? (
+                        <View
+                          className="rounded-2xl px-3 py-2"
+                          style={{
+                            backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
+                          }}
+                        >
+                          <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
+                            {item.content || (isSending && !isUser ? streamingDots : '')}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {!isUser && !isImageGenerating && isImageMessage ? (
+                        <ImageMessageActionsRow
+                          reaction={reaction}
+                          primaryColor={colors.primary}
+                          borderColor={colors.border}
+                          iconColor={colors.textSecondary}
+                          onCopyPrompt={() => {
+                            void copyMessage(item.imagePrompt || item.content);
+                          }}
+                          onLike={() => {
+                            toggleLocalReaction(item.id, 'like');
+                          }}
+                          onUnlike={() => {
+                            toggleLocalReaction(item.id, 'dislike');
+                          }}
+                          onDownload={() => {
+                            void downloadImageMessage(item);
+                          }}
+                          onTooltip={showTooltip}
+                          labels={{
+                            copy: t('chat.tooltip.copyPrompt'),
+                            copyHint: t('chat.tooltip.copyPrompt'),
+                            like: t('chat.tooltip.like'),
+                            likeHint: t('chat.tooltip.like'),
+                            unlike: t('chat.tooltip.unlike'),
+                            unlikeHint: t('chat.tooltip.unlike'),
+                            download: t('chat.tooltip.downloadImage'),
+                            downloadHint: t('chat.tooltip.downloadImage'),
+                          }}
+                        />
+                      ) : null}
+
+                      {!isUser && !isVideoGenerating && isVideoMessage ? (
+                        <ImageMessageActionsRow
+                          reaction={reaction}
+                          primaryColor={colors.primary}
+                          borderColor={colors.border}
+                          iconColor={colors.textSecondary}
+                          onCopyPrompt={() => {
+                            void copyMessage(item.videoPrompt || item.content);
+                          }}
+                          onLike={() => {
+                            toggleLocalReaction(item.id, 'like');
+                          }}
+                          onUnlike={() => {
+                            toggleLocalReaction(item.id, 'dislike');
+                          }}
+                          onDownload={() => {
+                            void downloadVideoMessage(item);
+                          }}
+                          onTooltip={showTooltip}
+                          labels={{
+                            copy: t('chat.tooltip.copyPrompt'),
+                            copyHint: t('chat.tooltip.copyPrompt'),
+                            like: t('chat.tooltip.like'),
+                            likeHint: t('chat.tooltip.like'),
+                            unlike: t('chat.tooltip.unlike'),
+                            unlikeHint: t('chat.tooltip.unlike'),
+                            download: t('chat.tooltip.downloadVideo'),
+                            downloadHint: t('chat.tooltip.downloadVideo'),
+                          }}
+                        />
+                      ) : null}
+
+                      {!isUser && !isImageMessage && !isVideoMessage && item.content.trim() ? (
                         <MessageActionsRow
                           isReading={isReading}
                           reaction={reaction}
@@ -1511,21 +2000,6 @@ export default function ChatScreen() {
             </Pressable>
           )}
 
-          {tooltipState ? (
-            <Animated.View
-              entering={FadeIn.duration(MOTION.duration.quick)}
-              pointerEvents="none"
-              className="absolute rounded-md px-2 py-1"
-              style={{
-                backgroundColor: isDark ? '#171717' : '#111111',
-                left: Math.max(8, Math.min(tooltipState.x - 56, screenWidth - 124)),
-                top: Math.max(8, tooltipState.y - 40),
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 11 }}>{tooltipState.text}</Text>
-            </Animated.View>
-          ) : null}
-
           {isRecording ? (
             <Animated.View
               entering={FadeInDown.duration(MOTION.duration.quick)}
@@ -1536,6 +2010,105 @@ export default function ChatScreen() {
             </Animated.View>
           ) : null}
             </Animated.View>
+
+            {!!statusNotice ? (
+              <Animated.View
+                entering={FadeInUp.duration(MOTION.duration.quick)}
+                exiting={FadeOutDown.duration(MOTION.duration.quick)}
+                pointerEvents={upgradeNoticeKind ? 'auto' : 'none'}
+                className="absolute left-3 right-3 rounded-2xl border px-3 py-2"
+                style={{
+                  bottom: 102 + (Platform.OS === 'android' ? androidComposerOffset : 0),
+                  borderColor: colors.primary,
+                  backgroundColor: isDark ? 'rgba(23,23,28,0.96)' : 'rgba(255,255,255,0.98)',
+                }}
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="information-circle-outline" size={14} color={colors.primary} />
+                  <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>
+                    {statusNotice}
+                  </Text>
+                </View>
+                {upgradeNoticeKind ? (
+                  <View className="mt-2 flex-row items-center gap-2">
+                    <Pressable
+                      onPress={() => {
+                        hapticSelection();
+                        setStatusNotice('');
+                        setUpgradeNoticeKind(null);
+                        router.push('/plans');
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('chat.limit.upgradeCta')}
+                      className="h-8 items-center justify-center rounded-full px-3"
+                      style={{ backgroundColor: colors.primary }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
+                        {t('chat.limit.upgradeCta')}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        hapticSelection();
+                        setStatusNotice('');
+                        setUpgradeNoticeKind(null);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('chat.limit.dismiss')}
+                      className="h-8 items-center justify-center rounded-full px-3"
+                      style={{ borderWidth: 1, borderColor: colors.border }}
+                    >
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '600' }}>
+                        {t('chat.limit.dismiss')}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </Animated.View>
+            ) : null}
+
+            {!!downloadToastNotice ? (
+              <Animated.View
+                entering={ZoomIn.duration(MOTION.duration.quick)}
+                exiting={ZoomOut.duration(MOTION.duration.quick)}
+                pointerEvents="none"
+                className="absolute left-3 right-3 rounded-2xl border px-3 py-2.5"
+                style={{
+                  bottom: 154 + (Platform.OS === 'android' ? androidComposerOffset : 0),
+                  borderColor: '#22C55E',
+                  backgroundColor: isDark ? 'rgba(6,78,59,0.95)' : 'rgba(236,253,245,0.98)',
+                }}
+              >
+                <View className="flex-row items-center">
+                  <View className="h-6 w-6 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(34,197,94,0.2)' }}>
+                    <Ionicons name="checkmark-done" size={14} color="#22C55E" />
+                  </View>
+                  <Text style={{ color: isDark ? '#D1FAE5' : '#065F46', fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
+                    {downloadToastNotice}
+                  </Text>
+                  <Ionicons name="download-outline" size={14} color="#22C55E" style={{ marginLeft: 'auto' }} />
+                </View>
+              </Animated.View>
+            ) : null}
+
+            {tooltipState ? (
+              <Animated.View
+                entering={FadeIn.duration(MOTION.duration.quick)}
+                pointerEvents="none"
+                className="absolute rounded-md px-2 py-1"
+                style={{
+                  zIndex: 9999,
+                  elevation: 120,
+                  borderWidth: 1,
+                  borderColor: isDark ? '#3F3F46' : '#27272A',
+                  backgroundColor: isDark ? '#0B0B0F' : '#111111',
+                  left: Math.max(8, Math.min(tooltipState.x - 56, screenWidth - 124)),
+                  top: Math.max(8, tooltipState.y - 40),
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{tooltipState.text}</Text>
+              </Animated.View>
+            ) : null}
           </View>
       </KeyboardAvoidingView>
     </AppScreen>

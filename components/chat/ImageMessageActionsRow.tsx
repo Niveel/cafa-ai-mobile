@@ -1,51 +1,44 @@
 import { Ionicons } from '@expo/vector-icons';
 import { GestureResponderEvent, Pressable, View } from 'react-native';
 
-type MessageActionsRowProps = {
-  isReading: boolean;
+type ImageMessageActionsRowProps = {
   reaction?: 'like' | 'dislike';
   primaryColor: string;
   borderColor: string;
   iconColor: string;
-  onCopy: () => void;
+  onCopyPrompt: () => void;
   onLike: () => void;
-  onDislike: () => void;
-  onShare: () => void;
-  onReadAloud: () => void;
+  onUnlike: () => void;
+  onDownload: () => void;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
   labels: {
     copy: string;
     copyHint: string;
     like: string;
     likeHint: string;
-    dislike: string;
-    dislikeHint: string;
-    share: string;
-    shareHint: string;
-    read: string;
-    stopRead: string;
-    readHint: string;
+    unlike: string;
+    unlikeHint: string;
+    download: string;
+    downloadHint: string;
   };
 };
 
-export function MessageActionsRow({
-  isReading,
+export function ImageMessageActionsRow({
   reaction,
   primaryColor,
   borderColor,
   iconColor,
-  onCopy,
+  onCopyPrompt,
   onLike,
-  onDislike,
-  onShare,
-  onReadAloud,
+  onUnlike,
+  onDownload,
   onTooltip,
   labels,
-}: MessageActionsRowProps) {
+}: ImageMessageActionsRowProps) {
   return (
     <View className="mt-1 flex-row items-center gap-1">
       <Pressable
-        onPress={onCopy}
+        onPress={onCopyPrompt}
         delayLongPress={180}
         onLongPress={(event) => onTooltip(labels.copy, event)}
         accessibilityRole="button"
@@ -76,12 +69,12 @@ export function MessageActionsRow({
       </Pressable>
 
       <Pressable
-        onPress={onDislike}
+        onPress={onUnlike}
         delayLongPress={180}
-        onLongPress={(event) => onTooltip(labels.dislike, event)}
+        onLongPress={(event) => onTooltip(labels.unlike, event)}
         accessibilityRole="button"
-        accessibilityLabel={labels.dislike}
-        accessibilityHint={labels.dislikeHint}
+        accessibilityLabel={labels.unlike}
+        accessibilityHint={labels.unlikeHint}
         accessibilityState={{ selected: reaction === 'dislike' }}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor: reaction === 'dislike' ? primaryColor : borderColor }}
@@ -94,34 +87,16 @@ export function MessageActionsRow({
       </Pressable>
 
       <Pressable
-        onPress={onShare}
+        onPress={onDownload}
         delayLongPress={180}
-        onLongPress={(event) => onTooltip(labels.share, event)}
+        onLongPress={(event) => onTooltip(labels.download, event)}
         accessibilityRole="button"
-        accessibilityLabel={labels.share}
-        accessibilityHint={labels.shareHint}
+        accessibilityLabel={labels.download}
+        accessibilityHint={labels.downloadHint}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor }}
       >
-        <Ionicons name="share-social-outline" size={13} color={iconColor} />
-      </Pressable>
-
-      <Pressable
-        onPress={onReadAloud}
-        delayLongPress={180}
-        onLongPress={(event) => onTooltip(isReading ? labels.stopRead : labels.read, event)}
-        accessibilityRole="button"
-        accessibilityLabel={isReading ? labels.stopRead : labels.read}
-        accessibilityHint={labels.readHint}
-        accessibilityState={{ selected: isReading }}
-        className="h-7 w-7 items-center justify-center rounded-full border"
-        style={{ borderColor: isReading ? primaryColor : borderColor }}
-      >
-        <Ionicons
-          name={isReading ? 'stop-circle-outline' : 'volume-high-outline'}
-          size={13}
-          color={isReading ? primaryColor : iconColor}
-        />
+        <Ionicons name="download-outline" size={13} color={iconColor} />
       </Pressable>
     </View>
   );
