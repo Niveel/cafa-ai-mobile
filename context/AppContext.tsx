@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import { usePostHog } from 'posthog-react-native';
 
@@ -65,6 +65,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const [animationLevel, setAnimationLevel] = useState<AnimationLevel>('full');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const hasTrackedAppOpenRef = useRef(false);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
 
@@ -144,6 +145,17 @@ export function AppProvider({ children }: AppProviderProps) {
       subscriptionTier: authUser.subscriptionTier ?? 'free',
     });
   }, [authUser?.email, authUser?.id, authUser?.name, authUser?.subscriptionTier, isAuthenticated, isReady, posthog]);
+
+  useEffect(() => {
+    if (!isReady || hasTrackedAppOpenRef.current) return;
+    hasTrackedAppOpenRef.current = true;
+    posthog.capture('app_opened', {
+      isAuthenticated,
+      hasCompletedOnboarding,
+      themeMode,
+      language,
+    });
+  }, [hasCompletedOnboarding, isAuthenticated, isReady, language, posthog, themeMode]);
 
   const signOut = useCallback(async () => {
     const refreshToken = await getRefreshToken();

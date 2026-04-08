@@ -11,6 +11,11 @@ import { useAppTheme } from '@/hooks';
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 
+if (!POSTHOG_API_KEY) {
+  // Keep this visible in device logs to avoid silent analytics outages in production builds.
+  console.warn('[analytics] EXPO_PUBLIC_POSTHOG_API_KEY is missing. PostHog is disabled.');
+}
+
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
   const { isReady: appIsReady } = useAppContext();
