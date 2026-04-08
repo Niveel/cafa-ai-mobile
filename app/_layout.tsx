@@ -8,12 +8,14 @@ import '../global.css';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { useAppTheme } from '@/hooks';
 
-const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
+const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTicae';
+const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 
-if (!POSTHOG_API_KEY) {
-  // Keep this visible in device logs to avoid silent analytics outages in production builds.
-  console.warn('[analytics] EXPO_PUBLIC_POSTHOG_API_KEY is missing. PostHog is disabled.');
+if (!process.env.EXPO_PUBLIC_POSTHOG_API_KEY) {
+  // Keep this visible in device logs to avoid silent analytics outages in build profiles
+  // where EXPO_PUBLIC env injection is missing.
+  console.warn('[analytics] EXPO_PUBLIC_POSTHOG_API_KEY is missing. Falling back to bundled PostHog key.');
 }
 
 function AppNavigator() {

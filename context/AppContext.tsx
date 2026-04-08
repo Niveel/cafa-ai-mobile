@@ -155,6 +155,7 @@ export function AppProvider({ children }: AppProviderProps) {
       themeMode,
       language,
     });
+    (posthog as { flush?: () => void }).flush?.();
   }, [hasCompletedOnboarding, isAuthenticated, isReady, language, posthog, themeMode]);
 
   const signOut = useCallback(async () => {
