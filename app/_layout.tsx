@@ -13,6 +13,7 @@ import { useAppTheme } from '@/hooks';
 const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTicae';
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
+const SESSION_REPLAY_SAMPLE_RATE = Number(process.env.EXPO_PUBLIC_POSTHOG_SESSION_REPLAY_SAMPLE_RATE ?? '1');
 
 if (!process.env.EXPO_PUBLIC_POSTHOG_API_KEY) {
   // Keep this visible in device logs to avoid silent analytics outages in build profiles
@@ -71,7 +72,16 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       {POSTHOG_API_KEY ? (
-        <PostHogProvider apiKey={POSTHOG_API_KEY} options={{ host: POSTHOG_HOST }}>
+        <PostHogProvider
+          apiKey={POSTHOG_API_KEY}
+          options={{
+            host: POSTHOG_HOST,
+            enableSessionReplay: true,
+            sessionReplayConfig: {
+              sampleRate: Number.isFinite(SESSION_REPLAY_SAMPLE_RATE) ? Math.max(0, Math.min(1, SESSION_REPLAY_SAMPLE_RATE)) : 1,
+            },
+          }}
+        >
           {appTree}
         </PostHogProvider>
       ) : (
