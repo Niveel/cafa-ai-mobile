@@ -76,9 +76,17 @@ export default function RootLayout() {
           apiKey={POSTHOG_API_KEY}
           options={{
             host: POSTHOG_HOST,
+            captureAppLifecycleEvents: true,
             enableSessionReplay: true,
             sessionReplayConfig: {
               sampleRate: Number.isFinite(SESSION_REPLAY_SAMPLE_RATE) ? Math.max(0, Math.min(1, SESSION_REPLAY_SAMPLE_RATE)) : 1,
+            },
+            errorTracking: {
+              autocapture: {
+                uncaughtExceptions: true,
+                unhandledRejections: true,
+                console: ['error'],
+              },
             },
           }}
         >
