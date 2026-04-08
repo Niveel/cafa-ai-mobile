@@ -87,12 +87,20 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
       setDirectionUpward: (value: boolean) => void,
     ) => {
       requestAnimationFrame(() => {
-        triggerRef.current?.measureInWindow((_x, y, _width, height) => {
-          const spaceBelow = viewportHeight - (y + height);
-          const spaceAbove = y;
-          const shouldOpenUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
-          setDirectionUpward(shouldOpenUp);
-        });
+        const triggerNode = triggerRef.current as unknown as {
+          measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void;
+        } | null;
+        if (!triggerNode || typeof triggerNode.measureInWindow !== 'function') return;
+        try {
+          triggerNode.measureInWindow((_x, y, _width, height) => {
+            const spaceBelow = viewportHeight - (y + height);
+            const spaceAbove = y;
+            const shouldOpenUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
+            setDirectionUpward(shouldOpenUp);
+          });
+        } catch {
+          // Keep default downward placement if native measurement is unavailable.
+        }
       });
     },
     [viewportHeight],
