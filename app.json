@@ -141,7 +141,8 @@
       "expo-document-picker",
       "expo-video",
       "expo-audio",
-      "expo-localization"
+      "expo-localization",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
