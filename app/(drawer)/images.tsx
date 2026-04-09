@@ -17,11 +17,11 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppButton, RequireAuthRoute, SecondaryNav } from '@/components';
+import { AppButton, AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
 import { ImageGalleryCard } from '@/components/images/ImageGalleryCard';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
-import { getImageHistoryPage } from '@/features/images';
+import { deleteImage, deleteImagesBulk, getImageHistoryPage } from '@/features/images';
 import { getAccessToken } from '@/services/storage/session';
 import { apiEndpoints } from '@/services/api';
 import { ImageHistoryItem } from '@/types';
@@ -101,7 +101,10 @@ export default function ImagesScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isZipBusy, setIsZipBusy] = useState(false);
+  const [isDeleteBusy, setIsDeleteBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ImageHistoryItem | null>(null);
+  const [showDeleteAllPrompt, setShowDeleteAllPrompt] = useState(false);
   const [zipProgress, setZipProgress] = useState<{
     visible: boolean;
     phase: 'idle' | 'preparing' | 'downloading' | 'complete';
@@ -301,6 +304,66 @@ export default function ImagesScreen() {
       hapticError();
     }
   }, [resolveBackendAssetUrl, showNotice, t]);
+
+  const removeImage = useCallback(async (item: ImageHistoryItem) => {
+    hapticSelection();
+    try {
+      await deleteImage(item.id);
+      setImages((prev) => prev.filter((entry) => entry.id !== item.id));
+      showNotice('Image deleted.');
+      hapticSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete image.';
+      console.log(`[images-delete:error] imageId=${item.id} message="${message}"`);
+      showNotice('Could not delete image.', 5000);
+      hapticError();
+    }
+  }, [showNotice]);
+
+  const removeAllImages = useCallback(async () => {
+    setIsDeleteBusy(true);
+    hapticSelection();
+    showNotice('Deleting images...');
+    try {
+      const allIds: string[] = [];
+      let page = 1;
+      while (true) {
+        const payload = await getImageHistoryPage({
+          page,
+          limit: 200,
+          sort: 'newest',
+        });
+        allIds.push(...payload.images.map((image) => image.id));
+        const hasNext = Boolean(payload.pagination.hasNextPage ?? (payload.pagination.page < payload.pagination.pages));
+        if (!hasNext) break;
+        page += 1;
+      }
+
+      const uniqueIds = Array.from(new Set(allIds));
+      if (!uniqueIds.length) {
+        showNotice('No images to delete.');
+        return;
+      }
+
+      for (let index = 0; index < uniqueIds.length; index += 500) {
+        const chunk = uniqueIds.slice(index, index + 500);
+        await deleteImagesBulk(chunk);
+      }
+
+      setImages([]);
+      setCurrentPage(0);
+      setHasNextPage(false);
+      showNotice('All saved images deleted.');
+      hapticSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete images.';
+      console.log(`[images-delete-all:error] message="${message}"`);
+      showNotice('Could not delete all images.', 5000);
+      hapticError();
+    } finally {
+      setIsDeleteBusy(false);
+    }
+  }, [showNotice]);
 
   const downloadAllAsZip = useCallback(async () => {
     if (Platform.OS !== 'android') return;
@@ -503,21 +566,69 @@ export default function ImagesScreen() {
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
+        <AppPromptModal
+          visible={Boolean(deleteTarget)}
+          title="Delete image?"
+          message="This image will be permanently removed from your saved history."
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          iconName="trash-outline"
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => {
+            const target = deleteTarget;
+            setDeleteTarget(null);
+            if (target) {
+              void removeImage(target);
+            }
+          }}
+        />
+        <AppPromptModal
+          visible={showDeleteAllPrompt}
+          title="Delete all images?"
+          message="This will permanently remove all saved images from your history."
+          confirmLabel="Delete all"
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          iconName="warning-outline"
+          onCancel={() => setShowDeleteAllPrompt(false)}
+          onConfirm={() => {
+            setShowDeleteAllPrompt(false);
+            void removeAllImages();
+          }}
+        />
+
         <SecondaryNav title={t('drawer.images')} topOffset={Math.max(insets.top, 0)} />
         <View className="mb-2 mt-1">
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.imagesSubtitle')}
           </Text>
-          {Platform.OS === 'android' ? (
-            <View className="mt-2 self-start">
-            <AppButton
-              label={isZipBusy ? t('images.zipBusy') : t('images.downloadAllZip')}
-              onPress={() => void downloadAllAsZip()}
-              iconName="download-outline"
-              compact
-            />
+          <View className="mt-2 self-start flex-row">
+            {Platform.OS === 'android' ? (
+              <AppButton
+                label={isZipBusy ? t('images.zipBusy') : t('images.downloadAllZip')}
+                onPress={() => void downloadAllAsZip()}
+                iconName="download-outline"
+                compact
+              />
+            ) : null}
+            <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+              <AppButton
+                label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                onPress={() => {
+                  if (isDeleteBusy) return;
+                  if (!images.length) {
+                    showNotice('No images to delete.');
+                    return;
+                  }
+                  setShowDeleteAllPrompt(true);
+                }}
+                iconName="trash-outline"
+                variant="danger"
+                compact
+              />
             </View>
-          ) : null}
+          </View>
         </View>
 
         <FlatList
@@ -540,6 +651,9 @@ export default function ImagesScreen() {
               width={cardWidth}
               onDownload={(target) => {
                 void downloadImage(target);
+              }}
+              onDelete={(target) => {
+                setDeleteTarget(target);
               }}
             />
               );

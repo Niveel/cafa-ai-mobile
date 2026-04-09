@@ -17,11 +17,11 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppButton, RequireAuthRoute, SecondaryNav } from '@/components';
+import { AppButton, AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
 import { VideoGalleryCard } from '@/components/videos/VideoGalleryCard';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
-import { getVideoHistoryPage } from '@/features/videos';
+import { deleteVideo, deleteVideosBulk, getVideoHistoryPage } from '@/features/videos';
 import { getAccessToken } from '@/services/storage/session';
 import { apiEndpoints } from '@/services/api';
 import { VideoHistoryItem } from '@/types';
@@ -95,7 +95,10 @@ export default function VideosScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isZipBusy, setIsZipBusy] = useState(false);
+  const [isDeleteBusy, setIsDeleteBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<VideoHistoryItem | null>(null);
+  const [showDeleteAllPrompt, setShowDeleteAllPrompt] = useState(false);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const pulse = useRef(new Animated.Value(0)).current;
@@ -275,6 +278,66 @@ export default function VideosScreen() {
       hapticError();
     }
   }, [resolveBackendAssetUrl, showNotice, t]);
+
+  const removeVideo = useCallback(async (item: VideoHistoryItem) => {
+    hapticSelection();
+    try {
+      await deleteVideo(item.id);
+      setVideos((prev) => prev.filter((entry) => entry.id !== item.id));
+      showNotice('Video deleted.');
+      hapticSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete video.';
+      console.log(`[videos-delete:error] videoId=${item.id} message="${message}"`);
+      showNotice('Could not delete video.', 5000);
+      hapticError();
+    }
+  }, [showNotice]);
+
+  const removeAllVideos = useCallback(async () => {
+    setIsDeleteBusy(true);
+    hapticSelection();
+    showNotice('Deleting videos...');
+    try {
+      const allIds: string[] = [];
+      let page = 1;
+      while (true) {
+        const payload = await getVideoHistoryPage({
+          page,
+          limit: 200,
+          sort: 'newest',
+        }, { force: true });
+        allIds.push(...payload.videos.map((video) => video.id));
+        const hasNext = Boolean(payload.pagination.hasNextPage ?? (payload.pagination.page < payload.pagination.pages));
+        if (!hasNext) break;
+        page += 1;
+      }
+
+      const uniqueIds = Array.from(new Set(allIds));
+      if (!uniqueIds.length) {
+        showNotice('No videos to delete.');
+        return;
+      }
+
+      for (let index = 0; index < uniqueIds.length; index += 500) {
+        const chunk = uniqueIds.slice(index, index + 500);
+        await deleteVideosBulk(chunk);
+      }
+
+      setVideos([]);
+      setCurrentPage(0);
+      setHasNextPage(false);
+      showNotice('All saved videos deleted.');
+      hapticSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete videos.';
+      console.log(`[videos-delete-all:error] message="${message}"`);
+      showNotice('Could not delete all videos.', 5000);
+      hapticError();
+    } finally {
+      setIsDeleteBusy(false);
+    }
+  }, [showNotice]);
 
   const downloadAllAsZip = useCallback(async () => {
     if (Platform.OS !== 'android') return;
@@ -479,21 +542,69 @@ export default function VideosScreen() {
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
+        <AppPromptModal
+          visible={Boolean(deleteTarget)}
+          title="Delete video?"
+          message="This video will be permanently removed from your saved history."
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          iconName="trash-outline"
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => {
+            const target = deleteTarget;
+            setDeleteTarget(null);
+            if (target) {
+              void removeVideo(target);
+            }
+          }}
+        />
+        <AppPromptModal
+          visible={showDeleteAllPrompt}
+          title="Delete all videos?"
+          message="This will permanently remove all saved videos from your history."
+          confirmLabel="Delete all"
+          cancelLabel="Cancel"
+          confirmTone="danger"
+          iconName="warning-outline"
+          onCancel={() => setShowDeleteAllPrompt(false)}
+          onConfirm={() => {
+            setShowDeleteAllPrompt(false);
+            void removeAllVideos();
+          }}
+        />
+
         <SecondaryNav title={t('drawer.videos')} topOffset={Math.max(insets.top, 0)} />
         <View className="mb-2 mt-1">
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.videosSubtitle')}
           </Text>
-          {Platform.OS === 'android' ? (
-            <View className="mt-2 self-start">
+          <View className="mt-2 self-start flex-row">
+            {Platform.OS === 'android' ? (
               <AppButton
                 label={isZipBusy ? t('videos.zipBusy') : t('videos.downloadAllZip')}
                 onPress={() => void downloadAllAsZip()}
                 iconName="download-outline"
                 compact
               />
+            ) : null}
+            <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+              <AppButton
+                label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                onPress={() => {
+                  if (isDeleteBusy) return;
+                  if (!videos.length) {
+                    showNotice('No videos to delete.');
+                    return;
+                  }
+                  setShowDeleteAllPrompt(true);
+                }}
+                iconName="trash-outline"
+                variant="danger"
+                compact
+              />
             </View>
-          ) : null}
+          </View>
         </View>
 
         <FlatList
@@ -505,6 +616,9 @@ export default function VideosScreen() {
               width={Dimensions.get('window').width - 20}
               onDownload={(target) => {
                 void downloadVideo(target);
+              }}
+              onDelete={(target) => {
+                setDeleteTarget(target);
               }}
             />
           )}

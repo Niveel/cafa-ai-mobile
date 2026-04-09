@@ -50,6 +50,38 @@ function isBillingCancelUrl(url: string, appScheme: string) {
     url.startsWith(`${appScheme}:///billing/cancel`)
   );
 }
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function resolveOverviewUsageCount(
+  usage: SubscriptionOverview['usage'] | Record<string, unknown> | undefined,
+  key: 'chat' | 'images' | 'videos',
+) {
+  if (!usage || typeof usage !== 'object') return null;
+
+  const record = usage as Record<string, unknown>;
+  const direct =
+    key === 'chat'
+      ? asNumber(record.chatMessagesToday)
+      : key === 'images'
+        ? asNumber(record.imageGenerationsToday)
+        : asNumber(record.videoGenerationsToday);
+  if (direct != null) return direct;
+
+  const nested = key === 'chat' ? record.chat : key === 'images' ? record.images : record.videos;
+  if (nested && typeof nested === 'object') {
+    return asNumber((nested as Record<string, unknown>).used);
+  }
+  return null;
+}
+
 function normalizeUsageAndLimits(
   overview: SubscriptionOverview | null,
   dailyUsage: UsageSnapshot | null,
@@ -57,13 +89,16 @@ function normalizeUsageAndLimits(
 ) {
   const limits = overview?.limits ?? currentPlan?.limits;
   const usage = overview?.usage;
+  const chatUsedFromOverview = resolveOverviewUsageCount(usage, 'chat');
+  const imageUsedFromOverview = resolveOverviewUsageCount(usage, 'images');
+  const videoUsedFromOverview = resolveOverviewUsageCount(usage, 'videos');
 
   return {
-    chatUsed: dailyUsage?.chatUsed ?? usage?.chatMessagesToday ?? 0,
+    chatUsed: chatUsedFromOverview ?? dailyUsage?.chatUsed ?? 0,
     chatLimit: dailyUsage?.chatLimit ?? limits?.chatMessagesPerDay ?? 500,
-    imageUsed: dailyUsage?.imageUsed ?? usage?.imageGenerationsToday ?? 0,
+    imageUsed: imageUsedFromOverview ?? dailyUsage?.imageUsed ?? 0,
     imageLimit: dailyUsage?.imageLimit ?? limits?.imageGenerationsPerDay ?? 5,
-    videoUsed: usage?.videoGenerationsToday ?? 0,
+    videoUsed: videoUsedFromOverview ?? 0,
     videoLimit: limits?.videoGenerationsPerDay ?? 1,
     maxVideoDurationSeconds: limits?.maxVideoDurationSeconds ?? 3,
   };

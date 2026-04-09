@@ -28,6 +28,15 @@ let overviewInFlight: Promise<SubscriptionOverview> | null = null;
 let plansInFlight: Promise<SubscriptionPlansPayload> | null = null;
 let usageInFlight: Promise<UsageSnapshot> | null = null;
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
 function isFresh<T>(entry: CacheEntry<T> | null, ttlMs: number) {
   return Boolean(entry && Date.now() - entry.fetchedAt < ttlMs);
 }
@@ -213,16 +222,22 @@ export async function getDailyUsage(options?: { force?: boolean }) {
       const response: AxiosResponse<{ data: DailyUsagePayload }> = await apiClient.get(
         apiEndpoints.users.usage,
       );
-      const usage = response.data.data?.usage;
+      const usage = response.data.data?.usage as (DailyUsagePayload['usage'] & Record<string, unknown>) | undefined;
+      const chatUsed =
+        asNumber(usage?.chat?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.chatMessagesToday)
+        ?? 0;
+      const imageUsed =
+        asNumber(usage?.images?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsToday)
+        ?? 0;
+      const chatLimitRaw = usage?.chat?.limit;
+      const imageLimitRaw = usage?.images?.limit;
       const snapshot: UsageSnapshot = {
-        chatUsed: usage?.chat?.used ?? 0,
-        chatLimit: typeof usage?.chat?.limit === 'number' || usage?.chat?.limit === null
-          ? usage.chat.limit
-          : null,
-        imageUsed: usage?.images?.used ?? 0,
-        imageLimit: typeof usage?.images?.limit === 'number' || usage?.images?.limit === null
-          ? usage.images.limit
-          : null,
+        chatUsed,
+        chatLimit: chatLimitRaw === null ? null : asNumber(chatLimitRaw),
+        imageUsed,
+        imageLimit: imageLimitRaw === null ? null : asNumber(imageLimitRaw),
       };
       usageCache = { data: snapshot, fetchedAt: Date.now() };
       return snapshot;

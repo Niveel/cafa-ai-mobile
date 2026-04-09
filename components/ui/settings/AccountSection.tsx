@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -18,11 +17,13 @@ import Constants from 'expo-constants';
 import * as Yup from 'yup';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { Image as ExpoImage } from 'expo-image';
 
 import { AppForm, AppFormField, SubmitButton } from '@/components/form';
 import { API_BASE_URL } from '@/lib';
 import { createBillingPortalSession, getSubscriptionStatus } from '@/features/billing/services/subscriptions';
 import { deleteCurrentUserAccount, updateCurrentUserProfile, uploadCurrentUserAvatar } from '@/features/auth/services/auth';
+import { getAccessToken } from '@/services';
 import type { AuthUser } from '@/types';
 import type { SubscriptionLifecycle, SubscriptionStatus } from '@/types/billing.types';
 import { AppPromptModal } from '../AppPromptModal';
@@ -39,6 +40,7 @@ type AccountSectionProps = {
   authUser: AuthUser | null;
   refreshAuthUser: () => Promise<void>;
   signOut: () => void;
+  onNavigateToPlans?: () => void;
 };
 
 type DeleteAccountFormValues = {
@@ -86,6 +88,23 @@ function resolveAvatarUri(input?: string | null) {
   return `${apiOrigin}/${value}`;
 }
 
+function resolveAvatarUriCandidates(input?: string | null) {
+  if (!input) return [];
+  const value = input.trim();
+  if (!value) return [];
+  if (/^(https?:|file:|content:|data:)/i.test(value)) return [value];
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  const prodOrigin = 'https://cafaapi.niveel.com';
+
+  return Array.from(new Set([
+    `${apiOrigin}${withLeadingSlash}`,
+    `${apiOrigin}/api/v1${withLeadingSlash}`,
+    `${prodOrigin}${withLeadingSlash}`,
+  ]));
+}
+
 export function AccountSection({
   isDark,
   colors,
@@ -93,6 +112,7 @@ export function AccountSection({
   authUser,
   refreshAuthUser,
   signOut,
+  onNavigateToPlans,
 }: AccountSectionProps) {
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [subscriptionLifecycle, setSubscriptionLifecycle] = useState<SubscriptionLifecycle | null>(null);
@@ -103,6 +123,7 @@ export function AccountSection({
   const [showDeletePrompt, setShowDeletePrompt] = useState(false);
   const [showDeleteForm, setShowDeleteForm] = useState(false);
   const [avatarRenderError, setAvatarRenderError] = useState(false);
+  const [avatarAccessToken, setAvatarAccessToken] = useState<string | null>(null);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
 
   const displayName = useMemo(() => toTitleCase(authUser?.name ?? ''), [authUser?.name]);
@@ -114,7 +135,57 @@ export function AccountSection({
     }
     return resolveAvatarUri(authUser?.avatar);
   }, [authUser?.avatar, localAvatarUri]);
+  const resolvedAvatarCandidates = useMemo(
+    () => resolveAvatarUriCandidates(localAvatarUri === null ? undefined : (typeof localAvatarUri === 'string' ? localAvatarUri : authUser?.avatar)),
+    [authUser?.avatar, localAvatarUri],
+  );
+  const [activeAvatarUri, setActiveAvatarUri] = useState<string | null>(null);
+  const avatarRequiresAuth = useMemo(
+    () => Boolean((activeAvatarUri ?? resolvedAvatarUri) && /^https?:\/\//i.test(activeAvatarUri ?? resolvedAvatarUri ?? '') && (activeAvatarUri ?? resolvedAvatarUri ?? '').includes('/uploads/')),
+    [activeAvatarUri, resolvedAvatarUri],
+  );
+  const canRenderRemoteAvatar = Boolean((activeAvatarUri ?? resolvedAvatarUri) && (!avatarRequiresAuth || avatarAccessToken));
   const profileInitial = useMemo(() => getInitials(displayName, authUser?.email), [authUser?.email, displayName]);
+
+  useEffect(() => {
+    setAvatarRenderError(false);
+  }, [resolvedAvatarUri, avatarAccessToken]);
+
+  useEffect(() => {
+    const candidates = resolvedAvatarCandidates;
+    if (!candidates.length) {
+      setActiveAvatarUri(null);
+      return;
+    }
+    if (candidates.length === 1) {
+      setActiveAvatarUri(candidates[0]);
+      return;
+    }
+    const needsAuth = candidates.some((candidate) => candidate.includes('/uploads/'));
+    if (needsAuth && !avatarAccessToken) return;
+    let cancelled = false;
+    void (async () => {
+      for (const candidate of candidates) {
+        try {
+          const response = await fetch(candidate, {
+            method: 'GET',
+            headers: avatarAccessToken ? { Authorization: `Bearer ${avatarAccessToken}` } : undefined,
+          });
+          if (cancelled) return;
+          if (response.ok) {
+            setActiveAvatarUri(candidate);
+            return;
+          }
+        } catch {
+          if (cancelled) return;
+        }
+      }
+      setActiveAvatarUri(candidates[0]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [avatarAccessToken, resolvedAvatarCandidates]);
 
   const deleteSchema = useMemo(
     () => Yup.object().shape({ password: Yup.string().required(t('settings.account.deletePasswordRequired')) }),
@@ -141,6 +212,19 @@ export function AccountSection({
   useEffect(() => {
     void refreshAuthUser();
   }, [refreshAuthUser]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = await getAccessToken();
+      if (!cancelled) {
+        setAvatarAccessToken(token ?? null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.avatar, localAvatarUri]);
 
   const onPickAvatar = async () => {
     setStatusText('');
@@ -176,7 +260,6 @@ export function AccountSection({
         try {
           await updateCurrentUserProfile({ avatar: uploadedAvatar });
         } catch {
-          // Keep flow resilient if backend already persisted avatar via upload route.
         }
       }
       await refreshAuthUser();
@@ -249,11 +332,16 @@ export function AccountSection({
               backgroundColor: `${colors.primary}20`,
             }}
           >
-            {resolvedAvatarUri && !avatarRenderError ? (
-              <Image
+            {canRenderRemoteAvatar && !avatarRenderError ? (
+              <ExpoImage
                 key={resolvedAvatarUri}
-                source={{ uri: resolvedAvatarUri }}
+                source={
+                  avatarAccessToken
+                    ? { uri: activeAvatarUri ?? resolvedAvatarUri, headers: { Authorization: `Bearer ${avatarAccessToken}` } }
+                    : { uri: activeAvatarUri ?? resolvedAvatarUri }
+                }
                 style={{ width: 124, height: 124 }}
+                contentFit="cover"
                 accessibilityLabel={t('drawer.userAvatar')}
                 onError={() => {
                   setAvatarRenderError(true);
@@ -326,7 +414,13 @@ export function AccountSection({
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={t('drawer.userMenu.upgrade')}
-            onPress={() => router.push('/plans')}
+            onPress={() => {
+              if (onNavigateToPlans) {
+                onNavigateToPlans();
+                return;
+              }
+              router.push('/plans');
+            }}
             className="h-10 items-center justify-center rounded-full px-3"
             style={{ backgroundColor: colors.primary }}
           >

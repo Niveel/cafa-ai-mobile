@@ -173,15 +173,18 @@ export async function uploadCurrentUserAvatar(file: {
       type: file.type ?? 'image/jpeg',
     } as unknown as Blob);
 
-    const response: AxiosResponse<{ data?: { avatar?: string | null } }> = await apiClient.post(
+    const response: AxiosResponse<{ data?: Record<string, unknown> }> = await apiClient.post(
       apiEndpoints.users.avatar,
       formData,
       {
         headers: { 'Content-Type': 'multipart/form-data' },
       },
     );
+    const payload = response.data.data ?? {};
+    const rawAvatar = payload.avatar ?? payload.avatarUrl ?? payload.url ?? payload.path ?? null;
+    const normalizedAvatar = normalizeAvatarUrl(typeof rawAvatar === 'string' ? rawAvatar : null);
 
-    return response.data.data?.avatar ?? null;
+    return normalizedAvatar;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -197,15 +200,34 @@ export async function deleteCurrentUserAccount(password: string) {
 
 function mapAuthUser(raw: Record<string, unknown>): AuthUser {
   const subscription = (raw.subscription ?? {}) as Record<string, unknown>;
-
+  const debugRaw = raw as { avatarUrl?: unknown; profileImage?: unknown };
+  const rawAvatar =
+    typeof raw.avatar === 'string'
+      ? raw.avatar
+      : typeof debugRaw.avatarUrl === 'string'
+        ? debugRaw.avatarUrl
+        : typeof debugRaw.profileImage === 'string'
+          ? debugRaw.profileImage
+          : null;
   return {
     id: String(raw._id ?? raw.id ?? ''),
     name: String(raw.name ?? ''),
     email: String(raw.email ?? ''),
-    avatar: typeof raw.avatar === 'string' ? raw.avatar : null,
+    avatar: normalizeAvatarUrl(rawAvatar),
     subscriptionTier:
       typeof subscription.tier === 'string'
         ? (subscription.tier as AuthUser['subscriptionTier'])
         : undefined,
   };
+}
+
+function normalizeAvatarUrl(input?: string | null) {
+  if (!input) return null;
+  const value = input.trim();
+  if (!value) return null;
+  if (/^(https?:|file:|content:|data:)/i.test(value)) return value;
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  return `${apiOrigin}${withLeadingSlash}`;
 }

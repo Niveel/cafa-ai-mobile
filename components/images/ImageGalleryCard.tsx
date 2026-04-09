@@ -13,6 +13,7 @@ type ImageGalleryCardProps = {
   width: number;
   imageHeaders?: Record<string, string>;
   onDownload: (item: ImageHistoryItem) => void;
+  onDelete: (item: ImageHistoryItem) => void;
 };
 
 function formatDate(value: string) {
@@ -23,7 +24,7 @@ function formatDate(value: string) {
   }
 }
 
-function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload }: ImageGalleryCardProps) {
+function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload, onDelete }: ImageGalleryCardProps) {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const imageHeight = Math.round(width * 1.22);
@@ -105,21 +106,39 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload 
           <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
             {formatDate(item.createdAt)}
           </Text>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={t('images.downloadOne')}
-            accessibilityHint={t('images.downloadOneHint')}
-            onPress={() => onDownload(item)}
-            activeOpacity={0.82}
-            className="h-8 w-8 items-center justify-center rounded-full"
-            style={{
-              backgroundColor: isDark ? 'rgba(167,139,250,0.17)' : 'rgba(124,58,237,0.12)',
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.28)',
-            }}
-          >
-            <Ionicons name="download-outline" size={16} color={colors.primary} />
-          </TouchableOpacity>
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={t('images.downloadOne')}
+              accessibilityHint={t('images.downloadOneHint')}
+              onPress={() => onDownload(item)}
+              activeOpacity={0.82}
+              className="h-8 w-8 items-center justify-center rounded-full"
+              style={{
+                marginRight: 8,
+                backgroundColor: isDark ? 'rgba(167,139,250,0.17)' : 'rgba(124,58,237,0.12)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.28)',
+              }}
+            >
+              <Ionicons name="download-outline" size={16} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Delete image"
+              accessibilityHint="Deletes this saved image"
+              onPress={() => onDelete(item)}
+              activeOpacity={0.82}
+              className="h-8 w-8 items-center justify-center rounded-full"
+              style={{
+                backgroundColor: isDark ? 'rgba(239,68,68,0.17)' : 'rgba(239,68,68,0.12)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(248,113,113,0.34)' : 'rgba(239,68,68,0.28)',
+              }}
+            >
+              <Ionicons name="trash-outline" size={16} color={isDark ? '#FCA5A5' : '#DC2626'} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </View>

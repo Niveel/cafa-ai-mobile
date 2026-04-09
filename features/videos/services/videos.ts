@@ -177,3 +177,19 @@ export async function requestDownloadAllVideosZip() {
     throw mapApiError(error);
   }
 }
+
+export async function deleteVideo(videoId: string) {
+  try {
+    await apiClient.delete(apiEndpoints.videos.remove(videoId));
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function deleteVideosBulk(videoIds: string[]) {
+  try {
+    await apiClient.post(apiEndpoints.videos.deleteBulk, { videoIds });
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}

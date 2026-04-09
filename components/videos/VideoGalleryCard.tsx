@@ -11,6 +11,7 @@ type VideoGalleryCardProps = {
   videoUrl: string;
   width: number;
   onDownload: (item: VideoHistoryItem) => void;
+  onDelete: (item: VideoHistoryItem) => void;
 };
 
 function formatDate(value: string) {
@@ -21,7 +22,7 @@ function formatDate(value: string) {
   }
 }
 
-function VideoGalleryCardImpl({ item, videoUrl, width, onDownload }: VideoGalleryCardProps) {
+function VideoGalleryCardImpl({ item, videoUrl, width, onDownload, onDelete }: VideoGalleryCardProps) {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const videoHeight = Math.round(width * 9 / 16);
@@ -69,21 +70,39 @@ function VideoGalleryCardImpl({ item, videoUrl, width, onDownload }: VideoGaller
           <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
             {formatDate(item.createdAt)}
           </Text>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={t('videos.downloadOne')}
-            accessibilityHint={t('videos.downloadOneHint')}
-            onPress={() => onDownload(item)}
-            activeOpacity={0.82}
-            className="h-8 w-8 items-center justify-center rounded-full"
-            style={{
-              backgroundColor: isDark ? 'rgba(167,139,250,0.17)' : 'rgba(124,58,237,0.12)',
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.28)',
-            }}
-          >
-            <Ionicons name="download-outline" size={16} color={colors.primary} />
-          </TouchableOpacity>
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={t('videos.downloadOne')}
+              accessibilityHint={t('videos.downloadOneHint')}
+              onPress={() => onDownload(item)}
+              activeOpacity={0.82}
+              className="h-8 w-8 items-center justify-center rounded-full"
+              style={{
+                marginRight: 8,
+                backgroundColor: isDark ? 'rgba(167,139,250,0.17)' : 'rgba(124,58,237,0.12)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.28)',
+              }}
+            >
+              <Ionicons name="download-outline" size={16} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Delete video"
+              accessibilityHint="Deletes this saved video"
+              onPress={() => onDelete(item)}
+              activeOpacity={0.82}
+              className="h-8 w-8 items-center justify-center rounded-full"
+              style={{
+                backgroundColor: isDark ? 'rgba(239,68,68,0.17)' : 'rgba(239,68,68,0.12)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(248,113,113,0.34)' : 'rgba(239,68,68,0.28)',
+              }}
+            >
+              <Ionicons name="trash-outline" size={16} color={isDark ? '#FCA5A5' : '#DC2626'} />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </View>
@@ -91,4 +110,3 @@ function VideoGalleryCardImpl({ item, videoUrl, width, onDownload }: VideoGaller
 }
 
 export const VideoGalleryCard = memo(VideoGalleryCardImpl);
-

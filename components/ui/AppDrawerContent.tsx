@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
+import { Animated, Dimensions, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { Image as ExpoImage } from 'expo-image';
 
 import { useAppContext } from '@/context';
 import { API_BASE_URL } from '@/lib';
@@ -20,7 +21,7 @@ import {
   setPinnedChat,
 } from '@/services/storage/chatPreferences';
 import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
-import { subscribeToChatMutated } from '@/services';
+import { getAccessToken, subscribeToChatMutated } from '@/services';
 import { hapticSelection } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
@@ -45,6 +46,23 @@ function resolveAvatarUri(input?: string | null) {
   const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
   if (value.startsWith('/')) return `${apiOrigin}${value}`;
   return `${apiOrigin}/${value}`;
+}
+
+function resolveAvatarUriCandidates(input?: string | null) {
+  if (!input) return [];
+  const value = input.trim();
+  if (!value) return [];
+  if (/^(https?:|file:|content:|data:)/i.test(value)) return [value];
+
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  const prodOrigin = 'https://cafaapi.niveel.com';
+
+  return Array.from(new Set([
+    `${apiOrigin}${withLeadingSlash}`,
+    `${apiOrigin}/api/v1${withLeadingSlash}`,
+    `${prodOrigin}${withLeadingSlash}`,
+  ]));
 }
 
 type DrawerChatItem = {
@@ -317,6 +335,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [avatarAccessToken, setAvatarAccessToken] = useState<string | null>(null);
   const menuTouchRef = useRef(false);
   const userMenuChevronRotation = useRef(new Animated.Value(0)).current;
 
@@ -370,17 +389,83 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     () => resolveAvatarUri(authUser?.avatar),
     [authUser?.avatar],
   );
+  const resolvedAvatarCandidates = useMemo(
+    () => resolveAvatarUriCandidates(authUser?.avatar),
+    [authUser?.avatar],
+  );
+  const [activeAvatarUri, setActiveAvatarUri] = useState<string | null>(null);
+  const avatarRequiresAuth = useMemo(
+    () => Boolean((activeAvatarUri ?? resolvedAvatarUri) && /^https?:\/\//i.test(activeAvatarUri ?? resolvedAvatarUri ?? '') && (activeAvatarUri ?? resolvedAvatarUri ?? '').includes('/uploads/')),
+    [activeAvatarUri, resolvedAvatarUri],
+  );
+  const canRenderRemoteAvatar = Boolean((activeAvatarUri ?? resolvedAvatarUri) && (!avatarRequiresAuth || avatarAccessToken));
 
   useEffect(() => {
     setAvatarLoadFailed(false);
-  }, [resolvedAvatarUri]);
+  }, [resolvedAvatarUri, avatarAccessToken]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setAvatarAccessToken(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const token = await getAccessToken();
+      if (!cancelled) {
+        setAvatarAccessToken(token ?? null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, authUser?.avatar]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const candidates = resolvedAvatarCandidates;
+    if (!candidates.length) {
+      setActiveAvatarUri(null);
+      return;
+    }
+    if (candidates.length === 1) {
+      setActiveAvatarUri(candidates[0]);
+      return;
+    }
+    const needsAuth = candidates.some((candidate) => candidate.includes('/uploads/'));
+    if (needsAuth && !avatarAccessToken) return;
+    let cancelled = false;
+    void (async () => {
+      for (const candidate of candidates) {
+        try {
+          const response = await fetch(candidate, {
+            method: 'GET',
+            headers: avatarAccessToken ? { Authorization: `Bearer ${avatarAccessToken}` } : undefined,
+          });
+          if (cancelled) return;
+          if (response.ok) {
+            setActiveAvatarUri(candidate);
+            return;
+          }
+        } catch {
+          if (cancelled) return;
+        }
+      }
+      setActiveAvatarUri(candidates[0]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [avatarAccessToken, isAuthenticated, resolvedAvatarCandidates]);
 
   const userAvatarSource = useMemo(() => {
-    if (isAuthenticated && resolvedAvatarUri && !avatarLoadFailed) {
-      return { uri: resolvedAvatarUri };
+    if (isAuthenticated && canRenderRemoteAvatar && !avatarLoadFailed) {
+      return avatarAccessToken
+        ? { uri: activeAvatarUri ?? resolvedAvatarUri, headers: { Authorization: `Bearer ${avatarAccessToken}` } }
+        : { uri: activeAvatarUri ?? resolvedAvatarUri };
     }
     return require('../../assets/images/logo.png');
-  }, [avatarLoadFailed, isAuthenticated, resolvedAvatarUri]);
+  }, [activeAvatarUri, avatarAccessToken, avatarLoadFailed, canRenderRemoteAvatar, isAuthenticated, resolvedAvatarUri]);
 
   const loadChats = useCallback(async () => {
     setLoadingChats(true);
@@ -847,13 +932,14 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           >
             <View className="flex-row items-center justify-between">
               <View className="flex-row items-center">
-                <Image
+                <ExpoImage
                   source={userAvatarSource}
-                  className="h-12 w-12 rounded-full"
-                  style={{ borderWidth: 1.5, borderColor: colors.primary }}
-                  resizeMode="cover"
+                  style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: colors.primary }}
+                  contentFit="cover"
                   accessibilityLabel={`${t('drawer.userAvatar')}: ${userName}`}
-                  onError={() => setAvatarLoadFailed(true)}
+                  onError={() => {
+                    setAvatarLoadFailed(true);
+                  }}
                 />
                 <View className="ml-3">
                   <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 14 }}>{userName}</Text>

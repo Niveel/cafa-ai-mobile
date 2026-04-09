@@ -103,3 +103,19 @@ export async function requestDownloadAllImagesZip() {
     throw mapApiError(error);
   }
 }
+
+export async function deleteImage(imageId: string) {
+  try {
+    await apiClient.delete(apiEndpoints.images.remove(imageId));
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function deleteImagesBulk(imageIds: string[]) {
+  try {
+    await apiClient.post(apiEndpoints.images.deleteBulk, { imageIds });
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, FadeInDown, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -347,6 +348,12 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                   authUser={authUser}
                   refreshAuthUser={refreshAuthUser}
                   signOut={signOut}
+                  onNavigateToPlans={() => {
+                    onClose();
+                    requestAnimationFrame(() => {
+                      router.push('/plans');
+                    });
+                  }}
                 />
               </Animated.View>
             ) : (
