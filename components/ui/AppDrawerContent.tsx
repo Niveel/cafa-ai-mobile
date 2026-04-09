@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
+import { Animated, Dimensions, FlatList, Image, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -318,6 +318,29 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const menuTouchRef = useRef(false);
+  const userMenuChevronRotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(userMenuChevronRotation, {
+      toValue: menuOpen ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [menuOpen, userMenuChevronRotation]);
+
+  const userMenuChevronStyle = useMemo(
+    () => ({
+      transform: [
+        {
+          rotate: userMenuChevronRotation.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0deg', '180deg'],
+          }),
+        },
+      ],
+    }),
+    [userMenuChevronRotation],
+  );
 
   const userName = useMemo(() => {
     if (!isAuthenticated) return t('drawer.userName.guest');
@@ -483,7 +506,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       setMenuOpen(false);
 
       if (action === 'settings') {
-        navigation.closeDrawer();
         setShowSettingsModal(true);
         return;
       }
@@ -815,6 +837,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
             accessibilityRole="button"
             accessibilityLabel={t('drawer.userCard')}
             accessibilityHint={t('drawer.userCardHint')}
+            accessibilityState={{ expanded: menuOpen }}
             onPress={() => {
               menuTouchRef.current = true;
               setMenuOpen((prev) => !prev);
@@ -837,7 +860,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
                   <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{currentPlan}</Text>
                 </View>
               </View>
-              <Ionicons name={menuOpen ? 'chevron-up-outline' : 'chevron-down-outline'} size={18} color={colors.textSecondary} />
+              <Animated.View style={userMenuChevronStyle}>
+                <Ionicons name="chevron-up-outline" size={18} color={colors.textSecondary} />
+              </Animated.View>
             </View>
           </Pressable>
         </View>

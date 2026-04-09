@@ -60,6 +60,14 @@ export type AuthConversationDetail = {
     createdAt: string;
     tokens?: number;
     reactions?: { liked: boolean; disliked: boolean };
+    attachments?: {
+      id?: string;
+      fileType?: string;
+      mimeType?: string;
+      originalName?: string;
+      url?: string;
+      thumbnailUrl?: string;
+    }[];
     imageUrl?: string;
     imagePrompt?: string;
     imageId?: string;
@@ -153,6 +161,14 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
           liked: Boolean(message.reactions?.liked),
           disliked: Boolean(message.reactions?.disliked),
         },
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          id: attachment._id,
+          fileType: attachment.fileType,
+          mimeType: attachment.mimeType,
+          originalName: attachment.originalName,
+          url: attachment.url,
+          thumbnailUrl: attachment.thumbnailUrl,
+        })),
         imageUrl: firstImageAttachment?.thumbnailUrl ?? firstImageAttachment?.url,
         imagePrompt: firstImageAttachment ? message.content : undefined,
         imageId: firstImageAttachment?._id ?? undefined,
@@ -173,6 +189,7 @@ function cloneDetail(detail: AuthConversationDetail): AuthConversationDetail {
     ...detail,
     messages: detail.messages.map((message) => ({
       ...message,
+      attachments: message.attachments?.map((attachment) => ({ ...attachment })),
       reactions: message.reactions ? { ...message.reactions } : undefined,
     })),
   };
@@ -204,6 +221,19 @@ async function parseHttpError(response: Response, fallbackMessage: string) {
 
 function createIdempotencyKey() {
   return `auth-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function inferMimeType(fileName?: string, fallback = 'application/octet-stream') {
+  if (!fileName) return fallback;
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (lower.endsWith('.txt')) return 'text/plain';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return fallback;
 }
 
 function sleep(ms: number) {
@@ -468,10 +498,11 @@ export async function sendAuthenticatedMessageStream(
     formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
     for (const file of attachments) {
       if (!file?.uri) continue;
+      const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
       formData.append('files', {
         uri: file.uri,
-        name: file.fileName ?? `attachment-${Date.now()}`,
-        type: file.mimeType ?? 'application/octet-stream',
+        name: normalizedName,
+        type: file.mimeType ?? inferMimeType(normalizedName),
       } as unknown as Blob);
     }
     return formData;

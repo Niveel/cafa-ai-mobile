@@ -4,6 +4,7 @@ export type UiMessage = {
   content: string;
   createdAt: number;
   tokens?: number;
+  attachments?: UiMessageAttachment[];
   imageUrl?: string;
   imagePrompt?: string;
   imageId?: string;
@@ -12,6 +13,15 @@ export type UiMessage = {
   videoPrompt?: string;
   videoId?: string;
   isVideoGenerating?: boolean;
+};
+
+export type UiMessageAttachment = {
+  id?: string;
+  fileType?: string;
+  mimeType?: string;
+  originalName?: string;
+  url?: string;
+  thumbnailUrl?: string;
 };
 
 export type AttachedAsset = {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
@@ -56,6 +56,7 @@ import {
   isMediaGenerationPrompt,
   type AttachedAsset,
   type UiMessage,
+  type UiMessageAttachment,
 } from '@/components';
 import { useAppContext } from '@/context';
 import {
@@ -173,12 +174,45 @@ export default function ChatScreen() {
     return `${backendOrigin}/${rawUrl}`;
   }, [backendOrigin]);
 
+  const isImageAttachment = useCallback((attachment: UiMessageAttachment) => {
+    const mime = (attachment.mimeType ?? '').toLowerCase();
+    const type = (attachment.fileType ?? '').toLowerCase();
+    const name = (attachment.originalName ?? '').toLowerCase();
+    return (
+      type === 'image'
+      || mime.startsWith('image/')
+      || name.endsWith('.png')
+      || name.endsWith('.jpg')
+      || name.endsWith('.jpeg')
+      || name.endsWith('.gif')
+      || name.endsWith('.webp')
+    );
+  }, []);
+
+  const resolveAttachmentPreviewUri = useCallback((attachment: UiMessageAttachment) => {
+    if (attachment.thumbnailUrl) {
+      return resolveBackendAssetUrl(attachment.thumbnailUrl);
+    }
+    if (attachment.url) {
+      return resolveBackendAssetUrl(attachment.url);
+    }
+    return null;
+  }, [resolveBackendAssetUrl]);
+
   const mapAuthMessageToUiMessage = useCallback((message: {
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
     createdAt: string;
     tokens?: number;
+    attachments?: {
+      id?: string;
+      fileType?: string;
+      mimeType?: string;
+      originalName?: string;
+      url?: string;
+      thumbnailUrl?: string;
+    }[];
     imageUrl?: string;
     imagePrompt?: string;
     imageId?: string;
@@ -191,6 +225,11 @@ export default function ChatScreen() {
     content: message.content,
     createdAt: new Date(message.createdAt).getTime(),
     tokens: message.tokens,
+    attachments: (message.attachments ?? []).map((attachment) => ({
+      ...attachment,
+      url: resolveBackendAssetUrl(attachment.url) ?? attachment.url,
+      thumbnailUrl: resolveBackendAssetUrl(attachment.thumbnailUrl) ?? attachment.thumbnailUrl,
+    })),
     imageUrl: resolveBackendAssetUrl(message.imageUrl) ?? undefined,
     imagePrompt: message.imagePrompt,
     imageId: message.imageId,
@@ -321,6 +360,74 @@ export default function ChatScreen() {
     }, 5200);
   }, [getLimitNoticeMessage]);
 
+  const getFriendlyErrorMessage = useCallback((error: unknown, kind: 'chat' | 'image' | 'video' = 'chat') => {
+    const typed = error as { code?: string; status?: number; message?: string } | undefined;
+    const code = (typed?.code ?? '').toUpperCase();
+    const rawMessage = typed?.message ?? (error instanceof Error ? error.message : '');
+    const message = rawMessage.toLowerCase();
+
+    if (isLimitOrUpgradeError(error)) {
+      return getLimitNoticeMessage(kind);
+    }
+    if (code === 'GUEST_ENDPOINT_UNAVAILABLE' || message.includes('guest mode is unavailable on this backend')) {
+      return 'Guest mode is currently unavailable. Please try again later or sign in.';
+    }
+    if (typed?.status === 401 || code === 'TOKEN_EXPIRED' || code === 'UNAUTHORIZED') {
+      return 'Your session expired. Please sign in again.';
+    }
+    if (typed?.status === 403 || code === 'FORBIDDEN' || code === 'UPGRADE_REQUIRED' || message === 'forbidden') {
+      return 'You do not have permission for this action on your current plan.';
+    }
+    if (
+      typed?.status === 429
+      || code.includes('RATE_LIMIT')
+      || code === 'DAILY_LIMIT_EXCEEDED'
+      || code === 'GUEST_DAILY_LIMIT_EXCEEDED'
+    ) {
+      return getLimitNoticeMessage(kind);
+    }
+    if (typed?.status === 500 || typed?.status === 502 || typed?.status === 503 || typed?.status === 504) {
+      return 'Something went wrong on our server. Please try again in a moment.';
+    }
+    if (message.includes('internal server error')) {
+      return 'Something went wrong on our server. Please try again in a moment.';
+    }
+    if (typed?.status === 404 || code === 'NOT_FOUND') {
+      return 'This feature is currently unavailable.';
+    }
+    return rawMessage || t('chat.sendFailed');
+  }, [getLimitNoticeMessage, t]);
+
+  const renderInlineMarkdown = useCallback((content: string) => {
+    if (!content.includes('**')) return content;
+
+    const result: ReactNode[] = [];
+    const pattern = /\*\*(.+?)\*\*/g;
+    let lastIndex = 0;
+    let matchIndex = 0;
+    let match = pattern.exec(content);
+
+    while (match) {
+      if (match.index > lastIndex) {
+        result.push(content.slice(lastIndex, match.index));
+      }
+      result.push(
+        <Text key={`bold-${matchIndex}`} style={{ fontWeight: '700' }}>
+          {match[1]}
+        </Text>,
+      );
+      lastIndex = match.index + match[0].length;
+      matchIndex += 1;
+      match = pattern.exec(content);
+    }
+
+    if (lastIndex < content.length) {
+      result.push(content.slice(lastIndex));
+    }
+
+    return result.length ? result : content;
+  }, []);
+
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
     hapticSelection();
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
@@ -413,13 +520,13 @@ export default function ChatScreen() {
   const handleSend = () => {
     const run = async () => {
       const trimmed = inputValueRef.current.trim();
-      if (!trimmed || isSending) return;
+      const attachmentsForSend = [...attachedAssets];
+      if ((!trimmed && attachmentsForSend.length === 0) || isSending) return;
       let lastEndpoint = `${API_BASE_URL}/chat`;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
       let requestedVideoPrompt = '';
       let requestedVideoConversationId = '';
       let requestedVideoStartedAt = 0;
-      const attachmentsForSend = [...attachedAssets];
       let didMutateChats = false;
 
       const userMessage: UiMessage = {
@@ -427,6 +534,14 @@ export default function ChatScreen() {
         role: 'user',
         content: trimmed,
         createdAt: Date.now(),
+        attachments: attachmentsForSend.map((asset) => ({
+          id: asset.id,
+          originalName: asset.fileName ?? asset.label,
+          mimeType: asset.mimeType,
+          fileType: (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? 'image' : 'document',
+          url: asset.uri,
+          thumbnailUrl: asset.uri,
+        })),
       };
 
       const assistantId = `assistant-${Date.now()}`;
@@ -722,6 +837,7 @@ export default function ChatScreen() {
         didMutateChats = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
+        const friendlyMessage = getFriendlyErrorMessage(error, requestKind);
         const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
@@ -771,7 +887,7 @@ export default function ChatScreen() {
         setStreamingModelLabel(null);
 
         if (!isLimitError) {
-          showTransientNotice(message, isRateLimited ? 5000 : 3200);
+          showTransientNotice(friendlyMessage, isRateLimited ? 5000 : 3200);
         }
         setMessages((prev) =>
           prev.map((item) =>
@@ -780,11 +896,7 @@ export default function ChatScreen() {
                   ...item,
                   isImageGenerating: false,
                   isVideoGenerating: false,
-                  content: isLimitError
-                    ? getLimitNoticeMessage(requestKind)
-                    : message.includes('GUEST_DAILY_LIMIT_EXCEEDED')
-                      ? t('chat.limitReached')
-                      : message,
+                  content: isLimitError ? getLimitNoticeMessage(requestKind) : friendlyMessage,
                 }
               : item,
           ),
@@ -870,14 +982,12 @@ export default function ChatScreen() {
   const pickDocumentAttachment = async () => {
     setAttachmentMenuOpen(false);
     const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: false,
+      copyToCacheDirectory: true,
       multiple: false,
       type: [
         'application/pdf',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
-        'application/rtf',
       ],
     });
 
@@ -888,19 +998,15 @@ export default function ChatScreen() {
     const mime = (asset.mimeType ?? '').toLowerCase();
     const isAllowedMime =
       mime === 'application/pdf' ||
-      mime === 'application/msword' ||
       mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mime === 'text/plain' ||
-      mime === 'application/rtf';
+      mime === 'text/plain';
     const isAllowedExtension =
       lowerName.endsWith('.pdf') ||
-      lowerName.endsWith('.doc') ||
       lowerName.endsWith('.docx') ||
-      lowerName.endsWith('.txt') ||
-      lowerName.endsWith('.rtf');
+      lowerName.endsWith('.txt');
 
     if (!isAllowedMime && !isAllowedExtension) {
-      showTransientNotice('Only text documents are supported: PDF, DOC, DOCX, TXT, RTF.');
+      showTransientNotice('Only document attachments are supported: PDF, DOCX, TXT.');
       return;
     }
 
@@ -1344,8 +1450,7 @@ export default function ChatScreen() {
           }, {}),
         );
       } catch (error) {
-        const message = error instanceof Error ? error.message : t('drawer.loadingChats');
-        showTransientNotice(message);
+        showTransientNotice(getFriendlyErrorMessage(error, 'chat'));
         setMessages([createWelcomeMessage()]);
       } finally {
         setIsHydratingAuthChat(false);
@@ -1354,7 +1459,7 @@ export default function ChatScreen() {
 
     setIsHydratingAuthChat(true);
     void loadAuthenticatedState();
-  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, t]);
+  }, [createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -1750,10 +1855,14 @@ export default function ChatScreen() {
                 const isUser = item.role === 'user';
                 const reaction = messageReactions[item.id];
                 const isReading = readingMessageId === item.id;
+                const messageAttachments = item.attachments ?? [];
+                const imageAttachments = messageAttachments.filter((attachment) => isImageAttachment(attachment));
+                const fileAttachments = messageAttachments.filter((attachment) => !isImageAttachment(attachment));
                 const isImageGenerating = !isUser && item.isImageGenerating && !item.imageUrl;
                 const isVideoGenerating = !isUser && item.isVideoGenerating && !item.videoUrl;
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
+                const hasAttachmentPreviews = imageAttachments.length > 0 || fileAttachments.length > 0;
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View className="max-w-[88%]">
@@ -1819,16 +1928,94 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage ? (
+                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage && hasAttachmentPreviews ? (
+                        <View className="mb-2 gap-1.5">
+                          {imageAttachments.map((attachment, index) => {
+                            const imageUri = resolveAttachmentPreviewUri(attachment);
+                            if (!imageUri) return null;
+                            return (
+                              <View
+                                key={`${item.id}-img-${attachment.id ?? index}`}
+                                className="overflow-hidden rounded-2xl border"
+                                style={{
+                                  width: 236,
+                                  height: 188,
+                                  borderColor: colors.border,
+                                  backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                                }}
+                              >
+                                <ExpoImage
+                                  source={{ uri: imageUri }}
+                                  style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                  }}
+                                  contentFit="cover"
+                                  contentPosition="center"
+                                  transition={0}
+                                  accessible
+                                  accessibilityLabel={attachment.originalName ?? t('chat.attachImage')}
+                                />
+                              </View>
+                            );
+                          })}
+
+                          {fileAttachments.map((attachment, index) => {
+                            const fileName = attachment.originalName ?? 'Attachment';
+                            const lowerName = fileName.toLowerCase();
+                            const isPdf = lowerName.endsWith('.pdf') || (attachment.mimeType ?? '').includes('pdf');
+                            const isDoc = lowerName.endsWith('.doc') || lowerName.endsWith('.docx');
+                            const iconName = isPdf
+                              ? 'document-attach-outline'
+                              : isDoc
+                                ? 'document-text-outline'
+                                : 'document-outline';
+                            return (
+                              <View
+                                key={`${item.id}-file-${attachment.id ?? index}`}
+                                className="flex-row items-center rounded-xl border px-3 py-2"
+                                style={{
+                                  borderColor: isUser ? `${colors.primary}99` : colors.border,
+                                  backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
+                                }}
+                              >
+                                <Ionicons name={iconName} size={16} color={isUser ? '#FFFFFF' : colors.textSecondary} />
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    marginLeft: 8,
+                                    flex: 1,
+                                    color: isUser ? '#FFFFFF' : colors.textPrimary,
+                                    fontSize: 12,
+                                    fontWeight: '600',
+                                  }}
+                                >
+                                  {fileName}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+
+                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View
                           className="rounded-2xl px-3 py-2"
                           style={{
                             backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
                           }}
                         >
+                          {(() => {
+                            const visibleContent = item.content || (isSending && !isUser ? streamingDots : '');
+                            return (
                           <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
-                            {item.content || (isSending && !isUser ? streamingDots : '')}
+                            {renderInlineMarkdown(visibleContent)}
                           </Text>
+                            );
+                          })()}
                         </View>
                       ) : null}
 
@@ -2137,7 +2324,7 @@ export default function ChatScreen() {
               <Pressable
                 onPress={handleSend}
                 onLongPress={(event) => showTooltip(t('chat.send'), event)}
-                disabled={!input.trim() || isSending}
+                disabled={(!input.trim() && attachedAssets.length === 0) || isSending}
                 accessibilityRole="button"
                 accessibilityLabel={t('chat.send')}
                 accessibilityHint={t('chat.sendHint')}
@@ -2153,7 +2340,7 @@ export default function ChatScreen() {
             <Pressable
               onPress={handleSend}
               onLongPress={(event) => showTooltip(t('chat.send'), event)}
-              disabled={!input.trim() || isSending}
+              disabled={(!input.trim() && attachedAssets.length === 0) || isSending}
               accessibilityRole="button"
               accessibilityLabel={t('chat.send')}
               accessibilityHint={t('chat.sendHint')}

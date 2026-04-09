@@ -19,10 +19,11 @@ import { useLocalSearchParams } from 'expo-router';
 export default function ResetPasswordScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
-  const params = useLocalSearchParams<{ email?: string }>();
+  const params = useLocalSearchParams<{ email?: string; otp?: string }>();
   const [authError, setAuthError] = useState('');
   const [notice, setNotice] = useState('');
   const initialEmail = typeof params.email === 'string' ? params.email : '';
+  const initialOtp = typeof params.otp === 'string' ? params.otp : '';
 
   return (
     <AppScreen title={t('auth.resetPassword')} subtitle={t('auth.resetPasswordSubtitle')} showTopChrome={false}>
@@ -39,7 +40,7 @@ export default function ResetPasswordScreen() {
               <AppLogo compact />
               <Text style={{ color: colors.textSecondary }}>{t('auth.resetPasswordBlurb')}</Text>
               <AppForm<PasswordResetFormValues>
-                initialValues={{ email: initialEmail, otp: '', password: '', confirmPassword: '' }}
+                initialValues={{ email: initialEmail, otp: initialOtp, password: '', confirmPassword: '' }}
                 validationSchema={PasswordResetValidationSchema}
                 onSubmit={async (values) => {
                   setAuthError('');

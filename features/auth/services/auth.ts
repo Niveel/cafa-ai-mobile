@@ -2,6 +2,7 @@ import { AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
+import { clearGuestSessionStorage, getGuestSessionToken } from '@/services/storage';
 import { AuthSession, AuthUser, LoginRequest, SignupRequest, VerifyOtpRequest } from '@/types';
 
 export async function login(request: LoginRequest) {
@@ -50,6 +51,38 @@ export async function forgotPassword(email: string) {
     return response.data?.message ?? 'If that email is registered, a reset code has been sent';
   } catch (error) {
     throw mapApiError(error);
+  }
+}
+
+export async function claimGuestUpgradeOnLogin(accessToken: string) {
+  try {
+    const guestSessionToken = await getGuestSessionToken();
+    if (!guestSessionToken) return;
+
+    const endpoint = `${API_BASE_URL}/guest/upgrade/claim`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'X-Guest-Session': guestSessionToken,
+      },
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { message?: string; error?: string; code?: string } | null;
+      console.log(
+        `[guest-claim:skip] endpoint=${endpoint} status=${response.status} code=${payload?.code ?? payload?.error ?? 'unknown'} message="${payload?.message ?? 'Claim failed'}"`,
+      );
+      return;
+    }
+
+    await clearGuestSessionStorage();
+  } catch (error) {
+    const mapped = mapApiError(error) as Error & { code?: string; status?: number };
+    console.log(
+      `[guest-claim:skip] code=${mapped.code ?? 'unknown'} status=${mapped.status ?? 'unknown'} message="${mapped.message}"`,
+    );
   }
 }
 

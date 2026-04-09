@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +34,7 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
   const { colors, isDark, isAuthenticated, authUser, refreshAuthUser, signOut, setThemeMode, themeMode, hapticsEnabled, setHapticsEnabled, animationLevel, setAnimationLevel } = useAppContext();
   const { language, setLanguage, supportedLanguages, getLanguageLabel, t } = useI18n();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const overlayOpacity = useSharedValue(0);
@@ -65,11 +66,12 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
     { value: 'reduced', label: t('settings.general.animation.reduced') },
     { value: 'off', label: t('settings.general.animation.off') },
   ];
+  const sheetHeight = Math.max(420, Math.round(windowHeight * 0.9));
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View
-        className="flex-1 justify-end"
+        className="flex-1 justify-center"
         style={{
           backgroundColor: isDark ? 'rgba(4, 6, 12, 0.72)' : 'rgba(241, 244, 255, 0.72)',
         }}
@@ -103,16 +105,18 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
         <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 10}>
           <Animated.View
             accessibilityViewIsModal
-            className="rounded-t-3xl"
+            className="mx-3 rounded-3xl"
             style={[
               sheetStyle,
               {
-                minHeight: '84%',
-                maxHeight: '92%',
+                alignSelf: 'center',
+                width: '100%',
+                maxWidth: 520,
+                height: sheetHeight,
                 backgroundColor: isDark ? '#0E0E12' : '#FFFFFF',
                 borderTopWidth: 1.5,
                 borderColor: colors.primary,
-                paddingTop: Math.max(10, insets.top * 0.25),
+                paddingTop: Math.max(10, insets.top * 0.1),
                 paddingHorizontal: 10,
                 paddingBottom: Math.max(insets.bottom + 8, 16),
               },

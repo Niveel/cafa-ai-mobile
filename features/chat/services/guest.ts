@@ -120,9 +120,7 @@ async function parseGuestResponseError(response: Response, fallback: string, end
   const backendCode = payload?.code ?? payload?.error;
 
   if (response.status === 404 && (backendCode === 'NOT_FOUND' || endpoint?.includes('/guest/'))) {
-    const message = endpoint
-      ? `Guest mode is unavailable on this backend (${endpoint}).`
-      : 'Guest mode is unavailable on this backend.';
+    const message = 'Guest mode is currently unavailable. Please try again later.';
     return toGuestApiError(message, 'GUEST_ENDPOINT_UNAVAILABLE', response.status);
   }
 

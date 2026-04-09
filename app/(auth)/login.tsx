@@ -14,7 +14,7 @@ import {
 
 import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
 import { LoginFormValues, LoginValidationSchema } from '@/data';
-import { login as loginRequest } from '@/features';
+import { claimGuestUpgradeOnLogin, login as loginRequest } from '@/features';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
@@ -86,6 +86,7 @@ export default function LoginScreen() {
                         if (refreshToken) {
                           await setRefreshToken(refreshToken);
                         }
+                        await claimGuestUpgradeOnLogin(session.accessToken);
                         login();
                         router.replace('/(drawer)');
                       } catch (error) {

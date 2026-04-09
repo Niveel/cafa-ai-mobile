@@ -72,15 +72,28 @@ export default function ForgotPasswordScreen() {
                       setNotice('');
                       const email = values.email.trim();
                       try {
-                        const message = await forgotPasswordRequest(email);
-                        setNotice(message);
+                        await forgotPasswordRequest(email);
+                        setNotice('If that email is registered, a reset code has been sent');
                         router.push({
-                          pathname: '/(auth)/reset-password',
-                          params: { email },
+                          pathname: '/(auth)/verify-otp',
+                          params: { email, flow: 'password-reset' },
                         });
                       } catch (error) {
                         const mapped = error as { message?: string };
-                        setAuthError(mapped?.message ?? t('auth.forgotPasswordFailed'));
+                        const message = mapped?.message ?? t('auth.forgotPasswordFailed');
+                        const shouldBypassInDev =
+                          __DEV__
+                          && message.toLowerCase().includes('email delivery failed');
+
+                        if (shouldBypassInDev) {
+                          setNotice('If that email is registered, a reset code has been sent');
+                          router.push({
+                            pathname: '/(auth)/verify-otp',
+                            params: { email, flow: 'password-reset' },
+                          });
+                          return;
+                        }
+                        setAuthError(message);
                       }
                     }}
                   >

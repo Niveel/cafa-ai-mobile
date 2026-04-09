@@ -17,7 +17,12 @@ import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, Sub
 import { useAppTheme, useI18n } from '@/hooks';
 import { useAppContext } from '@/context';
 import { setAccessToken, setRefreshToken } from '@/services';
-import { resendOtp as resendOtpRequest, verifyOtp as verifyOtpRequest } from '@/features';
+import {
+  claimGuestUpgradeOnLogin,
+  forgotPassword as forgotPasswordRequest,
+  resendOtp as resendOtpRequest,
+  verifyOtp as verifyOtpRequest,
+} from '@/features';
 
 type VerifyOtpScreenValues = {
   email: string;
@@ -45,7 +50,11 @@ export default function VerifyOtpScreen() {
   const initialEmail = typeof params.email === 'string' ? params.email : '';
   const flow = typeof params.flow === 'string' ? params.flow : 'signup';
   const flowMessage =
-    flow === 'login' ? t('auth.verifyLoginBlurb') : t('auth.verifySignupBlurb');
+    flow === 'login'
+      ? t('auth.verifyLoginBlurb')
+      : flow === 'password-reset'
+        ? 'If that email is registered, a reset code has been sent'
+        : t('auth.verifySignupBlurb');
 
   return (
     <AppScreen title={t('auth.verifyOtp')} subtitle={t('auth.verifyOtpSubtitle')} showTopChrome={false} showHeading={false}>
@@ -92,6 +101,17 @@ export default function VerifyOtpScreen() {
                       setAuthError('');
 
                       try {
+                        if (flow === 'password-reset') {
+                          router.push({
+                            pathname: '/(auth)/reset-password',
+                            params: {
+                              email: values.email.trim(),
+                              otp: values.otp.trim(),
+                            },
+                          });
+                          return;
+                        }
+
                         const session = await verifyOtpRequest({
                           email: values.email.trim(),
                           otp: values.otp.trim(),
@@ -101,6 +121,9 @@ export default function VerifyOtpScreen() {
                         const refreshToken = (session as { refreshToken?: string }).refreshToken;
                         if (refreshToken) {
                           await setRefreshToken(refreshToken);
+                        }
+                        if (flow === 'login') {
+                          await claimGuestUpgradeOnLogin(session.accessToken);
                         }
                         login();
                         router.replace('/(drawer)');
@@ -165,11 +188,30 @@ export default function VerifyOtpScreen() {
                       onPress={async () => {
                         setAuthError('');
                         try {
-                          const message = await resendOtpRequest(initialEmail);
+                          const email = initialEmail.trim();
+                          if (!email) {
+                            setAuthError('Please enter your email to resend the code.');
+                            return;
+                          }
+                          if (flow === 'password-reset') {
+                            const message = await forgotPasswordRequest(email);
+                            setNotice(message || 'If that email is registered, a reset code has been sent');
+                            return;
+                          }
+                          const message = await resendOtpRequest(email);
                           setNotice(message || t('auth.resendNotice'));
                         } catch (error) {
                           const mapped = error as { message?: string };
-                          setAuthError(mapped?.message ?? t('auth.resendFailed'));
+                          const message = mapped?.message ?? t('auth.resendFailed');
+                          const shouldBypassInDev =
+                            __DEV__
+                            && flow === 'password-reset'
+                            && message.toLowerCase().includes('email delivery failed');
+                          if (shouldBypassInDev) {
+                            setNotice('If that email is registered, a reset code has been sent');
+                            return;
+                          }
+                          setAuthError(message);
                         }
                       }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
