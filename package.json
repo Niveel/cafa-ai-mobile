@@ -1,7 +1,7 @@
 {
   "name": "expo-nativewind-template",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "scripts": {
     "start": "expo start --go",
     "android": "expo start --go --android",
