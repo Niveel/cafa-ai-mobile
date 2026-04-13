@@ -14,3 +14,4 @@ export * from './ui/SettingsModal';
 export * from './ui/AppLogo';
 export * from './chat';
 export * from './form';
+export * from './paywall';

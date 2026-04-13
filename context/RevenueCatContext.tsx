@@ -1,0 +1,156 @@
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
+import Purchases from 'react-native-purchases';
+
+import { useAppContext } from '@/context/AppContext';
+import { initRevenueCat, identifyUser, resetUser, isRCEnabled } from '@/services/revenuecat';
+import { fetchCustomerInfo, fetchOffering, restorePurchases as restorePurchasesService } from '@/services/revenuecat/purchases';
+import { resolveRCTier, getHighestTier } from '@/services/revenuecat/entitlements';
+import type { RCCustomerInfo, RCOffering, RevenueCatState } from '@/types/revenuecat.types';
+import type { SubscriptionTier } from '@/types';
+
+type RevenueCatContextValue = RevenueCatState & {
+  /** The subscription tier returned by the backend */
+  backendTier: SubscriptionTier;
+  /** True if the user is not free */
+  isPro: boolean;
+};
+
+const RevenueCatContext = createContext<RevenueCatContextValue | undefined>(undefined);
+
+export function RevenueCatProvider({ children }: { children: ReactNode }) {
+  const { authUser, isAuthenticated } = useAppContext();
+  const [customerInfo, setCustomerInfo] = useState<RCCustomerInfo | null>(null);
+  const [offering, setOffering] = useState<RCOffering | null>(null);
+  const [isLoading, setIsLoading] = useState(isRCEnabled);
+  const [error, setError] = useState<string | null>(null);
+  const prevUserIdRef = useRef<string | null>(null);
+
+  // ─── Init RC once on mount (iOS only) ────────────────────────────────────
+  useEffect(() => {
+    if (!isRCEnabled) return;
+
+    initRevenueCat();
+
+    // Listen for real-time customerInfo updates (e.g. renewal, cancellation)
+    const listener = Purchases.addCustomerInfoUpdateListener((info) => {
+      setCustomerInfo(info);
+    });
+
+    return () => {
+      listener.remove();
+    };
+  }, []);
+
+  // ─── Fetch offerings once on mount (iOS only) ────────────────────────────
+  useEffect(() => {
+    if (!isRCEnabled) return;
+
+    fetchOffering()
+      .then((o) => setOffering(o))
+      .catch((e) => console.warn('[revenuecat:context] fetchOffering failed', e));
+  }, []);
+
+  // ─── Identify / reset user when auth state changes ───────────────────────
+  useEffect(() => {
+    if (!isRCEnabled) return;
+
+    const currentId = authUser?.id ?? null;
+
+    if (isAuthenticated && currentId && currentId !== prevUserIdRef.current) {
+      prevUserIdRef.current = currentId;
+
+      setIsLoading(true);
+      identifyUser(currentId)
+        .then(() => fetchCustomerInfo())
+        .then((info) => {
+          setCustomerInfo(info);
+          setError(null);
+        })
+        .catch((e) => {
+          const message = e instanceof Error ? e.message : 'Failed to load subscription info.';
+          console.warn('[revenuecat:context] identify/fetch failed', e);
+          setError(message);
+        })
+        .finally(() => setIsLoading(false));
+    }
+
+    if (!isAuthenticated && prevUserIdRef.current !== null) {
+      prevUserIdRef.current = null;
+      setCustomerInfo(null);
+      resetUser().catch(() => {});
+    }
+  }, [authUser?.id, isAuthenticated]);
+
+  // ─── Derived state ────────────────────────────────────────────────────────
+  const rcTier = resolveRCTier(customerInfo);
+  const backendTier = authUser?.subscriptionTier || 'free';
+  const activeTier = isRCEnabled ? getHighestTier(rcTier, backendTier) : backendTier;
+  const isPro = activeTier !== 'free';
+
+  // ─── Actions ─────────────────────────────────────────────────────────────
+  const refreshCustomerInfo = useCallback(async () => {
+    if (!isRCEnabled) return;
+    try {
+      const info = await fetchCustomerInfo();
+      setCustomerInfo(info);
+      setError(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to refresh subscription info.';
+      setError(message);
+    }
+  }, []);
+
+  const restorePurchases = useCallback(async () => {
+    if (!isRCEnabled) return;
+    setIsLoading(true);
+    try {
+      const info = await restorePurchasesService();
+      setCustomerInfo(info);
+      setError(null);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to restore purchases.';
+      setError(message);
+      throw e;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const value = useMemo<RevenueCatContextValue>(
+    () => ({
+      customerInfo,
+      offering,
+      rcTier,
+      backendTier,
+      activeTier,
+      isPro,
+      isLoading,
+      error,
+      refreshCustomerInfo,
+      restorePurchases,
+    }),
+    [
+      customerInfo,
+      offering,
+      rcTier,
+      backendTier,
+      activeTier,
+      isPro,
+      isLoading,
+      error,
+      refreshCustomerInfo,
+      restorePurchases,
+    ],
+  );
+
+  return <RevenueCatContext.Provider value={value}>{children}</RevenueCatContext.Provider>;
+}
+
+export function useRevenueCat(): RevenueCatContextValue {
+  const ctx = useContext(RevenueCatContext);
+  if (!ctx) {
+    throw new Error('useRevenueCat must be used within RevenueCatProvider');
+  }
+  return ctx;
+}

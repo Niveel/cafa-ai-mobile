@@ -8,6 +8,7 @@ import { PostHogProvider, usePostHog } from 'posthog-react-native';
 
 import '../global.css';
 import { AppProvider, useAppContext } from '@/context/AppContext';
+import { RevenueCatProvider } from '@/context/RevenueCatContext';
 import { useAppTheme } from '@/hooks';
 
 const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTicae';
@@ -65,7 +66,9 @@ function AppNavigator() {
 export default function RootLayout() {
   const appTree = (
     <AppProvider>
-      <AppNavigator />
+      <RevenueCatProvider>
+        <AppNavigator />
+      </RevenueCatProvider>
     </AppProvider>
   );
 

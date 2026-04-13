@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { DrawerActions } from '@react-navigation/native';
 import { useNavigation } from 'expo-router';
 import { useDrawerStatus } from '@react-navigation/drawer';
+import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -34,26 +35,6 @@ function FancyMenuGlyph() {
     </View>
   );
 }
-
-function IosFancyMenuGlyph() {
-  return (
-    <View accessible={false} importantForAccessibility="no-hide-descendants" className="items-center justify-center">
-      <View className="flex-row items-center" style={{ marginBottom: 3 }}>
-        <View className="h-0.5 w-6 rounded-full bg-white" />
-        <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-white/85" />
-      </View>
-      <View className="flex-row items-center" style={{ marginBottom: 3 }}>
-        <View className="h-0.5 w-4.5 rounded-full bg-white/95" />
-        <View className="ml-1.5 h-1 w-1 rounded-full bg-white/70" />
-      </View>
-      <View className="flex-row items-center">
-        <View className="h-0.5 w-5.5 rounded-full bg-white" />
-        <View className="ml-1.5 h-1.5 w-1.5 rounded-full bg-white/85" />
-      </View>
-    </View>
-  );
-}
-
 export function FloatingDrawerButton() {
   const navigation = useNavigation();
   const drawerStatus = useDrawerStatus();
@@ -100,6 +81,41 @@ export function FloatingDrawerButton() {
     [colors.primary, isDark],
   );
 
+  if (isIos) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={isDrawerOpen ? t('drawer.closeMenu') : t('drawer.openMenu')}
+        accessibilityHint={t('drawer.openMenuHint')}
+        accessibilityState={{ expanded: isDrawerOpen }}
+        accessibilityActions={[{ name: 'activate', label: t('drawer.toggleMenu') }]}
+        onAccessibilityAction={() => {
+          hapticImpact();
+          navigation.dispatch(DrawerActions.toggleDrawer());
+        }}
+        onPress={() => {
+          hapticImpact();
+          navigation.dispatch(DrawerActions.toggleDrawer());
+        }}
+        hitSlop={10}
+        className="h-11 w-11 items-center justify-center rounded-full"
+        style={({ pressed }) => ({
+          backgroundColor: isDark ? '#141418' : '#F5F5F7',
+          borderWidth: 1,
+          borderColor: colors.border,
+          transform: [{ scale: prefersReducedMotion ? 1 : pressed ? 0.96 : 1 }],
+          opacity: pressed ? 0.8 : 1,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        })}
+      >
+        <Ionicons name="menu" size={24} color={colors.textPrimary} />
+      </Pressable>
+    );
+  }
+
   return (
     <Animated.View style={[shadowStyle, animatedStyle]}>
       <Pressable
@@ -138,7 +154,7 @@ export function FloatingDrawerButton() {
             importantForAccessibility="no-hide-descendants"
             className="absolute inset-0 rounded-full border border-white/35 bg-white/10"
           />
-          {isIos ? <IosFancyMenuGlyph /> : <FancyMenuGlyph />}
+          <FancyMenuGlyph />
           <View
             accessible={false}
             importantForAccessibility="no-hide-descendants"

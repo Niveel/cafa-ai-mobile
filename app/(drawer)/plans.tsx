@@ -15,6 +15,8 @@ import {
   getSubscriptionPlans,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
+import { useRevenueCat } from '@/context/RevenueCatContext';
+import { purchasePackage } from '@/services/revenuecat/purchases';
 import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
@@ -108,6 +110,7 @@ export default function PlansScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
+  const { activeTier, rcTier, isPro, offering, refreshCustomerInfo, restorePurchases } = useRevenueCat();
   const [loading, setLoading] = useState(true);
   const [busyTier, setBusyTier] = useState<SubscriptionTier | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
@@ -276,11 +279,38 @@ export default function PlansScreen() {
     return () => sub.remove();
   }, [loadBillingData, syncSubscriptionAfterPortalReturn]);
 
-  const currentTier = overview?.subscription.tier ?? 'free';
+  const currentTier = Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free');
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
+
+  const displayPlans = useMemo(() => {
+    if (Platform.OS === 'ios' && offering) {
+      return offering.availablePackages.map((pkg): SubscriptionPlan & { _rcPackage: any } => {
+        const titleWords = pkg.product.title.toLowerCase();
+        let tier: SubscriptionTier = 'free';
+        if (pkg.identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
+        else if (pkg.identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
+        else if (pkg.identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
+
+        return {
+          tier,
+          name: pkg.product.title,
+          description: pkg.product.description,
+          isActive: true,
+          price: {
+            amount: pkg.product.price,
+            currency: pkg.product.currencyCode,
+            interval: pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo',
+          },
+          _rcPackage: pkg,
+        };
+      }).filter(p => p.tier !== 'free');
+    }
+    return plans;
+  }, [offering, plans]);
+
   const currentPlan = useMemo(
-    () => plans.find((plan) => plan.tier === currentTier),
-    [currentTier, plans],
+    () => displayPlans.find((plan) => plan.tier === currentTier),
+    [currentTier, displayPlans],
   );
   const stats = normalizeUsageAndLimits(overview, dailyUsage, currentPlan);
   const openCheckoutUrl = async (
@@ -419,8 +449,34 @@ export default function PlansScreen() {
     }
   };
 
-  const requestUpgrade = (tier: SubscriptionTier) => {
+  const requestUpgrade = async (tier: SubscriptionTier) => {
     if (tier === 'free' || tier === currentTier) return;
+
+    if (Platform.OS === 'ios') {
+      const targetPlan = displayPlans.find(p => p.tier === tier) as any;
+      if (!targetPlan?._rcPackage) return;
+
+      setBusyTier(tier);
+      setStatusText('');
+      try {
+        await purchasePackage(targetPlan._rcPackage);
+        await refreshCustomerInfo();
+        setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
+        setUpdatedTier(tier);
+        setShowPlanUpdatedPrompt(true);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : t('plans.checkoutError');
+        console.log(`[plans-upgrade:ios] error="${errorMsg}"`);
+        // if user cancelled, don't show an ugly error message
+        if (!errorMsg.toLowerCase().includes('cancel')) {
+          setStatusText(errorMsg);
+        }
+      } finally {
+        setBusyTier(null);
+      }
+      return;
+    }
+
     const hasExistingPaidPlan = currentTier !== 'free' && (overview?.subscription.status === 'active' || overview?.subscription.status === 'past_due');
     if (hasExistingPaidPlan) {
       setPendingTier(tier);
@@ -503,6 +559,7 @@ export default function PlansScreen() {
         />
 
         <SecondaryNav title={t('drawer.userMenu.upgrade')} topOffset={Math.max(insets.top, 0)} />
+
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 36 }}
@@ -522,9 +579,9 @@ export default function PlansScreen() {
             {tierLabel(currentTier)}
           </Text>
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
-            {t('plans.subscriptionStatus')}: {overview?.subscription.status ?? 'inactive'}
+            {t('plans.subscriptionStatus')}: {Platform.OS === 'ios' ? (activeTier !== 'free' ? 'active' : 'inactive') : (overview?.subscription.status ?? 'inactive')}
           </Text>
-          {subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
+          {Platform.OS !== 'ios' && subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
             <Text style={{ color: '#B45309', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
               {t('plans.cancelsOn', { date: new Date(subscriptionLifecycle.scheduledCancelAt).toLocaleDateString() })}
             </Text>
@@ -541,36 +598,67 @@ export default function PlansScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
             {t('plans.maxVideoLength')}: {stats.maxVideoDurationSeconds ?? 3}s
           </Text>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={t('plans.managePortal')}
-            disabled={isPortalLoading}
-            onPress={() => {
-              void onOpenBillingPortal();
-            }}
-            className="mt-3 h-10 items-center justify-center rounded-full px-4"
-            style={{
-              borderWidth: 1.2,
-              borderColor: colors.primary,
-              opacity: isPortalLoading ? 0.75 : 1,
-            }}
-          >
-            <View className="flex-row items-center">
-              {isPortalLoading ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : null}
-              <Text
-                style={{
-                  color: colors.primary,
-                  fontSize: 13,
-                  fontWeight: '700',
-                  marginLeft: isPortalLoading ? 8 : 0,
-                }}
-              >
-                {t('plans.managePortal')}
+
+          {Platform.OS === 'ios' ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Restore Purchases"
+              disabled={busyTier !== null}
+              onPress={async () => {
+                setBusyTier('free');
+                setStatusText('');
+                try {
+                  await restorePurchases();
+                  await refreshCustomerInfo();
+                  setStatusText('Purchases restored successfully!');
+                } catch (err) {
+                  setStatusText((err as Error).message);
+                } finally {
+                  setBusyTier(null);
+                }
+              }}
+              className="mt-3 h-10 items-center justify-center rounded-full px-4"
+              style={{
+                borderWidth: 1.2,
+                borderColor: colors.primary,
+              }}
+            >
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+                Restore Purchases
               </Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={t('plans.managePortal')}
+              disabled={isPortalLoading}
+              onPress={() => {
+                void onOpenBillingPortal();
+              }}
+              className="mt-3 h-10 items-center justify-center rounded-full px-4"
+              style={{
+                borderWidth: 1.2,
+                borderColor: colors.primary,
+                opacity: isPortalLoading ? 0.75 : 1,
+              }}
+            >
+              <View className="flex-row items-center">
+                {isPortalLoading ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : null}
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: 13,
+                    fontWeight: '700',
+                    marginLeft: isPortalLoading ? 8 : 0,
+                  }}
+                >
+                  {t('plans.managePortal')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 }}>
@@ -587,6 +675,7 @@ export default function PlansScreen() {
             </Text>
           </View>
         ) : null}
+
         {loading ? (
           <View className="items-center py-8">
             <ActivityIndicator color={colors.primary} />
@@ -596,9 +685,11 @@ export default function PlansScreen() {
           </View>
         ) : null}
 
-        {plans.map((plan) => {
+        {displayPlans.map((plan) => {
           const isCurrent = plan.tier === currentTier;
           const isBusy = busyTier === plan.tier;
+          // on iOS, if we mapped a rank, maybe we don't know the exact order from RC. 
+          // getHighestTier logic exists to evaluate 'free' vs 'pro', but we can just use simple === checks.
           return (
             <View
               key={plan.tier}
@@ -620,7 +711,11 @@ export default function PlansScreen() {
                   ) : null}
                 </View>
                 <Text style={{ color: colors.primary, fontSize: 18, fontWeight: '800' }}>
-                  {typeof plan.price?.amount === 'number' ? `$${plan.price.amount}` : '$0'}
+                  {typeof plan.price?.amount === 'number' && typeof plan.price?.currency === 'string'
+                    ? `${plan.price.amount} ${plan.price.currency}`
+                    : typeof plan.price?.amount === 'number'
+                      ? `$${plan.price.amount}`
+                      : '$0'}
                   <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '600' }}>
                     /{plan.price?.interval ?? 'mo'}
                   </Text>
