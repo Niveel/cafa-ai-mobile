@@ -8,7 +8,7 @@ import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 const RC_IOS_API_KEY = process.env.EXPO_PUBLIC_RC_IOS_API_KEY || 'test_fXbDGfmGBFgfsmabWMPRimKraaJ';
 
 /** Whether RC should be active on the current platform */
-export const isRCEnabled = Platform.OS === 'ios';
+export const isRCEnabled = false; // Temporarily disabled: Platform.OS === 'ios';
 
 /**
  * Initialize the RevenueCat SDK. Safe to call multiple times — SDK ignores
