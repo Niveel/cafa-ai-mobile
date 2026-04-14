@@ -12,7 +12,7 @@ function getExpoHost() {
 }
 
 const detectedHost = getExpoHost();
-const FALLBACK_DEV_HOST = '10.20.254.23';
+const FALLBACK_DEV_HOST = '10.68.186.23';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const resolvedHost = LOOPBACK_HOSTS.has(detectedHost) ? '' : detectedHost;
 

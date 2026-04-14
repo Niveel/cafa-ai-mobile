@@ -18,11 +18,14 @@ export const isRCEnabled = Platform.OS === 'ios';
 export function initRevenueCat() {
   if (!isRCEnabled) return;
 
-  if (__DEV__) {
-    Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-  } else {
-    Purchases.setLogLevel(LOG_LEVEL.ERROR);
-  }
+  // Use a custom log handler to prevent RevenueCat's default console.error
+  // from crashing the app in production or showing redboxes in dev.
+  Purchases.setLogHandler((logLevel, message) => {
+    if (__DEV__) {
+      // Just console.log the messages even if they are errors, to avoid redboxes
+      console.log(`[RC Log] [${logLevel}] ${message}`);
+    }
+  });
 
   Purchases.configure({ apiKey: RC_IOS_API_KEY });
 }

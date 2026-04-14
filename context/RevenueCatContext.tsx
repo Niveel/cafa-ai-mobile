@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
 import Purchases from 'react-native-purchases';
 
 import { useAppContext } from '@/context/AppContext';
@@ -33,12 +33,13 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     initRevenueCat();
 
     // Listen for real-time customerInfo updates (e.g. renewal, cancellation)
-    const listener = Purchases.addCustomerInfoUpdateListener((info) => {
+    const listener = (info: RCCustomerInfo) => {
       setCustomerInfo(info);
-    });
+    };
+    Purchases.addCustomerInfoUpdateListener(listener);
 
     return () => {
-      listener.remove();
+      Purchases.removeCustomerInfoUpdateListener(listener);
     };
   }, []);
 
@@ -47,8 +48,21 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     if (!isRCEnabled) return;
 
     fetchOffering()
-      .then((o) => setOffering(o))
-      .catch((e) => console.warn('[revenuecat:context] fetchOffering failed', e));
+      .then((o) => {
+        setOffering(o);
+        // If there are no offerings, it might mean the test products aren't set up.
+        // We can optionally show an alert here if __DEV__ or simply fail silently.
+      })
+      .catch((e) => {
+        if (__DEV__) {
+          console.warn('[revenuecat:context] fetchOffering failed', e);
+        }
+        Alert.alert(
+          'Notice',
+          'Subscriptions will not work now, awaiting approval from apple instead.',
+          [{ text: 'OK' }]
+        );
+      });
   }, []);
 
   // ─── Identify / reset user when auth state changes ───────────────────────
@@ -69,7 +83,9 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
         })
         .catch((e) => {
           const message = e instanceof Error ? e.message : 'Failed to load subscription info.';
-          console.warn('[revenuecat:context] identify/fetch failed', e);
+          if (__DEV__) {
+             console.log('[revenuecat:context] identify/fetch failed', e);
+          }
           setError(message);
         })
         .finally(() => setIsLoading(false));

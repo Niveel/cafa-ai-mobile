@@ -11,7 +11,9 @@ export async function fetchCustomerInfo(): Promise<RCCustomerInfo | null> {
   try {
     return await Purchases.getCustomerInfo();
   } catch (error) {
-    console.warn('[revenuecat:purchases] fetchCustomerInfo failed', error);
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] fetchCustomerInfo failed', error);
+    }
     return null;
   }
 }
@@ -26,7 +28,9 @@ export async function fetchOffering(): Promise<RCOffering | null> {
     const offerings = await Purchases.getOfferings();
     return offerings.current ?? null;
   } catch (error) {
-    console.warn('[revenuecat:purchases] fetchOffering failed', error);
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] fetchOffering failed', error);
+    }
     return null;
   }
 }
@@ -53,7 +57,9 @@ export async function restorePurchases(): Promise<RCCustomerInfo | null> {
   try {
     return await Purchases.restorePurchases();
   } catch (error) {
-    console.warn('[revenuecat:purchases] restorePurchases failed', error);
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] restorePurchases failed', error);
+    }
     throw error;
   }
 }
