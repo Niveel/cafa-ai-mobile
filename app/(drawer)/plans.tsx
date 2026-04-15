@@ -297,7 +297,7 @@ export default function PlansScreen() {
           description: pkg.product.description,
           isActive: true,
           price: {
-            amount: pkg.product.price,
+            amount: Number(pkg.product.price.toFixed(2)),
             currency: pkg.product.currencyCode,
             interval: pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo',
           },
@@ -712,9 +712,9 @@ export default function PlansScreen() {
                 </View>
                 <Text style={{ color: colors.primary, fontSize: 18, fontWeight: '800' }}>
                   {typeof plan.price?.amount === 'number' && typeof plan.price?.currency === 'string'
-                    ? `${plan.price.amount} ${plan.price.currency}`
+                    ? `${plan.price.amount.toFixed(2)} ${plan.price.currency}`
                     : typeof plan.price?.amount === 'number'
-                      ? `$${plan.price.amount}`
+                      ? `$${plan.price.amount.toFixed(2)}`
                       : '$0'}
                   <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '600' }}>
                     /{plan.price?.interval ?? 'mo'}

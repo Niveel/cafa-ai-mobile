@@ -50,18 +50,11 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     fetchOffering()
       .then((o) => {
         setOffering(o);
-        // If there are no offerings, it might mean the test products aren't set up.
-        // We can optionally show an alert here if __DEV__ or simply fail silently.
       })
       .catch((e) => {
         if (__DEV__) {
           console.warn('[revenuecat:context] fetchOffering failed', e);
         }
-        Alert.alert(
-          'Notice',
-          'Subscriptions will not work now, awaiting approval from apple instead.',
-          [{ text: 'OK' }]
-        );
       });
   }, []);
 

@@ -2,13 +2,13 @@ import { Platform } from 'react-native';
 import Purchases, { LOG_LEVEL } from 'react-native-purchases';
 
 /**
- * RevenueCat iOS API key (test). Swap for production key before App Store submission.
+ * RevenueCat iOS API key.
  * Android uses Stripe — RC is skipped entirely on Android.
  */
-const RC_IOS_API_KEY = process.env.EXPO_PUBLIC_RC_IOS_API_KEY || 'test_fXbDGfmGBFgfsmabWMPRimKraaJ';
+const RC_IOS_API_KEY = process.env.EXPO_PUBLIC_RC_IOS_API_KEY as string;
 
 /** Whether RC should be active on the current platform */
-export const isRCEnabled = false; // Temporarily disabled: Platform.OS === 'ios';
+export const isRCEnabled = Platform.OS === 'ios';
 
 /**
  * Initialize the RevenueCat SDK. Safe to call multiple times — SDK ignores
