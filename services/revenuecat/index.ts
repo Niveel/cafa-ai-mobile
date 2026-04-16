@@ -8,7 +8,7 @@ import Purchases from 'react-native-purchases';
 const RC_IOS_API_KEY = process.env.EXPO_PUBLIC_RC_IOS_API_KEY?.trim() ?? '';
 
 /** Whether RC should be active on the current platform */
-export const isRCEnabled = Platform.OS === 'ios' && RC_IOS_API_KEY.length > 0;
+export const isRCEnabled = Platform.OS === 'ios';
 
 let hasConfiguredRevenueCat = false;
 
