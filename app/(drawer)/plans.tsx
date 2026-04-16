@@ -110,7 +110,7 @@ export default function PlansScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const { activeTier, rcTier, isPro, offering, refreshCustomerInfo, restorePurchases } = useRevenueCat();
+  const { activeTier, offering, refreshCustomerInfo, restorePurchases } = useRevenueCat();
   const [loading, setLoading] = useState(true);
   const [busyTier, setBusyTier] = useState<SubscriptionTier | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
@@ -283,7 +283,8 @@ export default function PlansScreen() {
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
 
   const displayPlans = useMemo(() => {
-    if (Platform.OS === 'ios' && offering) {
+    if (Platform.OS === 'ios') {
+      if (!offering) return [];
       return offering.availablePackages
         .filter((pkg) => pkg.product != null)
         .map((pkg): SubscriptionPlan & { _rcPackage: any } => {
@@ -305,7 +306,7 @@ export default function PlansScreen() {
             },
             _rcPackage: pkg,
           };
-        }).filter(p => p.tier !== 'free');
+        }).filter((p) => p.tier !== 'free');
     }
     return plans;
   }, [offering, plans]);
@@ -687,6 +688,17 @@ export default function PlansScreen() {
           </View>
         ) : null}
 
+        {!loading && Platform.OS === 'ios' && !offering ? (
+          <View
+            className="mb-3 rounded-xl border px-3 py-2"
+            style={{ borderColor: colors.border, backgroundColor: isDark ? '#11131A' : '#F8FAFC' }}
+          >
+            <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+              iOS subscription plans are temporarily unavailable. Please try again shortly.
+            </Text>
+          </View>
+        ) : null}
+
         {displayPlans.map((plan) => {
           const isCurrent = plan.tier === currentTier;
           const isBusy = busyTier === plan.tier;
@@ -784,7 +796,5 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
-
-
 
 
