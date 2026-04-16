@@ -1,5 +1,4 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Alert } from 'react-native';
 import Purchases from 'react-native-purchases';
 
 import { useAppContext } from '@/context/AppContext';
@@ -26,6 +25,13 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const prevUserIdRef = useRef<string | null>(null);
 
+  const refreshOffering = useCallback(async (): Promise<RCOffering | null> => {
+    if (!isRCEnabled) return null;
+    const nextOffering = await fetchOffering();
+    setOffering(nextOffering);
+    return nextOffering;
+  }, []);
+
   // ─── Init RC once on mount (iOS only) ────────────────────────────────────
   useEffect(() => {
     if (!isRCEnabled) return;
@@ -47,16 +53,12 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isRCEnabled) return;
 
-    fetchOffering()
-      .then((o) => {
-        setOffering(o);
-      })
-      .catch((e) => {
+    refreshOffering().catch((e) => {
         if (__DEV__) {
           console.warn('[revenuecat:context] fetchOffering failed', e);
         }
       });
-  }, []);
+  }, [refreshOffering]);
 
   // ─── Identify / reset user when auth state changes ───────────────────────
   useEffect(() => {
@@ -137,6 +139,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       isLoading,
       error,
       refreshCustomerInfo,
+      refreshOffering,
       restorePurchases,
     }),
     [
@@ -149,6 +152,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       isLoading,
       error,
       refreshCustomerInfo,
+      refreshOffering,
       restorePurchases,
     ],
   );

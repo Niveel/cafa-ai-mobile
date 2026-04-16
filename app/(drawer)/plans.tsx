@@ -110,7 +110,7 @@ export default function PlansScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
-  const { activeTier, offering, refreshCustomerInfo, restorePurchases } = useRevenueCat();
+  const { activeTier, offering, refreshCustomerInfo, refreshOffering, restorePurchases } = useRevenueCat();
   const [loading, setLoading] = useState(true);
   const [busyTier, setBusyTier] = useState<SubscriptionTier | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
@@ -122,6 +122,7 @@ export default function PlansScreen() {
   const [pendingTier, setPendingTier] = useState<SubscriptionTier | null>(null);
   const [showPlanUpdatedPrompt, setShowPlanUpdatedPrompt] = useState(false);
   const [updatedTier, setUpdatedTier] = useState<SubscriptionTier | null>(null);
+  const [isRefreshingOfferings, setIsRefreshingOfferings] = useState(false);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
   const lastForegroundRefreshAtRef = useRef(0);
   const portalFlowActiveRef = useRef(false);
@@ -517,6 +518,20 @@ export default function PlansScreen() {
     }
   };
 
+  const retryLoadIosPlans = useCallback(async () => {
+    if (Platform.OS !== 'ios') return;
+    setIsRefreshingOfferings(true);
+    setStatusText('');
+    try {
+      const nextOffering = await refreshOffering();
+      if (!nextOffering) {
+        setStatusText('Subscription plans are still unavailable. Please try again in a moment.');
+      }
+    } finally {
+      setIsRefreshingOfferings(false);
+    }
+  }, [refreshOffering]);
+
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
@@ -694,8 +709,30 @@ export default function PlansScreen() {
             style={{ borderColor: colors.border, backgroundColor: isDark ? '#11131A' : '#F8FAFC' }}
           >
             <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-              iOS subscription plans are temporarily unavailable. Please try again shortly.
+              Subscription plans are temporarily unavailable.
             </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading plans"
+              disabled={isRefreshingOfferings}
+              onPress={() => {
+                void retryLoadIosPlans();
+              }}
+              className="mt-3 h-10 items-center justify-center rounded-full px-4"
+              style={{
+                borderWidth: 1.2,
+                borderColor: colors.primary,
+                opacity: isRefreshingOfferings ? 0.75 : 1,
+              }}
+            >
+              {isRefreshingOfferings ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+                  Retry
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -796,5 +833,4 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
-
 

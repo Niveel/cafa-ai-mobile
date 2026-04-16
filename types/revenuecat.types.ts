@@ -21,6 +21,8 @@ export type RevenueCatState = {
   error: string | null;
   /** Call after a successful RC purchase to refresh customerInfo */
   refreshCustomerInfo: () => Promise<void>;
+  /** Re-fetch current offering from RevenueCat */
+  refreshOffering: () => Promise<RCOffering | null>;
   /** Restore App Store purchases */
   restorePurchases: () => Promise<void>;
 };
