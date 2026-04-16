@@ -81,6 +81,8 @@ import { API_BASE_URL } from '@/lib';
 import { emitChatMutated, getAccessToken, getDefaultVoicePreference } from '@/services';
 import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
 
+// hi
+
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 0;
   const IOS_COMPOSER_KEYBOARD_GAP = 6;
