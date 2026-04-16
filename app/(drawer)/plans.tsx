@@ -284,26 +284,28 @@ export default function PlansScreen() {
 
   const displayPlans = useMemo(() => {
     if (Platform.OS === 'ios' && offering) {
-      return offering.availablePackages.map((pkg): SubscriptionPlan & { _rcPackage: any } => {
-        const titleWords = pkg.product.title.toLowerCase();
-        let tier: SubscriptionTier = 'free';
-        if (pkg.identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
-        else if (pkg.identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
-        else if (pkg.identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
+      return offering.availablePackages
+        .filter((pkg) => pkg.product != null)
+        .map((pkg): SubscriptionPlan & { _rcPackage: any } => {
+          const titleWords = pkg.product.title.toLowerCase();
+          let tier: SubscriptionTier = 'free';
+          if (pkg.identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
+          else if (pkg.identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
+          else if (pkg.identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
 
-        return {
-          tier,
-          name: pkg.product.title,
-          description: pkg.product.description,
-          isActive: true,
-          price: {
-            amount: Number(pkg.product.price.toFixed(2)),
-            currency: pkg.product.currencyCode,
-            interval: pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo',
-          },
-          _rcPackage: pkg,
-        };
-      }).filter(p => p.tier !== 'free');
+          return {
+            tier,
+            name: pkg.product.title,
+            description: pkg.product.description,
+            isActive: true,
+            price: {
+              amount: Number(pkg.product.price.toFixed(2)),
+              currency: pkg.product.currencyCode,
+              interval: pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo',
+            },
+            _rcPackage: pkg,
+          };
+        }).filter(p => p.tier !== 'free');
     }
     return plans;
   }, [offering, plans]);
