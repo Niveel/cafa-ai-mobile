@@ -120,6 +120,7 @@ export default function ChatScreen() {
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(34);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
+  const [iosComposerOffset, setIosComposerOffset] = useState(0);
   const [isIosKeyboardVisible, setIsIosKeyboardVisible] = useState(false);
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
@@ -162,7 +163,7 @@ export default function ChatScreen() {
   const hasStartedChat = messages.some((message) => message.role === 'user');
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  const keyboardComposerOffset = androidComposerOffset;
+  const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
   const safeBottomInset = Math.max(insets.bottom, 0);
   const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
   const topPillBg = isDark ? 'rgba(16, 16, 20, 0.94)' : 'rgba(255, 255, 255, 0.96)';
@@ -1585,18 +1586,57 @@ export default function ChatScreen() {
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
 
-    const showSub = Keyboard.addListener('keyboardWillShow', () => setIsIosKeyboardVisible(true));
-    const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
-      setIsIosKeyboardVisible((event.endCoordinates.height ?? 0) > 0);
+    const syncOffset = (screenY?: number, fallbackHeight?: number) => {
+      const windowHeight = Dimensions.get('window').height;
+      const keyboardHeight = Math.max(0, fallbackHeight ?? 0);
+      if (typeof screenY === 'number') {
+        const overlap = Math.max(0, windowHeight - screenY);
+        const resolvedOffset = Math.max(overlap, keyboardHeight);
+        setIosComposerOffset(Math.max(0, resolvedOffset - safeBottomInset));
+        return;
+      }
+      setIosComposerOffset(Math.max(0, keyboardHeight - safeBottomInset));
+    };
+
+    const showSub = Keyboard.addListener('keyboardWillShow', (event) => {
+      setIsIosKeyboardVisible(true);
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
-    const hideSub = Keyboard.addListener('keyboardWillHide', () => setIsIosKeyboardVisible(false));
+    const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+      const visible = (event.endCoordinates.height ?? 0) > 0;
+      setIsIosKeyboardVisible(visible);
+      if (!visible) {
+        setIosComposerOffset(0);
+        return;
+      }
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+    });
+    const didChangeSub = Keyboard.addListener('keyboardDidChangeFrame', (event) => {
+      const visible = (event.endCoordinates.height ?? 0) > 0;
+      setIsIosKeyboardVisible(visible);
+      if (!visible) {
+        setIosComposerOffset(0);
+        return;
+      }
+      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', () => {
+      setIsIosKeyboardVisible(false);
+      setIosComposerOffset(0);
+    });
+    const didHideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setIsIosKeyboardVisible(false);
+      setIosComposerOffset(0);
+    });
 
     return () => {
       showSub.remove();
       changeSub.remove();
+      didChangeSub.remove();
       hideSub.remove();
+      didHideSub.remove();
     };
-  }, []);
+  }, [safeBottomInset]);
 
   useEffect(() => {
     if (!isSending) {
@@ -1623,7 +1663,7 @@ export default function ChatScreen() {
         className="flex-1"
         behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
-        enabled={Platform.OS === 'ios'}
+        enabled={false}
       >
           <View
             className="flex-1"
