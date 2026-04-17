@@ -116,6 +116,10 @@ export default function LoginScreen() {
                       name="emailOrUsername"
                       label={t('field.emailOrUsername')}
                       placeholder={t('placeholder.emailOrUsername')}
+                      autoComplete="username"
+                      textContentType="username"
+                      autoCapitalize="none"
+                      autoCorrect={false}
                       required
                     />
                     <AppFormField<LoginFormValues>
@@ -123,6 +127,10 @@ export default function LoginScreen() {
                       label={t('field.password')}
                       placeholder={t('placeholder.enterPassword')}
                       type="password"
+                      autoComplete="password"
+                      textContentType="password"
+                      autoCapitalize="none"
+                      autoCorrect={false}
                       required
                     />
                     <TouchableOpacity

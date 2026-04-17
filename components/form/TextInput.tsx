@@ -9,6 +9,7 @@ type Props = {
   label: string;
   value?: string;
   onChange?: (text: string) => void;
+  onNativeChange?: RNTextInputProps['onChange'];
   placeholder?: string;
   multiline?: boolean;
   rows?: number;
@@ -17,13 +18,14 @@ type Props = {
   iconName?: keyof typeof Ionicons.glyphMap;
   iconAria?: string;
   onIconPress?: () => void;
-} & Omit<RNTextInputProps, 'value' | 'onChangeText' | 'multiline'>;
+} & Omit<RNTextInputProps, 'value' | 'onChangeText' | 'multiline' | 'onChange'>;
 
 export function TextInput({
   name,
   label,
   value,
   onChange,
+  onNativeChange,
   placeholder,
   multiline = false,
   rows = 4,
@@ -60,6 +62,20 @@ export function TextInput({
         <RNTextInput
           value={value}
           onChangeText={onChange}
+          onChange={(event) => {
+            const nextText = event.nativeEvent.text;
+            if (typeof nextText === 'string') {
+              onChange?.(nextText);
+            }
+            onNativeChange?.(event);
+          }}
+          onEndEditing={(event) => {
+            const nextText = event.nativeEvent.text;
+            if (typeof nextText === 'string') {
+              onChange?.(nextText);
+            }
+            otherProps.onEndEditing?.(event);
+          }}
           placeholder={placeholder}
           placeholderTextColor={colors.textSecondary}
           multiline={multiline}

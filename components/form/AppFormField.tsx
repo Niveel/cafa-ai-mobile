@@ -14,7 +14,7 @@ type Props<Values extends StringFieldFormValues = StringFieldFormValues> = {
   type?: 'text' | 'email' | 'password' | 'number' | 'tel' | 'url';
   required?: boolean;
   placeholder?: string;
-} & Pick<RNTextInputProps, 'autoComplete' | 'keyboardType' | 'maxLength' | 'autoCorrect' | 'inputMode'>;
+} & Pick<RNTextInputProps, 'autoComplete' | 'textContentType' | 'autoCapitalize' | 'keyboardType' | 'maxLength' | 'autoCorrect' | 'inputMode'>;
 
 export function AppFormField<Values extends StringFieldFormValues = StringFieldFormValues>({
   name,
@@ -25,6 +25,8 @@ export function AppFormField<Values extends StringFieldFormValues = StringFieldF
   required = false,
   placeholder,
   autoComplete,
+  textContentType,
+  autoCapitalize,
   keyboardType,
   maxLength,
   autoCorrect,
@@ -50,6 +52,8 @@ export function AppFormField<Values extends StringFieldFormValues = StringFieldF
         required={required}
         placeholder={placeholder}
         autoComplete={autoComplete}
+        textContentType={textContentType}
+        autoCapitalize={autoCapitalize}
         keyboardType={keyboardType}
         maxLength={maxLength}
         autoCorrect={autoCorrect}
