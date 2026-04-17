@@ -37,6 +37,13 @@ function tierLabel(tier?: SubscriptionTier) {
   }
 }
 
+const TIER_RANK: Record<SubscriptionTier, number> = {
+  free: 0,
+  cafa_smart: 1,
+  cafa_pro: 2,
+  cafa_max: 3,
+};
+
 function formatLimit(limit?: number | null) {
   if (typeof limit !== 'number' || limit < 0) return '\u221e';
   return `${limit}`;
@@ -264,7 +271,6 @@ export default function PlansScreen() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      console.log(`[plans-appstate] state=${state}`);
       if (state !== 'active') return;
       if (portalFlowActiveRef.current) {
         void syncSubscriptionAfterPortalReturn();
@@ -326,6 +332,7 @@ export default function PlansScreen() {
   const openCheckoutUrl = async (
     url: string,
     mode: 'checkout' | 'portal' = 'checkout',
+    returnStrategy: 'redirect_to_app' | 'redirect_to_web' | string = 'redirect_to_web',
     expectedSuccessUrl?: string,
     expectedCancelUrl?: string,
   ) => {
@@ -333,11 +340,7 @@ export default function PlansScreen() {
       throw new Error('Checkout URL is invalid.');
     }
 
-    console.log(
-      `[plans-redirect:start] mode=${mode} checkoutUrl=${url} appScheme=${appScheme}`,
-    );
-
-    if (mode === 'checkout' && Platform.OS === 'ios') {
+    if (mode === 'checkout' && Platform.OS === 'ios' && returnStrategy === 'redirect_to_app') {
       try {
         const redirectUri = `${appScheme}://billing`;
         const authResult = await WebBrowser.openAuthSessionAsync(url, redirectUri);
@@ -380,7 +383,6 @@ export default function PlansScreen() {
         controlsColor: colors.primary,
         showInRecents: true,
       });
-      console.log('[plans-redirect:browser] opened with openBrowserAsync');
       return;
     } catch {
       console.log('[plans-redirect:browser] openBrowserAsync failed, trying Linking.openURL');
@@ -410,25 +412,17 @@ export default function PlansScreen() {
     setBusyTier(tier);
     setStatusText('');
 
-    const successUrl = `${appScheme}://billing/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${appScheme}://billing/cancel`;
-
     try {
       await setPendingBillingTier(tier);
       const checkout = await createCheckoutSession(tier, {
         platform: 'mobile',
-        successUrl,
-        cancelUrl,
       });
-      const resolvedSuccessUrl = checkout.successUrl || successUrl;
-      const resolvedCancelUrl = checkout.cancelUrl || cancelUrl;
-      const checkoutMode = (checkout as { mode?: string }).mode ?? 'unknown';
-      console.log(
-        `[plans-upgrade:checkout-session] tier=${tier} mode=${checkoutMode} successUrl=${resolvedSuccessUrl} cancelUrl=${resolvedCancelUrl} checkoutUrl=${checkout.url ?? 'none'}`,
-      );
+      const resolvedSuccessUrl = checkout.successUrl;
+      const resolvedCancelUrl = checkout.cancelUrl;
+      const returnStrategy = (checkout as { returnStrategy?: string }).returnStrategy ?? 'redirect_to_web';
       const requiresCheckout = (checkout as { requiresCheckout?: boolean }).requiresCheckout !== false;
       if (requiresCheckout && checkout.url) {
-        await openCheckoutUrl(checkout.url, 'checkout', resolvedSuccessUrl, resolvedCancelUrl);
+        await openCheckoutUrl(checkout.url, 'checkout', returnStrategy, resolvedSuccessUrl, resolvedCancelUrl);
         setStatusText(t('plans.checkoutOpened'));
         await syncSubscriptionAfterCheckout(tier);
       } else {
@@ -754,6 +748,7 @@ export default function PlansScreen() {
         {displayPlans.map((plan) => {
           const isCurrent = plan.tier === currentTier;
           const isBusy = busyTier === plan.tier;
+          const isDowngrade = TIER_RANK[plan.tier] < TIER_RANK[currentTier];
           const subscriptionLength = plan.price?.interval === 'yr' ? 'Yearly' : 'Monthly';
           // on iOS, if we mapped a rank, maybe we don't know the exact order from RC. 
           // getHighestTier logic exists to evaluate 'free' vs 'pro', but we can just use simple === checks.
@@ -841,7 +836,9 @@ export default function PlansScreen() {
                       ? t('plans.unavailable')
                       : isBusy
                         ? t('plans.redirecting')
-                        : t('plans.upgrade')}
+                        : isDowngrade
+                          ? 'Downgrade'
+                          : t('plans.upgrade')}
                 </Text>
               </TouchableOpacity>
             </View>

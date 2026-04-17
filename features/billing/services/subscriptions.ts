@@ -122,6 +122,7 @@ export async function createCheckoutSession(
 ) {
   type CheckoutResponseData = {
     mode?: 'checkout_started' | 'subscription_updated' | string;
+    returnStrategy?: 'redirect_to_app' | 'redirect_to_web' | string;
     url?: string;
     checkoutUrl?: string;
     checkout_url?: string;
@@ -178,6 +179,7 @@ export async function createCheckoutSession(
     return {
       ...raw,
       mode,
+      returnStrategy: raw.returnStrategy,
       url: resolvedUrl,
       successUrl: raw.successUrl ?? raw.success_url,
       cancelUrl: raw.cancelUrl ?? raw.cancel_url,
