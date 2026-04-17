@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { Stack } from 'expo-router';
-import { usePathname, useSegments } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Stack, usePathname, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { View } from 'react-native';
+import { Animated, Easing, Image, useColorScheme, View } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 
 import '../global.css';
@@ -15,6 +15,12 @@ const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTic
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 const SESSION_REPLAY_SAMPLE_RATE = Number(process.env.EXPO_PUBLIC_POSTHOG_SESSION_REPLAY_SAMPLE_RATE ?? '1');
+const SPLASH_DARK_BACKGROUND = '#1A0F2E';
+const SPLASH_LIGHT_BACKGROUND = '#ffffff';
+
+void SplashScreen.preventAutoHideAsync().catch(() => {
+  // No-op: splash may already be controlled by native startup flow.
+});
 
 if (!process.env.EXPO_PUBLIC_POSTHOG_API_KEY) {
   // Keep this visible in device logs to avoid silent analytics outages in build profiles
@@ -63,7 +69,162 @@ function AppNavigator() {
   );
 }
 
+function AnimatedIntro({ onDone }: { onDone: () => void }) {
+  const systemColorScheme = useColorScheme();
+  const isDarkSystem = systemColorScheme === 'dark';
+  const introOpacity = useRef(new Animated.Value(1)).current;
+  const logoProgress = useRef(new Animated.Value(0)).current;
+  const danceTilt = useRef(new Animated.Value(0)).current;
+  const dancePulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      await SplashScreen.hideAsync().catch(() => {
+        // No-op: safe fallback if already hidden.
+      });
+
+      Animated.timing(logoProgress, {
+        toValue: 1,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+
+      const danceLoop = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(danceTilt, {
+              toValue: 1,
+              duration: 120,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(danceTilt, {
+              toValue: -1,
+              duration: 120,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(danceTilt, {
+              toValue: 0.75,
+              duration: 110,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(danceTilt, {
+              toValue: 0,
+              duration: 110,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(dancePulse, {
+              toValue: 1,
+              duration: 210,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(dancePulse, {
+              toValue: 0,
+              duration: 210,
+              easing: Easing.inOut(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+      );
+
+      danceLoop.start();
+
+      Animated.sequence([
+        Animated.delay(1180),
+        Animated.timing(introOpacity, {
+          toValue: 0,
+          duration: 260,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        danceLoop.stop();
+        if (!cancelled && finished) onDone();
+      });
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dancePulse, danceTilt, introOpacity, logoProgress, onDone]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: isDarkSystem ? SPLASH_DARK_BACKGROUND : SPLASH_LIGHT_BACKGROUND,
+        opacity: introOpacity,
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+    >
+      <Animated.View
+        style={{
+          opacity: logoProgress,
+          transform: [
+            {
+              scale: logoProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.78, 1],
+              }),
+            },
+            {
+              scale: dancePulse.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 1.08],
+              }),
+            },
+            {
+              translateY: logoProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [14, 0],
+              }),
+            },
+            {
+              translateY: dancePulse.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -6],
+              }),
+            },
+            {
+              rotate: danceTilt.interpolate({
+                inputRange: [-1, 0, 1],
+                outputRange: ['-9deg', '0deg', '9deg'],
+              }),
+            },
+          ],
+        }}
+      >
+        <Image
+          source={require('../assets/images/icon.png')}
+          style={{ width: 132, height: 132, borderRadius: 28 }}
+          resizeMode="contain"
+        />
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
 export default function RootLayout() {
+  const [showAnimatedIntro, setShowAnimatedIntro] = useState(true);
   const appTree = (
     <AppProvider>
       <RevenueCatProvider>
@@ -98,6 +259,7 @@ export default function RootLayout() {
       ) : (
         appTree
       )}
+      {showAnimatedIntro ? <AnimatedIntro onDone={() => setShowAnimatedIntro(false)} /> : null}
     </GestureHandlerRootView>
   );
 }
