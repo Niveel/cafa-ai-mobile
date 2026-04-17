@@ -21,6 +21,9 @@ import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
 
+const PRIVACY_POLICY_URL = 'https://www.cafaai.com/privacy';
+const TERMS_OF_USE_URL = 'https://www.cafaai.com/terms';
+
 function tierLabel(tier?: SubscriptionTier) {
   switch (tier) {
     case 'cafa_smart':
@@ -285,7 +288,10 @@ export default function PlansScreen() {
 
   const displayPlans = useMemo(() => {
     if (Platform.OS === 'ios') {
-      if (!offering) return [];
+      if (!offering) {
+        // Keep plan details visible for App Review, but disable purchasing until RC products load.
+        return plans.map((plan) => ({ ...plan, isActive: false }));
+      }
       return offering.availablePackages
         .filter((pkg) => pkg.product != null)
         .map((pkg): SubscriptionPlan & { _rcPackage: any } => {
@@ -388,6 +394,15 @@ export default function PlansScreen() {
     }
     await Linking.openURL(url);
     console.log('[plans-redirect:linking] opened with Linking.openURL');
+  };
+
+  const openExternalLegalUrl = async (url: string) => {
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      setStatusText('Unable to open legal link right now. Please try again.');
+      return;
+    }
+    await Linking.openURL(url);
   };
 
   const onUpgrade = async (tier: SubscriptionTier) => {
@@ -709,7 +724,7 @@ export default function PlansScreen() {
             style={{ borderColor: colors.border, backgroundColor: isDark ? '#11131A' : '#F8FAFC' }}
           >
             <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-              Subscription plans are temporarily unavailable.
+              Subscription purchase is temporarily unavailable. Plan details are shown below.
             </Text>
             <TouchableOpacity
               accessibilityRole="button"
@@ -739,6 +754,7 @@ export default function PlansScreen() {
         {displayPlans.map((plan) => {
           const isCurrent = plan.tier === currentTier;
           const isBusy = busyTier === plan.tier;
+          const subscriptionLength = plan.price?.interval === 'yr' ? 'Yearly' : 'Monthly';
           // on iOS, if we mapped a rank, maybe we don't know the exact order from RC. 
           // getHighestTier logic exists to evaluate 'free' vs 'pro', but we can just use simple === checks.
           return (
@@ -760,6 +776,9 @@ export default function PlansScreen() {
                       {plan.description}
                     </Text>
                   ) : null}
+                  <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 3 }}>
+                    Subscription length: {subscriptionLength}
+                  </Text>
                 </View>
                 <Text style={{ color: colors.primary, fontSize: 18, fontWeight: '800' }}>
                   {typeof plan.price?.amount === 'number' && typeof plan.price?.currency === 'string'
@@ -828,9 +847,41 @@ export default function PlansScreen() {
             </View>
           );
         })}
+
+        <View
+          className="mb-3 rounded-xl border px-3 py-2"
+          style={{ borderColor: colors.border, backgroundColor: isDark ? '#11131A' : '#F8FAFC' }}
+        >
+          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+            By subscribing, you agree to our Privacy Policy and Terms of Use.
+          </Text>
+          <View className="mt-2 flex-row items-center">
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Open Privacy Policy"
+              onPress={() => {
+                void openExternalLegalUrl(PRIVACY_POLICY_URL);
+              }}
+              className="mr-3 rounded-full px-3 py-1.5"
+              style={{ borderWidth: 1, borderColor: colors.primary }}
+            >
+              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Privacy Policy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Open Terms of Use"
+              onPress={() => {
+                void openExternalLegalUrl(TERMS_OF_USE_URL);
+              }}
+              className="rounded-full px-3 py-1.5"
+              style={{ borderWidth: 1, borderColor: colors.primary }}
+            >
+              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Terms of Use</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
         </ScrollView>
       </View>
     </RequireAuthRoute>
   );
 }
-
