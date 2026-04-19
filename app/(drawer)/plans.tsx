@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
@@ -246,6 +247,17 @@ export default function PlansScreen() {
 
     void run();
   }, [loadBillingData, t]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Drawer screens can stay mounted; refresh usage every time plans is focused.
+      void loadBillingData({ force: true }).catch((error) => {
+        const message = toErrorMessage(error);
+        console.log(`[plans-focus-refresh:error] message="${message}"`);
+      });
+      return () => {};
+    }, [loadBillingData]),
+  );
 
   useEffect(() => {
     const handleUrl = (url: string | null | undefined) => {
