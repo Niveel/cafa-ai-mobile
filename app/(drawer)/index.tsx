@@ -130,6 +130,7 @@ export default function ChatScreen() {
   const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
+  const [assetAccessToken, setAssetAccessToken] = useState<string | null>(null);
   const [readAloudSpeaker, setReadAloudSpeaker] = useState<string | null>(null);
   const [isReadAloudLoading, setIsReadAloudLoading] = useState(false);
   const [streamingDots, setStreamingDots] = useState('.');
@@ -201,6 +202,25 @@ export default function ChatScreen() {
     }
     return null;
   }, [resolveBackendAssetUrl]);
+
+  const assetUrlRequiresAuth = useCallback((uri?: string | null) => {
+    if (!uri) return false;
+    return /^https?:\/\//i.test(uri) && uri.includes('/uploads/');
+  }, []);
+
+  const resolveImageSource = useCallback((uri?: string | null) => {
+    if (!uri) return null;
+    if (!assetUrlRequiresAuth(uri)) {
+      return { uri };
+    }
+    if (!assetAccessToken) return null;
+    return {
+      uri,
+      headers: {
+        Authorization: `Bearer ${assetAccessToken}`,
+      },
+    };
+  }, [assetAccessToken, assetUrlRequiresAuth]);
 
   const mapAuthMessageToUiMessage = useCallback((message: {
     id: string;
@@ -296,6 +316,23 @@ export default function ChatScreen() {
       }, {}),
     );
   }, [mapAuthMessageToUiMessage]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setAssetAccessToken(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const token = await getAccessToken();
+      if (!cancelled) {
+        setAssetAccessToken(token ?? null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   const scheduleVideoAutoSync = useCallback((conversationId: string, expectedPrompt: string, startedAt: number) => {
     if (videoAutoSyncInFlightRef.current) return;
@@ -401,11 +438,18 @@ export default function ChatScreen() {
     return rawMessage || t('chat.sendFailed');
   }, [getLimitNoticeMessage, t]);
 
-  const renderInlineMarkdown = useCallback((content: string) => {
-    if (!content.includes('**')) return content;
+  const renderInlineMarkdown = useCallback((
+    content: string,
+    options?: { textColor?: string; isCode?: boolean },
+  ) => {
+    const textColor = options?.textColor ?? colors.textPrimary;
+    const isCode = options?.isCode ?? false;
+    if (isCode || (!content.includes('**') && !content.includes('*') && !content.includes('`'))) {
+      return content;
+    }
 
     const result: ReactNode[] = [];
-    const pattern = /\*\*(.+?)\*\*/g;
+    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
     let lastIndex = 0;
     let matchIndex = 0;
     let match = pattern.exec(content);
@@ -414,11 +458,39 @@ export default function ChatScreen() {
       if (match.index > lastIndex) {
         result.push(content.slice(lastIndex, match.index));
       }
-      result.push(
-        <Text key={`bold-${matchIndex}`} style={{ fontWeight: '700' }}>
-          {match[1]}
-        </Text>,
-      );
+
+      const token = match[0];
+      if (token.startsWith('`') && token.endsWith('`')) {
+        result.push(
+          <Text
+            key={`md-code-${matchIndex}`}
+            style={{
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+              backgroundColor: isDark ? '#1A1A1F' : '#ECECF4',
+              color: textColor,
+              paddingHorizontal: 4,
+              borderRadius: 4,
+            }}
+          >
+            {token.slice(1, -1)}
+          </Text>,
+        );
+      } else if (token.startsWith('**') && token.endsWith('**')) {
+        result.push(
+          <Text key={`md-bold-${matchIndex}`} style={{ fontWeight: '700', color: textColor }}>
+            {token.slice(2, -2)}
+          </Text>,
+        );
+      } else if (token.startsWith('*') && token.endsWith('*')) {
+        result.push(
+          <Text key={`md-italic-${matchIndex}`} style={{ fontStyle: 'italic', color: textColor }}>
+            {token.slice(1, -1)}
+          </Text>,
+        );
+      } else {
+        result.push(token);
+      }
+
       lastIndex = match.index + match[0].length;
       matchIndex += 1;
       match = pattern.exec(content);
@@ -429,7 +501,231 @@ export default function ChatScreen() {
     }
 
     return result.length ? result : content;
+  }, [colors.textPrimary, isDark]);
+
+  const autoParagraphizeAssistantContent = useCallback((content: string) => {
+    const normalized = content.replace(/\r\n/g, '\n').trim();
+    if (!normalized) return content;
+
+    // Respect author-provided spacing and structured markdown.
+    if (normalized.includes('\n\n')) return content;
+    if (normalized.includes('```')) return content;
+    if (/^\s{0,3}(#{1,6}\s|[-*]\s|\d+\.\s|>\s)/m.test(normalized)) return content;
+
+    // Only paragraphize longer single-block replies.
+    if (normalized.length < 280) return content;
+
+    const sentences = normalized.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
+    if (sentences.length < 4) return content;
+
+    const targetParagraphChars = normalized.length >= 900 ? 340 : normalized.length >= 560 ? 280 : 230;
+    const paragraphs: string[] = [];
+    let buffer: string[] = [];
+    let bufferChars = 0;
+
+    for (let i = 0; i < sentences.length; i += 1) {
+      const sentence = sentences[i];
+      buffer.push(sentence);
+      bufferChars += sentence.length + (buffer.length > 1 ? 1 : 0);
+
+      const remaining = sentences.length - i - 1;
+      const shouldBreak =
+        bufferChars >= targetParagraphChars
+        && remaining >= 2
+        && buffer.length >= 2;
+
+      if (shouldBreak) {
+        paragraphs.push(buffer.join(' ').trim());
+        buffer = [];
+        bufferChars = 0;
+      }
+    }
+
+    if (buffer.length) {
+      paragraphs.push(buffer.join(' ').trim());
+    }
+
+    return paragraphs.length >= 2 ? paragraphs.join('\n\n') : content;
   }, []);
+
+  const renderMessageMarkdown = useCallback((content: string, isUser: boolean) => {
+    const textColor = isUser ? '#FFFFFF' : colors.textPrimary;
+    if (isUser) {
+      return (
+        <Text style={{ color: textColor, lineHeight: 20 }}>
+          {content}
+        </Text>
+      );
+    }
+
+    const paragraphized = autoParagraphizeAssistantContent(content);
+    const normalized = paragraphized.replace(/\r\n/g, '\n');
+    const lines = normalized.split('\n');
+    const nodes: ReactNode[] = [];
+    let paragraphBuffer: string[] = [];
+    let inCodeFence = false;
+    let codeFenceLines: string[] = [];
+    let key = 0;
+
+    const flushParagraph = () => {
+      if (!paragraphBuffer.length) return;
+      const paragraph = paragraphBuffer.join('\n');
+      nodes.push(
+        <Text key={`p-${key}`} style={{ color: textColor, lineHeight: 20, marginBottom: 6 }}>
+          {renderInlineMarkdown(paragraph, { textColor })}
+        </Text>,
+      );
+      key += 1;
+      paragraphBuffer = [];
+    };
+
+    const flushCodeFence = () => {
+      if (!codeFenceLines.length) return;
+      nodes.push(
+        <View
+          key={`code-${key}`}
+          className="rounded-xl px-3 py-2"
+          style={{
+            marginBottom: 8,
+            backgroundColor: isDark ? '#0E0E12' : '#ECECF4',
+            borderWidth: 1,
+            borderColor: isDark ? '#23232B' : '#D7D9E2',
+          }}
+        >
+          <Text
+            style={{
+              color: textColor,
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+              lineHeight: 20,
+            }}
+          >
+            {codeFenceLines.join('\n')}
+          </Text>
+        </View>,
+      );
+      key += 1;
+      codeFenceLines = [];
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine;
+
+      if (line.trim().startsWith('```')) {
+        flushParagraph();
+        if (!inCodeFence) {
+          inCodeFence = true;
+          codeFenceLines = [];
+        } else {
+          inCodeFence = false;
+          flushCodeFence();
+        }
+        continue;
+      }
+
+      if (inCodeFence) {
+        codeFenceLines.push(line);
+        continue;
+      }
+
+      if (!line.trim()) {
+        flushParagraph();
+        continue;
+      }
+
+      const headingMatch = /^(#{1,3})\s+(.+)$/.exec(line);
+      if (headingMatch) {
+        flushParagraph();
+        const level = headingMatch[1].length;
+        const headingText = headingMatch[2];
+        nodes.push(
+          <Text
+            key={`h-${key}`}
+            style={{
+              color: textColor,
+              fontWeight: '800',
+              fontSize: level === 1 ? 18 : level === 2 ? 16 : 15,
+              lineHeight: level === 1 ? 24 : 22,
+              marginBottom: 6,
+              marginTop: key === 0 ? 0 : 2,
+            }}
+          >
+            {renderInlineMarkdown(headingText, { textColor })}
+          </Text>,
+        );
+        key += 1;
+        continue;
+      }
+
+      const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
+      if (bulletMatch) {
+        flushParagraph();
+        nodes.push(
+          <View key={`ul-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
+            <Text style={{ color: textColor, lineHeight: 20 }}>{'\u2022 '}</Text>
+            <Text style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+              {renderInlineMarkdown(bulletMatch[1], { textColor })}
+            </Text>
+          </View>,
+        );
+        key += 1;
+        continue;
+      }
+
+      const orderedMatch = /^(\d+)\.\s+(.+)$/.exec(line);
+      if (orderedMatch) {
+        flushParagraph();
+        nodes.push(
+          <View key={`ol-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
+            <Text style={{ color: textColor, lineHeight: 20 }}>{`${orderedMatch[1]}. `}</Text>
+            <Text style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+              {renderInlineMarkdown(orderedMatch[2], { textColor })}
+            </Text>
+          </View>,
+        );
+        key += 1;
+        continue;
+      }
+
+      const quoteMatch = /^>\s?(.+)$/.exec(line);
+      if (quoteMatch) {
+        flushParagraph();
+        nodes.push(
+          <View
+            key={`q-${key}`}
+            className="rounded-r-lg px-2 py-1"
+            style={{
+              borderLeftWidth: 3,
+              borderLeftColor: isUser ? 'rgba(255,255,255,0.65)' : colors.primary,
+              marginBottom: 6,
+              backgroundColor: isDark ? '#121218' : '#F0F2F8',
+            }}
+          >
+            <Text style={{ color: textColor, lineHeight: 20 }}>
+              {renderInlineMarkdown(quoteMatch[1], { textColor })}
+            </Text>
+          </View>,
+        );
+        key += 1;
+        continue;
+      }
+
+      paragraphBuffer.push(line);
+    }
+
+    flushParagraph();
+    if (inCodeFence) {
+      flushCodeFence();
+    }
+
+    if (!nodes.length) {
+      return (
+        <Text style={{ color: textColor, lineHeight: 20 }}>
+          {paragraphized}
+        </Text>
+      );
+    }
+    return nodes;
+  }, [autoParagraphizeAssistantContent, colors.primary, colors.textPrimary, isDark, renderInlineMarkdown]);
 
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
     hapticSelection();
@@ -1936,24 +2232,32 @@ export default function ChatScreen() {
                             backgroundColor: isDark ? '#101010' : '#FFFFFF',
                           }}
                         >
-                          <ExpoImage
-                            source={{ uri: item.imageUrl! }}
-                            style={{
-                              position: 'absolute',
-                              top: 0,
-                              bottom: 0,
-                              left: 0,
-                              right: 0,
-                              transform: [{ scale: 1.06 }],
-                            }}
-                            contentFit="cover"
-                            contentPosition="center"
-                            transition={0}
-                            accessible
-                            accessibilityLabel={item.imagePrompt?.trim()
-                              ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
-                              : t('chat.generatedImageAlt')}
-                          />
+                          {(() => {
+                            const source = resolveImageSource(item.imageUrl);
+                            if (!source) {
+                              return <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 112 }} />;
+                            }
+                            return (
+                              <ExpoImage
+                                source={source}
+                                style={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  transform: [{ scale: 1.06 }],
+                                }}
+                                contentFit="cover"
+                                contentPosition="center"
+                                transition={0}
+                                accessible
+                                accessibilityLabel={item.imagePrompt?.trim()
+                                  ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
+                                  : t('chat.generatedImageAlt')}
+                              />
+                            );
+                          })()}
                         </View>
                       ) : null}
 
@@ -1975,6 +2279,7 @@ export default function ChatScreen() {
                           {imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
                             if (!imageUri) return null;
+                            const previewSource = resolveImageSource(imageUri);
                             return (
                               <View
                                 key={`${item.id}-img-${attachment.id ?? index}`}
@@ -1986,21 +2291,25 @@ export default function ChatScreen() {
                                   backgroundColor: isDark ? '#101010' : '#FFFFFF',
                                 }}
                               >
-                                <ExpoImage
-                                  source={{ uri: imageUri }}
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                  }}
-                                  contentFit="cover"
-                                  contentPosition="center"
-                                  transition={0}
-                                  accessible
-                                  accessibilityLabel={attachment.originalName ?? t('chat.attachImage')}
-                                />
+                                {previewSource ? (
+                                  <ExpoImage
+                                    source={previewSource}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                    }}
+                                    contentFit="cover"
+                                    contentPosition="center"
+                                    transition={0}
+                                    accessible
+                                    accessibilityLabel={attachment.originalName ?? t('chat.attachImage')}
+                                  />
+                                ) : (
+                                  <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 84 }} />
+                                )}
                               </View>
                             );
                           })}
@@ -2052,11 +2361,7 @@ export default function ChatScreen() {
                         >
                           {(() => {
                             const visibleContent = item.content || (isSending && !isUser ? streamingDots : '');
-                            return (
-                          <Text style={{ color: isUser ? '#FFFFFF' : colors.textPrimary, lineHeight: 20 }}>
-                            {renderInlineMarkdown(visibleContent)}
-                          </Text>
-                            );
+                            return renderMessageMarkdown(visibleContent, isUser);
                           })()}
                         </View>
                       ) : null}

@@ -28,6 +28,20 @@ let overviewInFlight: Promise<SubscriptionOverview> | null = null;
 let plansInFlight: Promise<SubscriptionPlansPayload> | null = null;
 let usageInFlight: Promise<UsageSnapshot> | null = null;
 
+function getNoCacheConfig(force: boolean) {
+  if (!force) return undefined;
+  return {
+    headers: {
+      'Cache-Control': 'no-cache, no-store, max-age=0',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
+    params: {
+      _t: Date.now(),
+    },
+  };
+}
+
 function asNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string') {
@@ -71,6 +85,7 @@ export async function getSubscriptionOverview(options?: { force?: boolean }) {
     try {
       const response: AxiosResponse<{ data: SubscriptionOverview }> = await apiClient.get(
         apiEndpoints.subscriptions.status,
+        getNoCacheConfig(force),
       );
       const data = response.data.data;
       overviewCache = { data, fetchedAt: Date.now() };
@@ -98,6 +113,7 @@ export async function getSubscriptionPlans(options?: { force?: boolean }) {
     try {
       const response: AxiosResponse<{ data: SubscriptionPlansPayload }> = await apiClient.get(
         apiEndpoints.subscriptions.plans,
+        getNoCacheConfig(force),
       );
       const data = response.data.data;
       plansCache = { data, fetchedAt: Date.now() };
@@ -223,6 +239,7 @@ export async function getDailyUsage(options?: { force?: boolean }) {
     try {
       const response: AxiosResponse<{ data: DailyUsagePayload }> = await apiClient.get(
         apiEndpoints.users.usage,
+        getNoCacheConfig(force),
       );
       const usage = response.data.data?.usage as (DailyUsagePayload['usage'] & Record<string, unknown>) | undefined;
       const chatUsed =
