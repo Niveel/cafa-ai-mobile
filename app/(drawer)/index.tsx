@@ -174,6 +174,8 @@ export default function ChatScreen() {
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;
     if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(rawUrl)) return rawUrl;
+    if (/^data:/i.test(rawUrl)) return rawUrl;
     if (rawUrl.startsWith('/')) return `${backendOrigin}${rawUrl}`;
     return `${backendOrigin}/${rawUrl}`;
   }, [backendOrigin]);
