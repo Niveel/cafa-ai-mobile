@@ -30,7 +30,7 @@ export function AppScreen({
   const { isAuthenticated } = useAppContext();
   const insets = useSafeAreaInsets();
   const horizontalPadding = 10;
-  const floatingTop = insets.top + 8 + topChromeOffset;
+  const floatingTop = insets.top + 4 + topChromeOffset;
   const contentTop = showTopChrome
     ? insets.top + 70 + topChromeOffset + contentTopOffset
     : insets.top + (showHeading ? 20 : 8);
