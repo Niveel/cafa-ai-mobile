@@ -137,7 +137,7 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
               style={{
                 borderWidth: 1,
                 borderColor: colors.primary,
-                backgroundColor: isDark ? 'rgba(124,58,237,0.14)' : 'rgba(124,58,237,0.08)',
+                backgroundColor: isDark ? 'rgba(32,64,121,0.14)' : 'rgba(32,64,121,0.08)',
               }}
             >
               <Ionicons name="close" size={20} color={colors.textPrimary} />
@@ -151,7 +151,7 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
             style={{
               borderWidth: 1,
               borderColor: colors.border,
-              backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(124,58,237,0.04)',
+              backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(32,64,121,0.04)',
             }}
           >
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 2 }}>
@@ -175,8 +175,8 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                       borderColor: selected ? colors.primary : 'transparent',
                       backgroundColor: selected
                         ? isDark
-                          ? 'rgba(124,58,237,0.2)'
-                          : 'rgba(124,58,237,0.12)'
+                          ? 'rgba(32,64,121,0.2)'
+                          : 'rgba(32,64,121,0.12)'
                         : 'transparent',
                     }}
                   >

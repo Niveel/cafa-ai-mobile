@@ -50,7 +50,7 @@ export function FormLoader() {
     outputRange: ['0deg', '360deg'],
   });
 
-  const orbitColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(124,58,237,0.25)';
+  const orbitColor = isDark ? 'rgba(255,255,255,0.22)' : 'rgba(32,64,121,0.25)';
   const nodeColor = colors.secondary;
 
   return (

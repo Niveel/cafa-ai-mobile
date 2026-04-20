@@ -54,8 +54,8 @@ export function SecondaryNav({ title, onBackPress, topOffset = 0 }: SecondaryNav
         className="h-10 w-10 items-center justify-center rounded-full"
         style={{
           borderWidth: 1,
-          borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(124,58,237,0.26)',
-          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.08)',
+          borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(32,64,121,0.26)',
+          backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(32,64,121,0.08)',
         }}
       >
         <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />

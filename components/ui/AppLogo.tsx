@@ -20,8 +20,8 @@ export function AppLogo({ size = 34, showWordmark = true, compact = false }: App
           width: boxSize,
           height: boxSize,
           borderWidth: 1,
-          borderColor: isDark ? 'rgba(167,139,250,0.36)' : 'rgba(124,58,237,0.28)',
-          backgroundColor: isDark ? 'rgba(167,139,250,0.14)' : 'rgba(124,58,237,0.1)',
+          borderColor: isDark ? 'rgba(95,127,184,0.36)' : 'rgba(32,64,121,0.28)',
+          backgroundColor: isDark ? 'rgba(95,127,184,0.14)' : 'rgba(32,64,121,0.1)',
         }}
       >
         <Image

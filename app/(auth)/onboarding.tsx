@@ -75,8 +75,8 @@ function SlideCard({
         <LinearGradient
           colors={
             isDark
-              ? [item.accent, 'rgba(124,58,237,0.55)', 'rgba(20,20,20,0.8)']
-              : ['rgba(124,58,237,0.45)', item.accent, 'rgba(167,139,250,0.35)']
+              ? [item.accent, 'rgba(32,64,121,0.55)', 'rgba(20,20,20,0.8)']
+              : ['rgba(32,64,121,0.45)', item.accent, 'rgba(95,127,184,0.35)']
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -95,8 +95,8 @@ function SlideCard({
                 iconStyle,
                 {
                   borderWidth: 1,
-                  borderColor: isDark ? 'rgba(167,139,250,0.4)' : 'rgba(124,58,237,0.28)',
-                  backgroundColor: isDark ? 'rgba(167,139,250,0.15)' : 'rgba(124,58,237,0.12)',
+                  borderColor: isDark ? 'rgba(95,127,184,0.4)' : 'rgba(32,64,121,0.28)',
+                  backgroundColor: isDark ? 'rgba(95,127,184,0.15)' : 'rgba(32,64,121,0.12)',
                 },
               ]}
             >
@@ -133,21 +133,21 @@ export default function OnboardingScreen() {
         title: t('onboarding.slide1.title'),
         description: t('onboarding.slide1.body'),
         icon: 'sparkles-outline',
-        accent: '#A78BFA',
+        accent: '#5F7FB8',
       },
       {
         id: 'multimodal',
         title: t('onboarding.slide2.title'),
         description: t('onboarding.slide2.body'),
         icon: 'albums-outline',
-        accent: '#7C3AED',
+        accent: '#204079',
       },
       {
         id: 'secure',
         title: t('onboarding.slide3.title'),
         description: t('onboarding.slide3.body'),
         icon: 'shield-checkmark-outline',
-        accent: '#8B5CF6',
+        accent: '#2B4F8E',
       },
     ],
     [t],
@@ -221,7 +221,7 @@ export default function OnboardingScreen() {
               width: 180,
               height: 180,
               borderRadius: 999,
-              backgroundColor: '#7C3AED',
+              backgroundColor: '#204079',
             },
           ]}
         />
@@ -236,7 +236,7 @@ export default function OnboardingScreen() {
               width: 210,
               height: 210,
               borderRadius: 999,
-              backgroundColor: '#A78BFA',
+              backgroundColor: '#5F7FB8',
             },
           ]}
         />
@@ -250,8 +250,8 @@ export default function OnboardingScreen() {
             className="rounded-full px-3 py-1.5"
             style={{
               borderWidth: 1,
-              borderColor: isDark ? 'rgba(167,139,250,0.35)' : 'rgba(124,58,237,0.28)',
-              backgroundColor: isDark ? 'rgba(167,139,250,0.12)' : 'rgba(124,58,237,0.1)',
+              borderColor: isDark ? 'rgba(95,127,184,0.35)' : 'rgba(32,64,121,0.28)',
+              backgroundColor: isDark ? 'rgba(95,127,184,0.12)' : 'rgba(32,64,121,0.1)',
             }}
           >
             <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>
@@ -300,7 +300,7 @@ export default function OnboardingScreen() {
                   ? colors.primary
                   : isDark
                     ? 'rgba(255,255,255,0.28)'
-                    : 'rgba(124,58,237,0.24)',
+                    : 'rgba(32,64,121,0.24)',
               }}
             />
           ))}
@@ -314,7 +314,7 @@ export default function OnboardingScreen() {
           style={{
             backgroundColor: colors.primary,
             borderWidth: 1,
-            borderColor: isDark ? 'rgba(167,139,250,0.7)' : 'rgba(109,40,217,0.85)',
+            borderColor: isDark ? 'rgba(95,127,184,0.7)' : 'rgba(24,52,97,0.85)',
           }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>

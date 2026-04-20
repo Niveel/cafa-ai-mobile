@@ -35,9 +35,9 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload,
       className="mb-3 overflow-hidden rounded-3xl"
       style={{
         width,
-        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.06)',
+        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(32,64,121,0.06)',
         borderWidth: 1,
-        borderColor: isDark ? 'rgba(167,139,250,0.24)' : 'rgba(124,58,237,0.22)',
+        borderColor: isDark ? 'rgba(95,127,184,0.24)' : 'rgba(32,64,121,0.22)',
       }}
     >
       <View
@@ -46,7 +46,7 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload,
           width,
           height: imageHeight,
           borderBottomWidth: 1,
-          borderBottomColor: isDark ? 'rgba(167,139,250,0.18)' : 'rgba(124,58,237,0.18)',
+          borderBottomColor: isDark ? 'rgba(95,127,184,0.18)' : 'rgba(32,64,121,0.18)',
         }}
       >
         <ExpoImage
@@ -116,9 +116,9 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload,
               className="h-8 w-8 items-center justify-center rounded-full"
               style={{
                 marginRight: 8,
-                backgroundColor: isDark ? 'rgba(167,139,250,0.17)' : 'rgba(124,58,237,0.12)',
+                backgroundColor: isDark ? 'rgba(95,127,184,0.17)' : 'rgba(32,64,121,0.12)',
                 borderWidth: 1,
-                borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.28)',
+                borderColor: isDark ? 'rgba(95,127,184,0.32)' : 'rgba(32,64,121,0.28)',
               }}
             >
               <Ionicons name="download-outline" size={16} color={colors.primary} />

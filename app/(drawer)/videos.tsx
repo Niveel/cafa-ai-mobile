@@ -663,7 +663,7 @@ export default function VideosScreen() {
               bottom: 14,
               backgroundColor: isDark ? 'rgba(12,12,12,0.95)' : 'rgba(255,255,255,0.97)',
               borderWidth: 1,
-              borderColor: isDark ? 'rgba(167,139,250,0.3)' : 'rgba(124,58,237,0.22)',
+              borderColor: isDark ? 'rgba(95,127,184,0.3)' : 'rgba(32,64,121,0.22)',
             }}
           >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
@@ -689,7 +689,7 @@ export default function VideosScreen() {
               }],
               backgroundColor: isDark ? 'rgba(18,18,18,0.97)' : 'rgba(255,255,255,0.98)',
               borderWidth: 1,
-              borderColor: isDark ? 'rgba(167,139,250,0.32)' : 'rgba(124,58,237,0.26)',
+              borderColor: isDark ? 'rgba(95,127,184,0.32)' : 'rgba(32,64,121,0.26)',
             }}
           >
             <View className="flex-row items-center">
@@ -727,8 +727,8 @@ export default function VideosScreen() {
                   paddingHorizontal: 12,
                   borderRadius: 12,
                   borderWidth: 1,
-                  borderColor: isDark ? 'rgba(167,139,250,0.3)' : 'rgba(124,58,237,0.28)',
-                  backgroundColor: isDark ? 'rgba(167,139,250,0.13)' : 'rgba(124,58,237,0.1)',
+                  borderColor: isDark ? 'rgba(95,127,184,0.3)' : 'rgba(32,64,121,0.28)',
+                  backgroundColor: isDark ? 'rgba(95,127,184,0.13)' : 'rgba(32,64,121,0.1)',
                 }}
               >
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>

@@ -2679,7 +2679,7 @@ export default function ChatScreen() {
                 accessibilityHint={t('chat.sendHint')}
                 className="h-10 w-10 items-center justify-center rounded-full"
                 style={{
-                  backgroundColor: !input.trim() || isSending ? '#A78BFA' : colors.primary,
+                  backgroundColor: !input.trim() || isSending ? '#5F7FB8' : colors.primary,
                 }}
               >
                 <Ionicons name="send" size={15} color="#FFFFFF" />
@@ -2695,7 +2695,7 @@ export default function ChatScreen() {
               accessibilityHint={t('chat.sendHint')}
               className="absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full"
               style={{
-                backgroundColor: !input.trim() || isSending ? '#A78BFA' : colors.primary,
+                backgroundColor: !input.trim() || isSending ? '#5F7FB8' : colors.primary,
               }}
             >
               <Ionicons name="send" size={15} color="#FFFFFF" />

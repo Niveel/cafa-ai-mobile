@@ -265,7 +265,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         style={{
           borderWidth: 1.2,
           borderColor: colors.primary,
-          backgroundColor: isDark ? 'rgba(124,58,237,0.16)' : 'rgba(124,58,237,0.08)',
+          backgroundColor: isDark ? 'rgba(32,64,121,0.16)' : 'rgba(32,64,121,0.08)',
           opacity: isAuthenticated ? 1 : 0.7,
         }}
       >

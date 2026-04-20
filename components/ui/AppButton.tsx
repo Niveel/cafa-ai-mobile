@@ -134,7 +134,7 @@ export function AppButton({
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 2,
-        borderColor: '#7C3AED',
+        borderColor: '#204079',
         backgroundColor: isDark ? 'rgba(10, 10, 10, 0.9)' : 'rgba(255, 255, 255, 0.94)',
       }}
     >
