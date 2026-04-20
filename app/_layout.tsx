@@ -15,7 +15,7 @@ const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTic
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 const SESSION_REPLAY_SAMPLE_RATE = Number(process.env.EXPO_PUBLIC_POSTHOG_SESSION_REPLAY_SAMPLE_RATE ?? '1');
-const SPLASH_DARK_BACKGROUND = '#1A0F2E';
+const SPLASH_DARK_BACKGROUND = '#10264D';
 const SPLASH_LIGHT_BACKGROUND = '#ffffff';
 
 void SplashScreen.preventAutoHideAsync().catch(() => {

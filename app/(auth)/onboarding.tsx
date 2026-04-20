@@ -205,7 +205,7 @@ export default function OnboardingScreen() {
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <LinearGradient
-        colors={isDark ? ['#070709', '#130C24', '#060608'] : ['#FFFFFF', '#F5ECFF', '#FFFFFF']}
+        colors={isDark ? ['#07090D', '#10264D', '#06080C'] : ['#FFFFFF', '#EEF4FF', '#FFFFFF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{ flex: 1, paddingHorizontal: horizontalPadding, paddingTop: 48, paddingBottom: 24 }}
