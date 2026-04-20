@@ -159,9 +159,9 @@ export default function ChatScreen() {
   const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
   const safeBottomInset = Math.max(insets.bottom, 0);
   const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
-  const topPillBg = isDark ? 'rgba(16, 16, 20, 0.94)' : 'rgba(255, 255, 255, 0.96)';
-  const topPillBorder = isDark ? 'rgba(124, 58, 237, 0.42)' : 'rgba(124, 58, 237, 0.3)';
-  const dividerPill = isDark ? 'rgba(124, 58, 237, 0.38)' : 'rgba(124, 58, 237, 0.2)';
+  const topPillBg = isDark ? 'rgba(16, 38, 77, 0.22)' : 'rgba(32, 64, 121, 0.08)';
+  const topPillBorder = isDark ? 'rgba(32, 64, 121, 0.52)' : 'rgba(32, 64, 121, 0.3)';
+  const dividerPill = isDark ? 'rgba(32, 64, 121, 0.46)' : 'rgba(32, 64, 121, 0.2)';
 
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;

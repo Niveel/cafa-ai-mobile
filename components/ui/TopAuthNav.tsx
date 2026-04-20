@@ -45,7 +45,7 @@ export function TopAuthNav() {
           width: '100%',
           borderWidth: 1.8,
           borderColor: colors.primary,
-          backgroundColor: isDark ? 'rgba(20, 14, 32, 0.96)' : 'rgba(249, 245, 255, 0.98)',
+          backgroundColor: isDark ? 'rgba(16, 38, 77, 0.28)' : 'rgba(32, 64, 121, 0.08)',
           shadowColor: colors.primary,
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: isDark ? 0.26 : 0.14,
