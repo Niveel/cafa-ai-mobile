@@ -204,6 +204,8 @@ async function getSharingModule() {
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 0;
   const IOS_COMPOSER_KEYBOARD_GAP = 6;
+  const STREAM_FLUSH_INTERVAL_MS = 36;
+  const STREAM_FLUSH_CHARS = 28;
   const VIDEO_JOB_POLL_ATTEMPTS = 360;
   const VIDEO_JOB_POLL_INTERVAL_MS = 2200;
   const VIDEO_JOB_RATE_LIMIT_BACKOFF_MS = 7000;
@@ -1040,11 +1042,22 @@ export default function ChatScreen() {
     const pending = pendingDeltaRef.current;
     if (!assistantId || !pending) return;
 
-    setMessages((prev) =>
-      prev.map((message) =>
-        message.id === assistantId ? { ...message, content: `${message.content}${pending}` } : message,
-      ),
-    );
+    setMessages((prev) => {
+      const lastIndex = prev.length - 1;
+      if (lastIndex >= 0 && prev[lastIndex].id === assistantId) {
+        const next = [...prev];
+        next[lastIndex] = { ...next[lastIndex], content: `${next[lastIndex].content}${pending}` };
+        return next;
+      }
+
+      for (let i = prev.length - 1; i >= 0; i -= 1) {
+        if (prev[i].id !== assistantId) continue;
+        const next = [...prev];
+        next[i] = { ...next[i], content: `${next[i].content}${pending}` };
+        return next;
+      }
+      return prev;
+    });
     pendingDeltaRef.current = '';
   };
 
@@ -1060,20 +1073,37 @@ export default function ChatScreen() {
         return;
       }
 
-      const chunk = pending.slice(0, 2);
+      const chunk = pending.slice(0, STREAM_FLUSH_CHARS);
       pendingDeltaRef.current = pending.slice(chunk.length);
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === targetId ? { ...message, content: `${message.content}${chunk}` } : message,
-        ),
-      );
+      setMessages((prev) => {
+        const lastIndex = prev.length - 1;
+        if (lastIndex >= 0 && prev[lastIndex].id === targetId) {
+          const next = [...prev];
+          next[lastIndex] = { ...next[lastIndex], content: `${next[lastIndex].content}${chunk}` };
+          return next;
+        }
+
+        for (let i = prev.length - 1; i >= 0; i -= 1) {
+          if (prev[i].id !== targetId) continue;
+          const next = [...prev];
+          next[i] = { ...next[i], content: `${next[i].content}${chunk}` };
+          return next;
+        }
+        return prev;
+      });
 
       deltaFlushTimerRef.current = null;
       if (pendingDeltaRef.current) {
         queueAssistantDelta(targetId, '');
       }
-    }, 12);
+    }, STREAM_FLUSH_INTERVAL_MS);
   };
+
+  const getMessageItemType = useCallback((item: UiMessage) => {
+    if (item.imageUrl || item.isImageGenerating) return 'image';
+    if (item.videoUrl || item.isVideoGenerating) return 'video';
+    return item.role;
+  }, []);
 
   const handleSend = () => {
     const run = async () => {
@@ -2452,6 +2482,8 @@ export default function ChatScreen() {
             <FlashList
               ref={messagesListRef}
               className="flex-1"
+              getItemType={getMessageItemType}
+              removeClippedSubviews={Platform.OS === 'android'}
               ListEmptyComponent={
                 isAuthenticated && isHydratingAuthChat ? (
                   <View className="px-2 py-2">
