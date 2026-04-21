@@ -9,16 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
-import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
@@ -33,6 +31,26 @@ import Animated, {
   ZoomIn,
   ZoomOut,
 } from 'react-native-reanimated';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-c';
+import 'prismjs/components/prism-clike';
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-ruby';
+import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-yaml';
 
 import {
   AppScreen,
@@ -76,9 +94,112 @@ import {
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
 import { emitChatMutated, getAccessToken, getDefaultVoicePreference } from '@/services';
-import { MOTION, hapticError, hapticImpact, hapticSelection, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
+import {
+  MOTION,
+  hapticError,
+  hapticImpact,
+  hapticSelection,
+  hapticSuccess,
+  saveFileToDownloadsCafaFolder,
+  saveMediaToCafaAlbum,
+} from '@/utils';
 
 // hi
+
+type AudioPlayer = {
+  addListener: (eventName: string, listener: (status: { didJustFinish?: boolean }) => void) => { remove: () => void };
+  play: () => void;
+  pause: () => void;
+  remove: () => void;
+};
+
+type ExpoAudioModule = {
+  createAudioPlayer: (uri: string, options?: { keepAudioSessionActive?: boolean }) => AudioPlayer;
+};
+
+type ImagePickerModule = {
+  launchImageLibraryAsync: (options: {
+    allowsEditing: boolean;
+    quality: number;
+    mediaTypes: string[];
+  }) => Promise<{
+    canceled: boolean;
+    assets?: { fileName?: string | null; uri: string; mimeType?: string | null }[];
+  }>;
+};
+
+type DocumentPickerModule = {
+  getDocumentAsync: (options: {
+    copyToCacheDirectory: boolean;
+    multiple: boolean;
+    type: string[];
+  }) => Promise<{
+    canceled: boolean;
+    assets?: { name?: string | null; uri: string; mimeType?: string | null }[];
+  }>;
+};
+
+type SharingModule = {
+  isAvailableAsync: () => Promise<boolean>;
+  shareAsync: (url: string, options?: { mimeType?: string; dialogTitle?: string }) => Promise<void>;
+};
+
+let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
+let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
+let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
+let sharingModulePromise: Promise<SharingModule> | null = null;
+
+async function getExpoAudioModule() {
+  if (!expoAudioModulePromise) {
+    expoAudioModulePromise = import('expo-audio') as Promise<ExpoAudioModule>;
+  }
+
+  try {
+    return await expoAudioModulePromise;
+  } catch {
+    expoAudioModulePromise = null;
+    throw new Error('Audio playback is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
+
+async function getImagePickerModule() {
+  if (!imagePickerModulePromise) {
+    imagePickerModulePromise = import('expo-image-picker') as Promise<ImagePickerModule>;
+  }
+
+  try {
+    return await imagePickerModulePromise;
+  } catch {
+    imagePickerModulePromise = null;
+    throw new Error('Image picker is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
+
+async function getDocumentPickerModule() {
+  if (!documentPickerModulePromise) {
+    documentPickerModulePromise = import('expo-document-picker') as Promise<DocumentPickerModule>;
+  }
+
+  try {
+    return await documentPickerModulePromise;
+  } catch {
+    documentPickerModulePromise = null;
+    throw new Error('Document picker is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
+
+async function getSharingModule() {
+  if (!sharingModulePromise) {
+    sharingModulePromise = import('expo-sharing') as Promise<SharingModule>;
+  }
+
+  try {
+    return await sharingModulePromise;
+  } catch {
+    sharingModulePromise = null;
+    throw new Error('File sharing is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
 
 export default function ChatScreen() {
   const ANDROID_KEYBOARD_CALIBRATION = 0;
@@ -121,6 +242,7 @@ export default function ChatScreen() {
   const [statusNotice, setStatusNotice] = useState('');
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
   const [downloadToastNotice, setDownloadToastNotice] = useState('');
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
@@ -130,6 +252,7 @@ export default function ChatScreen() {
   const [streamingDots, setStreamingDots] = useState('.');
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
@@ -139,6 +262,7 @@ export default function ChatScreen() {
   const downloadToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const codeCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const menuTouchRef = useRef(false);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
@@ -196,6 +320,22 @@ export default function ChatScreen() {
     }
     return null;
   }, [resolveBackendAssetUrl]);
+
+  const isPdfAttachment = useCallback((attachment: UiMessageAttachment) => {
+    const mime = (attachment.mimeType ?? '').toLowerCase();
+    const name = (attachment.originalName ?? '').toLowerCase();
+    return mime.includes('application/pdf') || name.endsWith('.pdf');
+  }, []);
+
+  const isMarkdownAttachment = useCallback((attachment: UiMessageAttachment) => {
+    const mime = (attachment.mimeType ?? '').toLowerCase();
+    const name = (attachment.originalName ?? '').toLowerCase();
+    return mime.includes('text/markdown') || name.endsWith('.md') || name.endsWith('.markdown');
+  }, []);
+
+  const isGeneratedDownloadableFileAttachment = useCallback((attachment: UiMessageAttachment) => (
+    Boolean(attachment.url) && (isPdfAttachment(attachment) || isMarkdownAttachment(attachment))
+  ), [isMarkdownAttachment, isPdfAttachment]);
 
   const assetUrlRequiresAuth = useCallback((uri?: string | null) => {
     if (!uri) return false;
@@ -497,49 +637,131 @@ export default function ChatScreen() {
     return result.length ? result : content;
   }, [colors.textPrimary, isDark]);
 
-  const autoParagraphizeAssistantContent = useCallback((content: string) => {
-    const normalized = content.replace(/\r\n/g, '\n').trim();
-    if (!normalized) return content;
+  type PrismTokenNode = string | {
+    type: string;
+    content: PrismTokenNode | PrismTokenNode[];
+    alias?: string | string[];
+  };
 
-    // Respect author-provided spacing and structured markdown.
-    if (normalized.includes('\n\n')) return content;
-    if (normalized.includes('```')) return content;
-    if (/^\s{0,3}(#{1,6}\s|[-*]\s|\d+\.\s|>\s)/m.test(normalized)) return content;
+  const getCodeTokenColor = useCallback((tokenType: string) => {
+    const darkPalette: Record<string, string> = {
+      comment: '#6A9955',
+      prolog: '#6A9955',
+      doctype: '#6A9955',
+      cdata: '#6A9955',
+      punctuation: '#D4D4D4',
+      operator: '#D4D4D4',
+      entity: '#D4D4D4',
+      keyword: '#569CD6',
+      builtin: '#4EC9B0',
+      function: '#DCDCAA',
+      className: '#4EC9B0',
+      class: '#4EC9B0',
+      variable: '#9CDCFE',
+      property: '#9CDCFE',
+      constant: '#4FC1FF',
+      string: '#CE9178',
+      char: '#CE9178',
+      number: '#B5CEA8',
+      boolean: '#569CD6',
+      regex: '#D16969',
+      symbol: '#D7BA7D',
+      tag: '#569CD6',
+      attrName: '#9CDCFE',
+      attrValue: '#CE9178',
+    };
 
-    // Only paragraphize longer single-block replies.
-    if (normalized.length < 280) return content;
+    const lightPalette: Record<string, string> = {
+      comment: '#008000',
+      prolog: '#008000',
+      doctype: '#008000',
+      cdata: '#008000',
+      punctuation: '#24292F',
+      operator: '#24292F',
+      entity: '#24292F',
+      keyword: '#0000FF',
+      builtin: '#267F99',
+      function: '#795E26',
+      className: '#267F99',
+      class: '#267F99',
+      variable: '#001080',
+      property: '#001080',
+      constant: '#0070C1',
+      string: '#A31515',
+      char: '#A31515',
+      number: '#098658',
+      boolean: '#0000FF',
+      regex: '#811F3F',
+      symbol: '#795E26',
+      tag: '#800000',
+      attrName: '#FF0000',
+      attrValue: '#0451A5',
+    };
 
-    const sentences = normalized.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
-    if (sentences.length < 4) return content;
+    const palette = isDark ? darkPalette : lightPalette;
+    return palette[tokenType] ?? (isDark ? '#D4D4D4' : '#24292F');
+  }, [isDark]);
 
-    const targetParagraphChars = normalized.length >= 900 ? 340 : normalized.length >= 560 ? 280 : 230;
-    const paragraphs: string[] = [];
-    let buffer: string[] = [];
-    let bufferChars = 0;
+  const renderCodeTokens = useCallback((tokens: PrismTokenNode[], pathPrefix: string): ReactNode[] =>
+    tokens.map((token, index) => {
+      if (typeof token === 'string') return token;
 
-    for (let i = 0; i < sentences.length; i += 1) {
-      const sentence = sentences[i];
-      buffer.push(sentence);
-      bufferChars += sentence.length + (buffer.length > 1 ? 1 : 0);
+      const aliasList = Array.isArray(token.alias) ? token.alias : token.alias ? [token.alias] : [];
+      const tokenTypes = [token.type, ...aliasList].flatMap((rawType) => {
+        const normalized = rawType.replace(/-([a-z])/g, (_, chr: string) => chr.toUpperCase());
+        return normalized === rawType ? [rawType] : [rawType, normalized];
+      });
+      const color = tokenTypes.map((type) => getCodeTokenColor(type)).find(Boolean) ?? (isDark ? '#D4D4D4' : '#24292F');
+      const childPath = `${pathPrefix}-${index}`;
+      const childContent = Array.isArray(token.content)
+        ? renderCodeTokens(token.content, childPath)
+        : typeof token.content === 'string'
+          ? token.content
+          : renderCodeTokens([token.content], childPath);
 
-      const remaining = sentences.length - i - 1;
-      const shouldBreak =
-        bufferChars >= targetParagraphChars
-        && remaining >= 2
-        && buffer.length >= 2;
+      return (
+        <Text key={childPath} style={{ color }}>
+          {childContent}
+        </Text>
+      );
+    }), [getCodeTokenColor, isDark]);
 
-      if (shouldBreak) {
-        paragraphs.push(buffer.join(' ').trim());
-        buffer = [];
-        bufferChars = 0;
-      }
+  const renderHighlightedCode = useCallback((code: string, language: string) => {
+    if (!code) return code;
+    if (language === 'text') return code;
+
+    try {
+      const grammar = Prism.languages[language as keyof typeof Prism.languages];
+      if (!grammar) return code;
+      const tokens = Prism.tokenize(code, grammar) as PrismTokenNode[];
+      return renderCodeTokens(tokens, `code-${language}`);
+    } catch {
+      return code;
     }
+  }, [renderCodeTokens]);
 
-    if (buffer.length) {
-      paragraphs.push(buffer.join(' ').trim());
-    }
+  const normalizeCodeLanguage = useCallback((rawLanguage?: string) => {
+    const language = (rawLanguage ?? '').trim().toLowerCase();
+    if (!language) return 'text';
 
-    return paragraphs.length >= 2 ? paragraphs.join('\n\n') : content;
+    const aliases: Record<string, string> = {
+      js: 'javascript',
+      jsx: 'jsx',
+      ts: 'typescript',
+      tsx: 'tsx',
+      py: 'python',
+      rb: 'ruby',
+      sh: 'bash',
+      zsh: 'bash',
+      shell: 'bash',
+      yml: 'yaml',
+      md: 'markdown',
+      csharp: 'cs',
+      plaintext: 'text',
+      txt: 'text',
+    };
+
+    return aliases[language] ?? language;
   }, []);
 
   const renderMessageMarkdown = useCallback((content: string, isUser: boolean) => {
@@ -552,20 +774,20 @@ export default function ChatScreen() {
       );
     }
 
-    const paragraphized = autoParagraphizeAssistantContent(content);
-    const normalized = paragraphized.replace(/\r\n/g, '\n');
+    const normalized = content.replace(/\r\n/g, '\n');
     const lines = normalized.split('\n');
     const nodes: ReactNode[] = [];
     let paragraphBuffer: string[] = [];
     let inCodeFence = false;
     let codeFenceLines: string[] = [];
+    let codeFenceLanguage = 'text';
     let key = 0;
 
     const flushParagraph = () => {
       if (!paragraphBuffer.length) return;
       const paragraph = paragraphBuffer.join('\n');
       nodes.push(
-        <Text key={`p-${key}`} style={{ color: textColor, lineHeight: 20, marginBottom: 6 }}>
+        <Text key={`p-${key}`} style={{ color: textColor, lineHeight: 20 }}>
           {renderInlineMarkdown(paragraph, { textColor })}
         </Text>,
       );
@@ -575,40 +797,83 @@ export default function ChatScreen() {
 
     const flushCodeFence = () => {
       if (!codeFenceLines.length) return;
+      const codeText = codeFenceLines.join('\n');
+      const codeBlockId = `code-${key}`;
+      const displayLanguage = codeFenceLanguage === 'text' ? 'Code' : codeFenceLanguage.toUpperCase();
       nodes.push(
         <View
-          key={`code-${key}`}
-          className="rounded-xl px-3 py-2"
+          key={codeBlockId}
+          className="rounded-xl"
           style={{
             marginBottom: 8,
             backgroundColor: isDark ? '#0E0E12' : '#ECECF4',
             borderWidth: 1,
             borderColor: isDark ? '#23232B' : '#D7D9E2',
+            overflow: 'hidden',
           }}
         >
-          <Text
+          <View
+            className="flex-row items-center justify-between px-3 py-2"
             style={{
-              color: textColor,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              lineHeight: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: isDark ? '#23232B' : '#D7D9E2',
+              backgroundColor: isDark ? '#11151E' : '#E6EBF5',
             }}
           >
-            {codeFenceLines.join('\n')}
-          </Text>
+            <Text style={{ color: isDark ? '#B7C0D1' : '#3A4864', fontSize: 12, fontWeight: '700' }}>
+              {displayLanguage}
+            </Text>
+            <Pressable
+              onPress={async () => {
+                await Clipboard.setStringAsync(codeText);
+                hapticSuccess();
+                setCopiedCodeBlockId(codeBlockId);
+                if (codeCopyTimeoutRef.current) clearTimeout(codeCopyTimeoutRef.current);
+                codeCopyTimeoutRef.current = setTimeout(() => {
+                  setCopiedCodeBlockId((previous) => (previous === codeBlockId ? null : previous));
+                  codeCopyTimeoutRef.current = null;
+                }, 1300);
+              }}
+              hitSlop={8}
+              className="rounded-md px-2 py-1"
+              style={{ backgroundColor: isDark ? '#1C2331' : '#D7E2F5' }}
+            >
+              <Text style={{ color: isDark ? '#D8E2F7' : '#29406A', fontSize: 12, fontWeight: '700' }}>
+                {copiedCodeBlockId === codeBlockId ? 'Copied' : 'Copy'}
+              </Text>
+            </Pressable>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View className="px-3 py-2" style={{ minWidth: '100%' }}>
+              <Text
+                style={{
+                  color: isDark ? '#D4D4D4' : '#24292F',
+                  fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                  fontSize: 13,
+                  lineHeight: 20,
+                }}
+              >
+                {renderHighlightedCode(codeText, codeFenceLanguage)}
+              </Text>
+            </View>
+          </ScrollView>
         </View>,
       );
       key += 1;
       codeFenceLines = [];
+      codeFenceLanguage = 'text';
     };
 
     for (const rawLine of lines) {
       const line = rawLine;
 
-      if (line.trim().startsWith('```')) {
+      const fenceMatch = /^```([\w#+.-]+)?\s*$/.exec(line.trim());
+      if (fenceMatch) {
         flushParagraph();
         if (!inCodeFence) {
           inCodeFence = true;
           codeFenceLines = [];
+          codeFenceLanguage = normalizeCodeLanguage(fenceMatch[1]);
         } else {
           inCodeFence = false;
           flushCodeFence();
@@ -714,12 +979,12 @@ export default function ChatScreen() {
     if (!nodes.length) {
       return (
         <Text style={{ color: textColor, lineHeight: 20 }}>
-          {paragraphized}
+          {content}
         </Text>
       );
     }
     return nodes;
-  }, [autoParagraphizeAssistantContent, colors.primary, colors.textPrimary, isDark, renderInlineMarkdown]);
+  }, [colors.primary, colors.textPrimary, copiedCodeBlockId, isDark, normalizeCodeLanguage, renderHighlightedCode, renderInlineMarkdown]);
 
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
     hapticSelection();
@@ -1237,11 +1502,18 @@ export default function ChatScreen() {
 
   const pickAttachment = async () => {
     setAttachmentMenuOpen(false);
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: false,
-      quality: 0.9,
-      mediaTypes: ['images'],
-    });
+    let result: Awaited<ReturnType<ImagePickerModule['launchImageLibraryAsync']>>;
+    try {
+      const ImagePicker = await getImagePickerModule();
+      result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        quality: 0.9,
+        mediaTypes: ['images'],
+      });
+    } catch {
+      showTransientNotice('Image picker is unavailable in this build.');
+      return;
+    }
 
     if (result.canceled || !result.assets?.length) return;
 
@@ -1261,15 +1533,22 @@ export default function ChatScreen() {
 
   const pickDocumentAttachment = async () => {
     setAttachmentMenuOpen(false);
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-      type: [
-        'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain',
-      ],
-    });
+    let result: Awaited<ReturnType<DocumentPickerModule['getDocumentAsync']>>;
+    try {
+      const DocumentPicker = await getDocumentPickerModule();
+      result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+        ],
+      });
+    } catch {
+      showTransientNotice('Document picker is unavailable in this build.');
+      return;
+    }
 
     if (result.canceled || !result.assets?.length) return;
 
@@ -1426,6 +1705,73 @@ export default function ChatScreen() {
       );
       showTransientNotice(t('chat.videoDownloadFailed'));
       hapticError();
+    }
+  };
+
+  const downloadGeneratedFileAttachment = async (attachment: UiMessageAttachment, messageId: string) => {
+    const rawUrl = attachment.url;
+    const resolvedUrl = resolveBackendAssetUrl(rawUrl);
+    if (!resolvedUrl) {
+      showTransientNotice('Could not download this file right now.');
+      return;
+    }
+
+    const attachmentId = attachment.id ?? `${messageId}-${attachment.originalName ?? 'file'}`;
+    setDownloadingAttachmentId(attachmentId);
+    hapticSelection();
+    showTransientNotice('Downloading file...');
+
+    try {
+      const lowerName = (attachment.originalName ?? '').toLowerCase();
+      const isMarkdown = isMarkdownAttachment(attachment);
+      const fallbackExtension = isMarkdown ? 'md' : 'pdf';
+      const suggestedName = (attachment.originalName?.trim() || `cafa-ai-file-${Date.now()}.${fallbackExtension}`)
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+      const finalName = /\.[a-z0-9]+$/i.test(suggestedName)
+        ? suggestedName
+        : `${suggestedName}.${lowerName.endsWith('.md') ? 'md' : fallbackExtension}`;
+      const target = new File(Paths.cache, finalName);
+      if (target.exists) {
+        target.delete();
+      }
+
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      if (Platform.OS === 'android') {
+        const persisted = await saveFileToDownloadsCafaFolder({
+          localFileUri: downloaded.uri,
+          fileName: finalName,
+          mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/pdf'),
+        });
+        showDownloadToast(`Saved to ${persisted.readableFilePath}`);
+      } else {
+        const Sharing = await getSharingModule();
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloaded.uri, {
+            mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/pdf'),
+            dialogTitle: 'Save or share file',
+          });
+          showDownloadToast('File ready to save or share.');
+        } else {
+          await Share.share({
+            message: finalName,
+            url: downloaded.uri,
+          });
+          showDownloadToast('File ready to share.');
+        }
+      }
+      hapticSuccess();
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown file download failure';
+      console.log(`[chat-file-download:error] endpoint=${resolvedUrl} message="${messageText}"`);
+      showTransientNotice('Could not download this file right now.');
+      hapticError();
+    } finally {
+      setDownloadingAttachmentId((current) => (current === attachmentId ? null : current));
     }
   };
 
@@ -1594,7 +1940,7 @@ export default function ChatScreen() {
         }
         ttsFilesRef.current = files;
 
-        const playChunk = (index: number) => {
+        const playChunk = async (index: number) => {
           if (activeReadAloudRequestRef.current !== requestId) return;
           const target = ttsFilesRef.current[index];
           if (!target) {
@@ -1604,6 +1950,7 @@ export default function ChatScreen() {
           if (index === 0) {
             setIsReadAloudLoading(false);
           }
+          const { createAudioPlayer } = await getExpoAudioModule();
           const player = createAudioPlayer(target.uri, { keepAudioSessionActive: true });
           ttsPlayerRef.current = player;
           ttsPlayerSubRef.current = player.addListener('playbackStatusUpdate', (status) => {
@@ -1620,12 +1967,12 @@ export default function ChatScreen() {
               // no-op
             }
             ttsPlayerRef.current = null;
-            playChunk(index + 1);
+            void playChunk(index + 1);
           });
           player.play();
         };
 
-        playChunk(0);
+        await playChunk(0);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown TTS failure';
         console.log(
@@ -1682,6 +2029,7 @@ export default function ChatScreen() {
       if (downloadToastTimeoutRef.current) clearTimeout(downloadToastTimeoutRef.current);
       if (ttsToastTimeoutRef.current) clearTimeout(ttsToastTimeoutRef.current);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+      if (codeCopyTimeoutRef.current) clearTimeout(codeCopyTimeoutRef.current);
       if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
       ExpoSpeechRecognitionModule.abort();
       activeReadAloudRequestRef.current += 1;
@@ -2266,9 +2614,15 @@ export default function ChatScreen() {
                             const fileName = attachment.originalName ?? 'Attachment';
                             const lowerName = fileName.toLowerCase();
                             const isPdf = lowerName.endsWith('.pdf') || (attachment.mimeType ?? '').includes('pdf');
+                            const isMarkdown = lowerName.endsWith('.md') || (attachment.mimeType ?? '').includes('markdown');
                             const isDoc = lowerName.endsWith('.doc') || lowerName.endsWith('.docx');
+                            const attachmentId = attachment.id ?? `${item.id}-${fileName}`;
+                            const isDownloadingAttachment = downloadingAttachmentId === attachmentId;
+                            const showDownloadAction = !isUser && isGeneratedDownloadableFileAttachment(attachment);
                             const iconName = isPdf
                               ? 'document-attach-outline'
+                              : isMarkdown
+                                ? 'document-outline'
                               : isDoc
                                 ? 'document-text-outline'
                                 : 'document-outline';
@@ -2294,6 +2648,30 @@ export default function ChatScreen() {
                                 >
                                   {fileName}
                                 </Text>
+                                {showDownloadAction ? (
+                                  <Pressable
+                                    onPress={() => {
+                                      void downloadGeneratedFileAttachment(attachment, item.id);
+                                    }}
+                                    disabled={isDownloadingAttachment}
+                                    className="rounded-md px-2 py-1"
+                                    style={{
+                                      marginLeft: 8,
+                                      backgroundColor: isUser ? 'rgba(255,255,255,0.18)' : (isDark ? '#1A1A1A' : '#EAEAEA'),
+                                      opacity: isDownloadingAttachment ? 0.65 : 1,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        color: isUser ? '#FFFFFF' : colors.textPrimary,
+                                        fontSize: 11,
+                                        fontWeight: '700',
+                                      }}
+                                    >
+                                      {isDownloadingAttachment ? 'Downloading...' : 'Download'}
+                                    </Text>
+                                  </Pressable>
+                                ) : null}
                               </View>
                             );
                           })}

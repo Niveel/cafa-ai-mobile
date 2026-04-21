@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -31,6 +30,32 @@ const LENGTH_OPTIONS: { value: PersonalizationResponseLength; key: string }[] = 
 ];
 
 const EMPTY_ABOUT: AboutYouPersonalization = { nickname: '', occupation: '', about: '' };
+
+type AudioPlayer = {
+  addListener: (eventName: string, listener: (status: { didJustFinish?: boolean }) => void) => { remove: () => void };
+  play: () => void;
+  pause: () => void;
+  remove: () => void;
+};
+
+type ExpoAudioModule = {
+  createAudioPlayer: (uri: string, options?: { keepAudioSessionActive?: boolean }) => AudioPlayer;
+};
+
+let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
+
+async function getExpoAudioModule() {
+  if (!expoAudioModulePromise) {
+    expoAudioModulePromise = import('expo-audio') as Promise<ExpoAudioModule>;
+  }
+
+  try {
+    return await expoAudioModulePromise;
+  } catch {
+    expoAudioModulePromise = null;
+    throw new Error('Audio playback is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
 
 type PersonalizationSectionProps = {
   visible: boolean;
@@ -180,6 +205,7 @@ export function PersonalizationSection({ visible, isAuthenticated, isDark, color
         voicePreviewUriByIdRef.current[nextVoiceId] = uri;
       }
 
+      const { createAudioPlayer } = await getExpoAudioModule();
       const player = createAudioPlayer(uri, { keepAudioSessionActive: true });
       playerRef.current = player;
       setPreviewState('playing');

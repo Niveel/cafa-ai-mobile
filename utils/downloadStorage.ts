@@ -1,11 +1,25 @@
 import { Platform } from 'react-native';
-import * as MediaLibrary from 'expo-media-library';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 
 import { clearDownloadsSafUri, getDownloadsSafUri, setDownloadsSafUri } from '@/services/storage';
 
 const CAFA_MEDIA_ALBUM = 'Cafa AI';
 const CAFA_DOWNLOADS_FOLDER = 'Cafa AI';
+
+let mediaLibraryModulePromise: Promise<typeof import('expo-media-library')> | null = null;
+
+async function getMediaLibraryModule() {
+  if (!mediaLibraryModulePromise) {
+    mediaLibraryModulePromise = import('expo-media-library');
+  }
+
+  try {
+    return await mediaLibraryModulePromise;
+  } catch {
+    mediaLibraryModulePromise = null;
+    throw new Error('Media library is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
 
 function sanitizeFileName(name: string) {
   return name.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim() || `cafa-${Date.now()}`;
@@ -19,6 +33,7 @@ function splitNameAndExtension(name: string) {
 }
 
 export async function saveMediaToCafaAlbum(localFileUri: string) {
+  const MediaLibrary = await getMediaLibraryModule();
   const permission = await MediaLibrary.requestPermissionsAsync();
   if (!permission.granted) {
     throw new Error('Please allow photo library access to save media.');
@@ -103,4 +118,3 @@ export async function openDownloadsCafaFolder() {
   const folderUri = await resolveCafaDownloadsFolderUri();
   return folderUri;
 }
-
