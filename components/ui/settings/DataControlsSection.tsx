@@ -129,7 +129,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     } finally {
       setWorking(false);
     }
-  }, [isAuthenticated, t]);
+  }, [isAuthenticated, onChatsMutated, t]);
 
   const deleteAllChats = useCallback(async () => {
     setShowDeleteAllPrompt(false);

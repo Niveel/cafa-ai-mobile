@@ -602,7 +602,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       if (action === 'terms') return openRoute('terms-of-service');
       setShowSignoutPrompt(true);
     },
-    [navigation, openRoute],
+    [openRoute],
   );
 
   const onRenameChat = useCallback((chatId: string) => {
