@@ -2282,8 +2282,89 @@ export default function ChatScreen() {
     scrollToBottom(false);
   }, [messages]);
 
+  const topBarModelSwitcher = isAuthenticated ? (
+    <View
+      className="relative rounded-full border px-1.5 py-1"
+      style={{
+        borderColor: topPillBorder,
+        backgroundColor: topPillBg,
+        zIndex: modelMenuOpen ? 120 : 1,
+        elevation: modelMenuOpen ? 30 : 0,
+      }}
+    >
+      <Pressable
+        onPress={() => {
+          hapticSelection();
+          setModelMenuOpen((prev) => !prev);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t('chat.model.select')}
+        className="h-8 flex-row items-center rounded-full border px-3"
+        style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
+      >
+        <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+          {t(`chat.model.label.${activeModel}`)}
+        </Text>
+        <Ionicons
+          name={modelMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+          size={14}
+          color={colors.textSecondary}
+          style={{ marginLeft: 6 }}
+        />
+      </Pressable>
+
+      {modelMenuOpen ? (
+        <Animated.View
+          entering={FadeInDown.duration(MOTION.duration.normal)}
+          className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
+          style={{
+            zIndex: 80,
+            elevation: 24,
+            borderColor: topPillBorder,
+            backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+          }}
+          onTouchStart={() => {
+            menuTouchRef.current = true;
+          }}
+        >
+          {CHAT_MODEL_OPTIONS.map((model) => {
+            const active = activeModel === model.key;
+            const modelDescription = t(`chat.model.desc.${model.key}`);
+            return (
+              <Pressable
+                key={model.key}
+                onPress={() => {
+                  hapticSelection();
+                  setActiveModel(model.key as 'ultra' | 'smart' | 'swift');
+                  setModelMenuOpen(false);
+                }}
+                className="rounded-lg px-3 py-2"
+                style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
+                accessibilityRole="button"
+                accessibilityLabel={t('chat.model.accessibility', { model: t(`chat.model.label.${model.key}`) })}
+                accessibilityHint={modelDescription}
+              >
+                <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                  {t(`chat.model.label.${model.key}`)}
+                </Text>
+                <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                  {modelDescription}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </Animated.View>
+      ) : null}
+    </View>
+  ) : undefined;
+
   return (
-    <AppScreen title={t('app.name')} showHeading={false} contentTopOffset={-12}>
+    <AppScreen
+      title={t('app.name')}
+      showHeading={false}
+      contentTopOffset={-12}
+      topAuthRightContent={topBarModelSwitcher}
+    >
       <KeyboardAvoidingView
         className="flex-1"
         behavior="padding"
@@ -2356,84 +2437,6 @@ export default function ChatScreen() {
                   {`${streamingModelLabel}: ${streamingDots}`}
                 </Text>
               </Animated.View>
-            ) : null}
-
-            {isAuthenticated ? (
-              <View className="mb-2 flex-row items-center justify-end">
-                <View
-                  className="relative rounded-full border px-1.5 py-1"
-                  style={{
-                    borderColor: topPillBorder,
-                    backgroundColor: topPillBg,
-                    zIndex: modelMenuOpen ? 120 : 1,
-                    elevation: modelMenuOpen ? 30 : 0,
-                  }}
-                >
-                  <Pressable
-                    onPress={() => {
-                      hapticSelection();
-                      setModelMenuOpen((prev) => !prev);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('chat.model.select')}
-                    className="h-8 flex-row items-center rounded-full border px-3"
-                    style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
-                  >
-                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                      {t(`chat.model.label.${activeModel}`)}
-                    </Text>
-                    <Ionicons
-                      name={modelMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
-                      size={14}
-                      color={colors.textSecondary}
-                      style={{ marginLeft: 6 }}
-                    />
-                  </Pressable>
-
-                  {modelMenuOpen ? (
-                    <Animated.View
-                      entering={FadeInDown.duration(MOTION.duration.normal)}
-                      className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
-                      style={{
-                        zIndex: 80,
-                        elevation: 24,
-                        borderColor: topPillBorder,
-                        backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
-                      }}
-                      onTouchStart={() => {
-                        menuTouchRef.current = true;
-                      }}
-                    >
-                      {CHAT_MODEL_OPTIONS.map((model) => {
-                        const active = activeModel === model.key;
-                        const modelDescription = t(`chat.model.desc.${model.key}`);
-                        return (
-                          <Pressable
-                            key={model.key}
-                            onPress={() => {
-                              hapticSelection();
-                              setActiveModel(model.key as 'ultra' | 'smart' | 'swift');
-                              setModelMenuOpen(false);
-                            }}
-                            className="rounded-lg px-3 py-2"
-                            style={{ backgroundColor: active ? `${colors.primary}1A` : 'transparent' }}
-                            accessibilityRole="button"
-                            accessibilityLabel={t('chat.model.accessibility', { model: t(`chat.model.label.${model.key}`) })}
-                            accessibilityHint={modelDescription}
-                          >
-                            <Text style={{ color: active ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                              {t(`chat.model.label.${model.key}`)}
-                            </Text>
-                            <Text style={{ color: active ? colors.primary : colors.textSecondary, fontSize: 11, marginTop: 2 }}>
-                              {modelDescription}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </Animated.View>
-                  ) : null}
-                </View>
-              </View>
             ) : null}
 
             <View className="mb-2 items-center">

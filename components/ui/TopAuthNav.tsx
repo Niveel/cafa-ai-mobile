@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
@@ -10,7 +10,11 @@ import { AppLogo } from './AppLogo';
 import { AppPromptModal } from './AppPromptModal';
 import { MOTION, hapticImpact } from '@/utils';
 
-export function TopAuthNav() {
+type TopAuthNavProps = {
+  authenticatedRightContent?: ReactNode;
+};
+
+export function TopAuthNav({ authenticatedRightContent }: TopAuthNavProps) {
   const { isDark, colors } = useAppTheme();
   const { isAuthenticated, signOut } = useAppContext();
   const { t } = useI18n();
@@ -85,18 +89,20 @@ export function TopAuthNav() {
                 />
               </>
             ) : (
-              <AppButton
-                label={t('auth.signout')}
-                onPress={() => {
-                  hapticImpact();
-                  setShowSignOutPrompt(true);
-                }}
-                variant="danger"
-                iconName="log-out-outline"
-                minWidth={84}
-                width={102}
-                compact
-              />
+              authenticatedRightContent ?? (
+                <AppButton
+                  label={t('auth.signout')}
+                  onPress={() => {
+                    hapticImpact();
+                    setShowSignOutPrompt(true);
+                  }}
+                  variant="danger"
+                  iconName="log-out-outline"
+                  minWidth={84}
+                  width={102}
+                  compact
+                />
+              )
             )}
           </View>
         </View>

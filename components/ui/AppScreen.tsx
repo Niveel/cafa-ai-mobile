@@ -11,6 +11,7 @@ type AppScreenProps = {
   title: string;
   subtitle?: string;
   children?: ReactNode;
+  topAuthRightContent?: ReactNode;
   showTopChrome?: boolean;
   showHeading?: boolean;
   topChromeOffset?: number;
@@ -21,6 +22,7 @@ export function AppScreen({
   title,
   subtitle,
   children,
+  topAuthRightContent,
   showTopChrome = true,
   showHeading = true,
   topChromeOffset = 0,
@@ -45,7 +47,7 @@ export function AppScreen({
         >
           {isAuthenticated ? <FloatingDrawerButton /> : null}
           <View style={{ marginLeft: isAuthenticated ? 12 : 0, flex: 1, alignItems: 'flex-end' }}>
-            <TopAuthNav />
+            <TopAuthNav authenticatedRightContent={topAuthRightContent} />
           </View>
         </View>
       ) : null}
