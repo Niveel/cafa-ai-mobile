@@ -18,6 +18,7 @@ import {
 import { useAppTheme, useI18n } from '@/hooks';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { purchasePackage } from '@/services/revenuecat/purchases';
+import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/entitlements';
 import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
@@ -484,11 +485,25 @@ export default function PlansScreen() {
       setBusyTier(tier);
       setStatusText('');
       try {
-        await purchasePackage(targetPlan._rcPackage);
+        const customerInfo = await purchasePackage(targetPlan._rcPackage);
+        const resolvedTier = resolveRCTier(customerInfo);
+        const requestedDowngrade = TIER_RANK[tier] < TIER_RANK[currentTier];
+        const downgradeScheduled = requestedDowngrade && TIER_RANK[resolvedTier] > TIER_RANK[tier];
+        const effectiveDate = getActiveExpirationDate(customerInfo);
         await refreshCustomerInfo();
-        setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
-        setUpdatedTier(tier);
-        setShowPlanUpdatedPrompt(true);
+
+        if (downgradeScheduled) {
+          setStatusText(
+            t('plans.downgradeScheduled', {
+              plan: tierLabel(tier),
+              date: effectiveDate ? effectiveDate.toLocaleDateString() : 'the next renewal date',
+            }),
+          );
+        } else {
+          setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
+          setUpdatedTier(tier);
+          setShowPlanUpdatedPrompt(true);
+        }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : t('plans.checkoutError');
         console.log(`[plans-upgrade:ios] error="${errorMsg}"`);
