@@ -61,19 +61,22 @@ export default function SignupScreen() {
                 >
                   <AppLogo compact />
                   <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '700' }}>{t('auth.signup')}</Text>
-                  <Text style={{ color: colors.textSecondary, lineHeight: 20 }}>
+                  <Text style={{ color: colors.textSecondary, lineHeight: 18, fontSize: 13 }}>
                     {t('auth.signupBlurb')}
                   </Text>
                   <AppForm<SignupFormValues>
-                    initialValues={{ username: '', email: '', password: '', confirmPassword: '' }}
+                    initialValues={{ name: '', username: '', email: '', password: '', confirmPassword: '' }}
                     validationSchema={SignupValidationSchema}
                     onSubmit={async (values) => {
                       setAuthError('');
                       const email = values.email.trim();
+                      const name = values.name.trim();
+                      const username = values.username.trim();
 
                       try {
                         await signupRequest({
-                          name: values.username.trim(),
+                          username,
+                          name,
                           email,
                           password: values.password,
                         });
@@ -106,6 +109,7 @@ export default function SignupScreen() {
                       }
                     }}
                   >
+                    <AppFormField<SignupFormValues> name="name" label={t('help.formName')} placeholder={t('help.formNamePlaceholder')} required />
                     <AppFormField<SignupFormValues> name="username" label={t('field.username')} placeholder={t('placeholder.username')} required />
                     <AppFormField<SignupFormValues> name="email" label={t('field.email')} placeholder={t('placeholder.email')} required />
                     <AppFormField<SignupFormValues>

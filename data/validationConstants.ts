@@ -19,6 +19,7 @@ export const LoginValidationSchema = Yup.object().shape({
 export type LoginFormValues = InferType<typeof LoginValidationSchema>;
 
 export const SignupValidationSchema = Yup.object().shape({
+  name: fullNameValidation(),
   username: Yup.string()
     .required('validation.usernameRequired')
     .min(3, 'validation.usernameMin')
