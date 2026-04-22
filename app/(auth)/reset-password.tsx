@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
   Keyboard,
@@ -14,7 +14,6 @@ import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SubmitButton } fr
 import { PasswordResetFormValues, PasswordResetValidationSchema } from '@/data';
 import { resetPassword as resetPasswordRequest } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
-import { useLocalSearchParams } from 'expo-router';
 
 export default function ResetPasswordScreen() {
   const { colors, isDark } = useAppTheme();
