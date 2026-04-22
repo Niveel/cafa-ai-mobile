@@ -202,8 +202,8 @@ async function getSharingModule() {
 }
 
 export default function ChatScreen() {
-  const ANDROID_KEYBOARD_CALIBRATION = 0;
-  const IOS_COMPOSER_KEYBOARD_GAP = 6;
+  const ANDROID_KEYBOARD_CALIBRATION = 6;
+  const IOS_COMPOSER_KEYBOARD_GAP = 2;
   const STREAM_FLUSH_INTERVAL_MS = 36;
   const STREAM_FLUSH_CHARS = 28;
   const VIDEO_JOB_POLL_ATTEMPTS = 360;
