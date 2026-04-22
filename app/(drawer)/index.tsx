@@ -2877,7 +2877,7 @@ export default function ChatScreen() {
 
             <Animated.View
           layout={LinearTransition.springify().damping(24).stiffness(300).mass(0.72)}
-          className="relative mt-3 rounded-[28px] border p-2"
+          className="relative mt-2 rounded-[28px] border p-1.5"
           style={{
             borderColor: colors.primary,
             backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF',
@@ -2897,22 +2897,22 @@ export default function ChatScreen() {
             multiline
             maxLength={3000}
             onContentSizeChange={(event) => {
-              const nextHeight = Math.min(128, Math.max(34, Math.ceil(event.nativeEvent.contentSize.height)));
+              const nextHeight = Math.min(120, Math.max(32, Math.ceil(event.nativeEvent.contentSize.height)));
               setComposerHeight(nextHeight);
             }}
             accessibilityLabel={t('chat.input.accessibility')}
-            className="px-1.5 py-1"
+            className="px-1.5 py-0.5"
             style={{
               color: colors.textPrimary,
               fontSize: input.trim().length ? 13 : 12,
               height: composerHeight,
-              maxHeight: 128,
+              maxHeight: 120,
               paddingRight: isAuthenticated ? 8 : 46,
             }}
           />
 
           {isAuthenticated && attachedAssets.length ? (
-            <View className="mb-1 mt-1 flex-row flex-wrap gap-1.5 px-1">
+            <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
               {attachedAssets.map((asset) => (
                 <View
                   key={asset.id}
@@ -2936,7 +2936,7 @@ export default function ChatScreen() {
           ) : null}
 
           {isAuthenticated ? (
-            <View className="mt-1 flex-row items-center justify-between px-0.5 pb-0.5">
+            <View className=" flex-row items-center justify-between px-0.5 pb-0.5">
               <View className="flex-row items-center gap-2">
                 <Pressable
                   onPress={toggleRecording}
