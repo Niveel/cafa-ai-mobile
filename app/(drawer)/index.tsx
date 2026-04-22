@@ -202,6 +202,9 @@ async function getSharingModule() {
 }
 
 export default function ChatScreen() {
+  const COMPOSER_MIN_HEIGHT = 32;
+  const COMPOSER_MAX_HEIGHT = 120;
+  const IOS_COMPOSER_CONTENT_SIZE_FUDGE = 6;
   const ANDROID_KEYBOARD_CALIBRATION = 6;
   const IOS_COMPOSER_KEYBOARD_GAP = 2;
   const STREAM_FLUSH_INTERVAL_MS = 36;
@@ -235,7 +238,7 @@ export default function ChatScreen() {
   const [activeModel, setActiveModel] = useState<'ultra' | 'smart' | 'swift'>('smart');
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
-  const [composerHeight, setComposerHeight] = useState(34);
+  const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
   const [iosComposerOffset, setIosComposerOffset] = useState(0);
   const [isIosKeyboardVisible, setIsIosKeyboardVisible] = useState(false);
@@ -2943,16 +2946,22 @@ export default function ChatScreen() {
             multiline
             maxLength={3000}
             onContentSizeChange={(event) => {
-              const nextHeight = Math.min(120, Math.max(32, Math.ceil(event.nativeEvent.contentSize.height)));
-              setComposerHeight(nextHeight);
+              const measured = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
+              const platformAdjusted = measured + (Platform.OS === 'ios' ? IOS_COMPOSER_CONTENT_SIZE_FUDGE : 0);
+              const nextHeight = Math.min(
+                COMPOSER_MAX_HEIGHT,
+                Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(platformAdjusted)),
+              );
+              setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight));
             }}
+            scrollEnabled={composerHeight >= COMPOSER_MAX_HEIGHT}
             accessibilityLabel={t('chat.input.accessibility')}
             className="px-1.5 py-0.5"
             style={{
               color: colors.textPrimary,
               fontSize: input.trim().length ? 13 : 12,
               height: composerHeight,
-              maxHeight: 120,
+              maxHeight: COMPOSER_MAX_HEIGHT,
               paddingRight: isAuthenticated ? 8 : 46,
             }}
           />
