@@ -453,6 +453,49 @@ export default function ChatScreen() {
     );
   }, [mapAuthMessageToUiMessage]);
 
+  const syncAssistantMessageAfterStream = useCallback(async (
+    conversationId: string,
+    assistantMessageId: string,
+    localFallbackId: string,
+  ) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        const detail = await getAuthenticatedConversation(conversationId, { force: true });
+        const serverMessage = detail.messages.find(
+          (message) => message.id === assistantMessageId && message.role === 'assistant',
+        );
+
+        if (serverMessage) {
+          const mapped = mapAuthMessageToUiMessage(serverMessage);
+          setMessages((prev) => {
+            const byServerId = prev.findIndex((item) => item.id === assistantMessageId);
+            if (byServerId >= 0) {
+              const next = [...prev];
+              next[byServerId] = mapped;
+              return next;
+            }
+
+            const byFallbackId = prev.findIndex((item) => item.id === localFallbackId);
+            if (byFallbackId >= 0) {
+              const next = [...prev];
+              next[byFallbackId] = mapped;
+              return next;
+            }
+
+            return prev;
+          });
+
+          const hasVisualOrFileState = Boolean(mapped.imageUrl || mapped.videoUrl || (mapped.attachments?.length ?? 0) > 0);
+          if (hasVisualOrFileState) return;
+        }
+      } catch {
+        // Best-effort sync; keep the streamed state if server sync fails.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    }
+  }, [mapAuthMessageToUiMessage]);
+
   useEffect(() => {
     if (!isAuthenticated) {
       setAssetAccessToken(null);
@@ -1419,7 +1462,10 @@ export default function ChatScreen() {
                     : message,
                 ),
               );
+              void syncAssistantMessageAfterStream(conversationId, event.messageId, previousAssistantId);
+              return;
             }
+            void syncAssistantMessageAfterStream(conversationId, activeAssistantId, assistantId);
           }
         }, language, activeModel);
         didMutateChats = true;
