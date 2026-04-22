@@ -2925,7 +2925,7 @@ export default function ChatScreen() {
             ) : null}
 
             <Animated.View
-          layout={LinearTransition.springify().damping(24).stiffness(300).mass(0.72)}
+          layout={Platform.OS === 'ios' ? undefined : LinearTransition.springify().damping(24).stiffness(300).mass(0.72)}
           className="relative mt-2 rounded-[28px] border p-1.5"
           style={{
             borderColor: colors.primary,
@@ -2951,13 +2951,6 @@ export default function ChatScreen() {
             maxLength={3000}
             onContentSizeChange={(event) => {
               const measured = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
-              if (Platform.OS === 'ios') {
-                setComposerScrollable((prev) => {
-                  if (prev) return measured > COMPOSER_MAX_HEIGHT - 8;
-                  return measured > COMPOSER_MAX_HEIGHT + 2;
-                });
-                return;
-              }
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
                 Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
@@ -2974,7 +2967,7 @@ export default function ChatScreen() {
             style={{
               color: colors.textPrimary,
               fontSize: input.trim().length ? 13 : 12,
-              height: Platform.OS === 'ios' ? undefined : composerHeight,
+              height: composerHeight,
               minHeight: COMPOSER_MIN_HEIGHT,
               maxHeight: COMPOSER_MAX_HEIGHT,
               paddingRight: isAuthenticated ? 8 : 46,
