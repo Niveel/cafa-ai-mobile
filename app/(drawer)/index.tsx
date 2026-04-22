@@ -204,7 +204,6 @@ async function getSharingModule() {
 export default function ChatScreen() {
   const COMPOSER_MIN_HEIGHT = 32;
   const COMPOSER_MAX_HEIGHT = 120;
-  const IOS_COMPOSER_CONTENT_SIZE_FUDGE = 6;
   const ANDROID_KEYBOARD_CALIBRATION = 6;
   const IOS_COMPOSER_KEYBOARD_GAP = 2;
   const STREAM_FLUSH_INTERVAL_MS = 36;
@@ -239,6 +238,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
+  const [composerScrollable, setComposerScrollable] = useState(false);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
   const [iosComposerOffset, setIosComposerOffset] = useState(0);
   const [isIosKeyboardVisible, setIsIosKeyboardVisible] = useState(false);
@@ -2947,14 +2947,17 @@ export default function ChatScreen() {
             maxLength={3000}
             onContentSizeChange={(event) => {
               const measured = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
-              const platformAdjusted = measured + (Platform.OS === 'ios' ? IOS_COMPOSER_CONTENT_SIZE_FUDGE : 0);
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
-                Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(platformAdjusted)),
+                Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
               );
-              setComposerHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+              setComposerHeight((prev) => (Math.abs(prev - nextHeight) < 1 ? prev : nextHeight));
+              setComposerScrollable((prev) => {
+                if (prev) return measured > COMPOSER_MAX_HEIGHT - 8;
+                return measured > COMPOSER_MAX_HEIGHT + 4;
+              });
             }}
-            scrollEnabled={composerHeight >= COMPOSER_MAX_HEIGHT}
+            scrollEnabled={composerScrollable}
             accessibilityLabel={t('chat.input.accessibility')}
             className="px-1.5 py-0.5"
             style={{
