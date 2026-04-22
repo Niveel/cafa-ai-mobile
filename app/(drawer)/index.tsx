@@ -2939,6 +2939,10 @@ export default function ChatScreen() {
             onChangeText={(text) => {
               inputValueRef.current = text;
               setInput(text);
+              if (!text) {
+                setComposerHeight(COMPOSER_MIN_HEIGHT);
+                setComposerScrollable(false);
+              }
             }}
             placeholder={t('chat.input.placeholder')}
             placeholderTextColor={colors.textSecondary}
@@ -2947,6 +2951,13 @@ export default function ChatScreen() {
             maxLength={3000}
             onContentSizeChange={(event) => {
               const measured = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
+              if (Platform.OS === 'ios') {
+                setComposerScrollable((prev) => {
+                  if (prev) return measured > COMPOSER_MAX_HEIGHT - 8;
+                  return measured > COMPOSER_MAX_HEIGHT + 2;
+                });
+                return;
+              }
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
                 Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
@@ -2963,7 +2974,8 @@ export default function ChatScreen() {
             style={{
               color: colors.textPrimary,
               fontSize: input.trim().length ? 13 : 12,
-              height: composerHeight,
+              height: Platform.OS === 'ios' ? undefined : composerHeight,
+              minHeight: COMPOSER_MIN_HEIGHT,
               maxHeight: COMPOSER_MAX_HEIGHT,
               paddingRight: isAuthenticated ? 8 : 46,
             }}
