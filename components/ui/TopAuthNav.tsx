@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInRight, Layout } from 'react-native-reanimated';
@@ -7,37 +7,19 @@ import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { AppButton } from './AppButton';
 import { AppLogo } from './AppLogo';
-import { AppPromptModal } from './AppPromptModal';
-import { MOTION, hapticImpact } from '@/utils';
+import { MOTION } from '@/utils';
 
 type TopAuthNavProps = {
   authenticatedRightContent?: ReactNode;
 };
 
 export function TopAuthNav({ authenticatedRightContent }: TopAuthNavProps) {
-  const { isDark, colors } = useAppTheme();
-  const { isAuthenticated, signOut } = useAppContext();
+  const { colors } = useAppTheme();
+  const { isAuthenticated } = useAppContext();
   const { t } = useI18n();
-  const [showSignOutPrompt, setShowSignOutPrompt] = useState(false);
 
   return (
     <>
-      <AppPromptModal
-        visible={showSignOutPrompt}
-        title={t('auth.signoutTitle')}
-        message={t('auth.signoutMessage')}
-        confirmLabel={t('auth.signoutConfirm')}
-        cancelLabel={t('auth.signoutCancel')}
-        confirmTone="danger"
-        iconName="log-out-outline"
-        onCancel={() => setShowSignOutPrompt(false)}
-        onConfirm={() => {
-          setShowSignOutPrompt(false);
-          signOut();
-          router.replace('/(drawer)');
-        }}
-      />
-
       <Animated.View
         entering={FadeInRight.duration(MOTION.duration.slow)}
         layout={Layout.springify()}
@@ -49,12 +31,7 @@ export function TopAuthNav({ authenticatedRightContent }: TopAuthNavProps) {
           width: '100%',
           borderWidth: 1.8,
           borderColor: colors.primary,
-          backgroundColor: isDark ? 'rgba(16, 38, 77, 0.28)' : 'rgba(32, 64, 121, 0.08)',
-          shadowColor: colors.primary,
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: isDark ? 0.26 : 0.14,
-          shadowRadius: 14,
-          elevation: 8,
+          backgroundColor: 'transparent',
         }}
         >
         <View className="flex-row items-center justify-between px-1">
@@ -89,20 +66,7 @@ export function TopAuthNav({ authenticatedRightContent }: TopAuthNavProps) {
                 />
               </>
             ) : (
-              authenticatedRightContent ?? (
-                <AppButton
-                  label={t('auth.signout')}
-                  onPress={() => {
-                    hapticImpact();
-                    setShowSignOutPrompt(true);
-                  }}
-                  variant="danger"
-                  iconName="log-out-outline"
-                  minWidth={84}
-                  width={102}
-                  compact
-                />
-              )
+              authenticatedRightContent
             )}
           </View>
         </View>
