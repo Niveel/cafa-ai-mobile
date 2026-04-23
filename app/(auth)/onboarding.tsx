@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -33,6 +34,7 @@ type SlideCardProps = {
   item: OnboardingSlide;
   index: number;
   pageWidth: number;
+  cardMinHeight: number;
   scrollX: SharedValue<number>;
   isDark: boolean;
   textPrimary: string;
@@ -45,6 +47,7 @@ function SlideCard({
   item,
   index,
   pageWidth,
+  cardMinHeight,
   scrollX,
   isDark,
   textPrimary,
@@ -85,7 +88,7 @@ function SlideCard({
           <View
             className="rounded-[29px] px-6 pb-8 pt-7"
             style={{
-              minHeight: 470,
+              minHeight: cardMinHeight,
               backgroundColor: isDark ? 'rgba(8,8,10,0.88)' : 'rgba(255,255,255,0.94)',
             }}
           >
@@ -119,12 +122,18 @@ export default function OnboardingScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const { completeOnboarding } = useAppContext();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList<OnboardingSlide>>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollX = useSharedValue(0);
   const bgPulse = useSharedValue(0);
   const horizontalPadding = 16;
+  const topSpacing = Math.max(16, insets.top + 10);
+  const footerSpacing = Math.max(16, insets.bottom + 12);
+  const footerReservedHeight = 96 + footerSpacing;
+  const contentPaddingY = topSpacing + footerReservedHeight + 56;
+  const cardMinHeight = Math.max(360, Math.min(470, height - contentPaddingY));
   const pageWidth = Math.max(300, width - horizontalPadding * 2);
   const data = useMemo<OnboardingSlide[]>(
     () => [
@@ -208,7 +217,12 @@ export default function OnboardingScreen() {
         colors={isDark ? ['#07090D', '#10264D', '#06080C'] : ['#FFFFFF', '#EEF4FF', '#FFFFFF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={{ flex: 1, paddingHorizontal: horizontalPadding, paddingTop: 48, paddingBottom: 24 }}
+        style={{
+          flex: 1,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: footerSpacing,
+        }}
       >
         <Animated.View
           pointerEvents="none"
@@ -280,6 +294,7 @@ export default function OnboardingScreen() {
               item={item}
               index={index}
               pageWidth={pageWidth}
+              cardMinHeight={cardMinHeight}
               scrollX={scrollX}
               isDark={isDark}
               textPrimary={colors.textPrimary}
@@ -288,39 +303,41 @@ export default function OnboardingScreen() {
           )}
         />
 
-        <View className="mt-5 flex-row items-center justify-center gap-2">
-          {data.map((slide, idx) => (
-            <View
-              key={slide.id}
-              className="rounded-full"
-              style={{
-                width: idx === activeIndex ? 24 : 8,
-                height: 8,
-                backgroundColor: idx === activeIndex
-                  ? colors.primary
-                  : isDark
-                    ? 'rgba(255,255,255,0.28)'
-                    : 'rgba(32,64,121,0.24)',
-              }}
-            />
-          ))}
-        </View>
+        <View style={{ marginTop: 16 }}>
+          <View className="flex-row items-center justify-center gap-2">
+            {data.map((slide, idx) => (
+              <View
+                key={slide.id}
+                className="rounded-full"
+                style={{
+                  width: idx === activeIndex ? 24 : 8,
+                  height: 8,
+                  backgroundColor: idx === activeIndex
+                    ? colors.primary
+                    : isDark
+                      ? 'rgba(255,255,255,0.28)'
+                      : 'rgba(32,64,121,0.24)',
+                }}
+              />
+            ))}
+          </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={activeIndex === data.length - 1 ? t('onboarding.start') : t('onboarding.next')}
-          onPress={goNext}
-          className="mt-6 h-12 items-center justify-center rounded-full"
-          style={{
-            backgroundColor: colors.primary,
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(95,127,184,0.7)' : 'rgba(24,52,97,0.85)',
-          }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>
-            {activeIndex === data.length - 1 ? t('onboarding.start') : t('onboarding.next')}
-          </Text>
-        </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={activeIndex === data.length - 1 ? t('onboarding.start') : t('onboarding.next')}
+            onPress={goNext}
+            className="mt-5 h-12 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: colors.primary,
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(95,127,184,0.7)' : 'rgba(24,52,97,0.85)',
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>
+              {activeIndex === data.length - 1 ? t('onboarding.start') : t('onboarding.next')}
+            </Text>
+          </Pressable>
+        </View>
       </LinearGradient>
     </View>
   );
