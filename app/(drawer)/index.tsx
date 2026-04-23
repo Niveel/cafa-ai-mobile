@@ -2551,7 +2551,7 @@ export default function ChatScreen() {
                 className="mr-3 h-10 w-10 items-center justify-center rounded-full"
                 style={{ backgroundColor: `${colors.primary}24` }}
               >
-                <AppLogo compact />
+                <AppLogo compact showWordmark={false} />
               </View>
               <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', flex: 1 }}>
                 {t('chat.guestUpsell.title')}
