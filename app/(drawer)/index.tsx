@@ -259,6 +259,11 @@ export default function ChatScreen() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
+  const starterPromptKeys: ('chat.prompt.quick1' | 'chat.prompt.quick2' | 'chat.prompt.quick3')[] = [
+    'chat.prompt.quick1',
+    'chat.prompt.quick2',
+    'chat.prompt.quick3',
+  ];
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
@@ -292,6 +297,8 @@ export default function ChatScreen() {
   const topPillBg = isDark ? '#10264D' : '#204079';
   const topPillBorder = '#204079';
   const dividerPill = '#204079';
+  const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
+  const isFreshChatState = messages.length === 1 && isWelcomeMessage(messages[0]);
 
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;
@@ -1201,16 +1208,19 @@ export default function ChatScreen() {
       setIsSending(true);
       setStatusNotice('');
       setStreamingModelLabel(t(`chat.model.label.${activeModel}`));
-      setMessages((prev) => [
-        ...prev,
-        userMessage,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          createdAt: Date.now(),
-        },
-      ]);
+      setMessages((prev) => {
+        const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+        return [
+          ...withoutSyntheticWelcome,
+          userMessage,
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now(),
+          },
+        ];
+      });
       autoScrollEnabledRef.current = true;
       setShowScrollToBottom(false);
       scrollToBottom();
@@ -1554,6 +1564,18 @@ export default function ChatScreen() {
     };
 
     void run();
+  };
+
+  const insertStarterPrompt = (prompt: string) => {
+    hapticSelection();
+    const value = prompt.trim();
+    inputValueRef.current = value;
+    setInput(value);
+    setAttachmentMenuOpen(false);
+    setModelMenuOpen(false);
+    requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
   };
 
   const toggleRecording = async () => {
@@ -2145,7 +2167,11 @@ export default function ChatScreen() {
         setAuthConversationId(latest.id);
 
         const detail = await getAuthenticatedConversation(latest.id);
-        if (!detail.messages.length) return;
+        if (!detail.messages.length) {
+          setMessages([createWelcomeMessage()]);
+          setMessageReactions({});
+          return;
+        }
 
         setMessages(
           detail.messages.map(mapAuthMessageToUiMessage),
@@ -2193,6 +2219,11 @@ export default function ChatScreen() {
         if (isAuthenticated) {
           const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
           setAuthConversationId(targetConversationId);
+          if (!detail.messages.length) {
+            setMessages([createWelcomeMessage()]);
+            setMessageReactions({});
+            return;
+          }
           setMessages(
             detail.messages.map(mapAuthMessageToUiMessage),
           );
@@ -2212,6 +2243,10 @@ export default function ChatScreen() {
 
         const detail = await getGuestConversation(targetConversationId, { force: true });
         setGuestConversationId(targetConversationId);
+        if (!detail.messages.length) {
+          setMessages([createWelcomeMessage()]);
+          return;
+        }
         setMessages(
           detail.messages.map((message) => ({
             id: message._id,
@@ -2533,6 +2568,42 @@ export default function ChatScreen() {
                 }}
               />
             </View>
+
+            {isFreshChatState ? (
+              <View className="mb-2">
+                <Text style={{ color: colors.textSecondary, fontSize: 11, marginBottom: 6 }}>
+                  Tap a starter prompt
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 2, gap: 8 }}
+                >
+                  {starterPromptKeys.map((key) => {
+                    const prompt = t(key);
+                    return (
+                      <Pressable
+                        key={key}
+                        onPress={() => insertStarterPrompt(prompt)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('chat.quickPrompt.insert', { prompt })}
+                        accessibilityHint={t('chat.quickPrompt.hint')}
+                        className="rounded-2xl border px-3 py-2"
+                        style={{
+                          borderColor: colors.border,
+                          backgroundColor: isDark ? '#111111' : '#F5F5F5',
+                          maxWidth: Math.max(220, Math.min(296, screenWidth - 80)),
+                        }}
+                      >
+                        <Text style={{ color: colors.textPrimary, fontSize: 12 }} numberOfLines={2}>
+                          {prompt}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <FlashList
               ref={messagesListRef}
