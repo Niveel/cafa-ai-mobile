@@ -55,6 +55,7 @@ import 'prismjs/components/prism-yaml';
 
 import {
   AppScreen,
+  AppLogo,
   ChatVideoCard,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
@@ -2545,7 +2546,7 @@ export default function ChatScreen() {
                 className="mr-3 h-10 w-10 items-center justify-center rounded-full"
                 style={{ backgroundColor: `${colors.primary}24` }}
               >
-                <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
+                <AppLogo compact />
               </View>
               <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', flex: 1 }}>
                 {t('chat.guestUpsell.title')}
