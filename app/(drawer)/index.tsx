@@ -215,7 +215,7 @@ export default function ChatScreen() {
   const VIDEO_AUTO_SYNC_INTERVAL_MS = 12000;
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAppContext();
+  const { isAuthenticated, authUser } = useAppContext();
   const { t, language } = useI18n();
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
@@ -258,6 +258,7 @@ export default function ChatScreen() {
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
+  const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
@@ -1612,6 +1613,11 @@ export default function ChatScreen() {
 
   const pickDocumentAttachment = async () => {
     setAttachmentMenuOpen(false);
+    if (!canAttachDocuments) {
+      showTransientNotice('Document upload is available on paid plans only.');
+      return;
+    }
+
     let result: Awaited<ReturnType<DocumentPickerModule['getDocumentAsync']>>;
     try {
       const DocumentPicker = await getDocumentPickerModule();
@@ -3059,10 +3065,12 @@ export default function ChatScreen() {
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
                         <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachImage')}</Text>
                       </Pressable>
-                      <Pressable onPress={pickDocumentAttachment} className="flex-row items-center rounded-md px-2 py-2">
-                        <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
-                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachDocument')}</Text>
-                      </Pressable>
+                      {canAttachDocuments ? (
+                        <Pressable onPress={pickDocumentAttachment} className="flex-row items-center rounded-md px-2 py-2">
+                          <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
+                          <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachDocument')}</Text>
+                        </Pressable>
+                      ) : null}
                     </Animated.View>
                   ) : null}
                 </View>
