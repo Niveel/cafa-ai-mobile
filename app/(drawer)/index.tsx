@@ -7,6 +7,7 @@ import {
   Dimensions,
   Keyboard, 
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -246,6 +247,7 @@ export default function ChatScreen() {
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
+  const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
   const [downloadToastNotice, setDownloadToastNotice] = useState('');
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const [ttsToastNotice, setTtsToastNotice] = useState('');
@@ -274,6 +276,8 @@ export default function ChatScreen() {
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const codeCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestResponseCountRef = useRef(0);
+  const guestUpsellNextAtRef = useRef(3);
   const menuTouchRef = useRef(false);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
@@ -627,6 +631,14 @@ export default function ChatScreen() {
     }
     return rawMessage || t('chat.sendFailed');
   }, [getLimitNoticeMessage, t]);
+
+  useEffect(() => {
+    guestResponseCountRef.current = 0;
+    guestUpsellNextAtRef.current = 3;
+    if (isAuthenticated) {
+      setGuestUpsellVisible(false);
+    }
+  }, [isAuthenticated]);
 
   const renderInlineMarkdown = useCallback((
     content: string,
@@ -1273,6 +1285,11 @@ export default function ChatScreen() {
                 flushPendingAssistantDelta();
                 hapticSuccess();
                 setStreamingModelLabel(null);
+                guestResponseCountRef.current += 1;
+                if (guestResponseCountRef.current >= guestUpsellNextAtRef.current) {
+                  guestUpsellNextAtRef.current += 4;
+                  setGuestUpsellVisible(true);
+                }
               }
               if (event.type === 'error') {
                 throw new Error(event.message || 'Guest chat stream failed.');
@@ -2485,6 +2502,130 @@ export default function ChatScreen() {
       contentTopOffset={-12}
       topAuthRightContent={topBarModelSwitcher}
     >
+      <Modal
+        visible={!isAuthenticated && guestUpsellVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setGuestUpsellVisible(false)}
+        statusBarTranslucent
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(4, 6, 12, 0.58)',
+            justifyContent: 'center',
+            paddingHorizontal: 18,
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('modal.closeDialog')}
+            onPress={() => setGuestUpsellVisible(false)}
+            style={{ position: 'absolute', inset: 0 }}
+          />
+
+          <View
+            accessibilityViewIsModal
+            accessibilityRole="alert"
+            style={{
+              borderWidth: 1.5,
+              borderColor: colors.primary,
+              borderRadius: 24,
+              backgroundColor: isDark ? '#101015' : '#FFFFFF',
+              padding: 18,
+              shadowColor: '#000000',
+              shadowOpacity: isDark ? 0.5 : 0.18,
+              shadowRadius: 16,
+              shadowOffset: { width: 0, height: 8 },
+              elevation: 8,
+            }}
+          >
+            <View className="mb-3 flex-row items-center">
+              <View
+                className="mr-3 h-10 w-10 items-center justify-center rounded-full"
+                style={{ backgroundColor: `${colors.primary}24` }}
+              >
+                <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
+              </View>
+              <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', flex: 1 }}>
+                {t('chat.guestUpsell.title')}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  hapticSelection();
+                  setGuestUpsellVisible(false);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={t('chat.limit.dismiss')}
+                className="h-8 w-8 items-center justify-center rounded-full"
+                style={{ backgroundColor: isDark ? '#0C0C0F' : '#F3F4F6' }}
+              >
+                <Ionicons name="close" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21 }}>
+              {t('chat.guestUpsell.body')}
+            </Text>
+
+            <View className="mt-5 flex-row justify-end gap-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('chat.limit.dismiss')}
+                onPress={() => {
+                  hapticSelection();
+                  setGuestUpsellVisible(false);
+                }}
+                className="h-10 items-center justify-center rounded-full px-4"
+                style={{
+                  borderWidth: 1.5,
+                  borderColor: colors.primary,
+                  backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>
+                  {t('chat.limit.dismiss')}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('auth.signup')}
+                onPress={() => {
+                  hapticSelection();
+                  setGuestUpsellVisible(false);
+                  router.push('/(auth)/signup');
+                }}
+                className="h-10 items-center justify-center rounded-full px-4"
+                style={{
+                  borderWidth: 1.5,
+                  borderColor: colors.primary,
+                  backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 13 }}>
+                  {t('auth.signup')}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('auth.login')}
+                onPress={() => {
+                  hapticSelection();
+                  setGuestUpsellVisible(false);
+                  router.push('/(auth)/login');
+                }}
+                className="h-10 items-center justify-center rounded-full px-4"
+                style={{ backgroundColor: colors.primary }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
+                  {t('auth.login')}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <KeyboardAvoidingView
         className="flex-1"
         behavior="padding"
