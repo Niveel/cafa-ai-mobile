@@ -612,22 +612,24 @@ export default function ImagesScreen() {
                 compact
               />
             ) : null}
-            <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
-              <AppButton
-                label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
-                onPress={() => {
-                  if (isDeleteBusy) return;
-                  if (!images.length) {
-                    showNotice('No images to delete.');
-                    return;
-                  }
-                  setShowDeleteAllPrompt(true);
-                }}
-                iconName="trash-outline"
-                variant="danger"
-                compact
-              />
-            </View>
+            {images.length ? (
+              <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+                <AppButton
+                  label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                  onPress={() => {
+                    if (isDeleteBusy) return;
+                    if (!images.length) {
+                      showNotice('No images to delete.');
+                      return;
+                    }
+                    setShowDeleteAllPrompt(true);
+                  }}
+                  iconName="trash-outline"
+                  variant="danger"
+                  compact
+                />
+              </View>
+            ) : null}
           </View>
         </View>
 

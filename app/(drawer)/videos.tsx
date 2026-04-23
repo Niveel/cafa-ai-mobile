@@ -588,22 +588,24 @@ export default function VideosScreen() {
                 compact
               />
             ) : null}
-            <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
-              <AppButton
-                label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
-                onPress={() => {
-                  if (isDeleteBusy) return;
-                  if (!videos.length) {
-                    showNotice('No videos to delete.');
-                    return;
-                  }
-                  setShowDeleteAllPrompt(true);
-                }}
-                iconName="trash-outline"
-                variant="danger"
-                compact
-              />
-            </View>
+            {videos.length ? (
+              <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+                <AppButton
+                  label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                  onPress={() => {
+                    if (isDeleteBusy) return;
+                    if (!videos.length) {
+                      showNotice('No videos to delete.');
+                      return;
+                    }
+                    setShowDeleteAllPrompt(true);
+                  }}
+                  iconName="trash-outline"
+                  variant="danger"
+                  compact
+                />
+              </View>
+            ) : null}
           </View>
         </View>
 
