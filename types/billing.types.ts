@@ -2,7 +2,7 @@ export type SubscriptionTier = 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max';
 
 export type SubscriptionStatus = {
   tier: SubscriptionTier;
-  status: 'inactive' | 'active' | 'past_due' | 'canceled';
+  status: 'inactive' | 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'failed' | 'unpaid';
   currentPeriodEnd?: string | null;
   cancelAtPeriodEnd?: boolean;
   canceledAt?: string | null;
@@ -35,6 +35,9 @@ export type SubscriptionUsage = {
 
 export type SubscriptionOverview = {
   subscription: SubscriptionStatus;
+  scheduledTier?: SubscriptionTier | null;
+  scheduledChangeAt?: string | null;
+  changeType?: 'upgrade' | 'downgrade' | 'cancel' | string | null;
   subscriptionLifecycle?: SubscriptionLifecycle;
   limits?: SubscriptionLimits;
   usage?: SubscriptionUsage;

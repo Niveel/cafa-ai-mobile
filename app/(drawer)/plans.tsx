@@ -74,6 +74,25 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function sanitizeExternalHttpUrl(rawUrl: unknown): string | null {
+  if (typeof rawUrl !== 'string') return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower === 'undefined' || lower === 'null') return null;
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  if (/\/(undefined|null)(?:[/?#]|$)/i.test(trimmed)) return null;
+  return trimmed;
+}
+
+function isPaymentHealthyStatus(status?: string | null) {
+  return status === 'active' || status === 'trialing';
+}
+
+function isPaymentProblemStatus(status?: string | null) {
+  return status === 'past_due' || status === 'failed' || status === 'incomplete' || status === 'unpaid';
+}
+
 function resolveOverviewUsageCount(
   usage: SubscriptionOverview['usage'] | Record<string, unknown> | undefined,
   key: 'chat' | 'images' | 'videos',
@@ -172,19 +191,41 @@ export default function PlansScreen() {
 
   const syncSubscriptionAfterCheckout = useCallback(async (requestedTier: SubscriptionTier) => {
     const timeoutAt = Date.now() + 60_000;
+    let attempt = 0;
     while (Date.now() < timeoutAt) {
       try {
         const latest = await getSubscriptionOverview({ force: true });
         setOverview(latest);
-        if (latest.subscription.tier === requestedTier && latest.subscription.status === 'active') {
+        latestSubscriptionRef.current = {
+          tier: latest.subscription.tier,
+          status: latest.subscription.status,
+        };
+        if (latest.subscription.tier === requestedTier && isPaymentHealthyStatus(latest.subscription.status)) {
           setStatusText(t('plans.upgradeVerified', { plan: tierLabel(requestedTier) }));
+          await loadBillingData({ force: true });
+          return;
+        }
+
+        const scheduledTier = latest.scheduledTier ?? null;
+        const scheduledChangeAt = latest.scheduledChangeAt ?? null;
+        if (scheduledTier && scheduledTier === requestedTier && latest.subscription.tier !== requestedTier) {
+          const when = scheduledChangeAt ? new Date(scheduledChangeAt).toLocaleDateString() : 'the next billing cycle';
+          setStatusText(`Plan change to ${tierLabel(requestedTier)} is scheduled for ${when}.`);
+          await loadBillingData({ force: true });
+          return;
+        }
+
+        if (isPaymentProblemStatus(latest.subscription.status)) {
+          setStatusText('Payment is pending or failed. Please update your payment method in the billing portal.');
           await loadBillingData({ force: true });
           return;
         }
       } catch {
         // keep polling until timeout
       }
-      await new Promise((resolve) => setTimeout(resolve, 4_000));
+      const pollDelayMs = attempt < 8 ? 2_500 : 5_000;
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
     }
     setStatusText(t('plans.upgradeSyncPending'));
   }, [loadBillingData, t]);
@@ -343,13 +384,14 @@ export default function PlansScreen() {
   );
   const stats = normalizeUsageAndLimits(overview, dailyUsage, currentPlan);
   const openCheckoutUrl = async (
-    url: string,
+    rawUrl: string,
     mode: 'checkout' | 'portal' = 'checkout',
     returnStrategy: 'redirect_to_app' | 'redirect_to_web' | string = 'redirect_to_web',
     expectedSuccessUrl?: string,
     expectedCancelUrl?: string,
   ) => {
-    if (!/^https?:\/\//i.test(url)) {
+    const url = sanitizeExternalHttpUrl(rawUrl);
+    if (!url) {
       throw new Error('Checkout URL is invalid.');
     }
 
@@ -430,28 +472,45 @@ export default function PlansScreen() {
       const checkout = await createCheckoutSession(tier, {
         platform: 'mobile',
       });
-      const resolvedSuccessUrl = checkout.successUrl;
-      const resolvedCancelUrl = checkout.cancelUrl;
+      const checkoutMode = (checkout as { mode?: string }).mode;
+      const resolvedSuccessUrl = sanitizeExternalHttpUrl(checkout.successUrl);
+      const resolvedCancelUrl = sanitizeExternalHttpUrl(checkout.cancelUrl);
+      const resolvedCheckoutUrl = sanitizeExternalHttpUrl(checkout.url);
       const returnStrategy = (checkout as { returnStrategy?: string }).returnStrategy ?? 'redirect_to_web';
-      const requiresCheckout = (checkout as { requiresCheckout?: boolean }).requiresCheckout !== false;
-      if (requiresCheckout && checkout.url) {
-        await openCheckoutUrl(checkout.url, 'checkout', returnStrategy, resolvedSuccessUrl, resolvedCancelUrl);
-        setStatusText(t('plans.checkoutOpened'));
+
+      if (checkoutMode === 'subscription_updated') {
+        await clearPendingBillingTier();
+        setStatusText('Syncing subscription status...');
+        await syncSubscriptionAfterCheckout(tier);
+        return;
+      }
+
+      if (checkoutMode === 'checkout_started' && !resolvedCheckoutUrl) {
+        throw new Error('Checkout session started but no valid checkout URL was returned.');
+      }
+
+      if (checkoutMode === 'checkout_started' && resolvedCheckoutUrl) {
+        await openCheckoutUrl(resolvedCheckoutUrl, 'checkout', returnStrategy, resolvedSuccessUrl ?? undefined, resolvedCancelUrl ?? undefined);
+        setStatusText('Processing payment...');
         await syncSubscriptionAfterCheckout(tier);
       } else {
         await clearPendingBillingTier();
-        await loadBillingData({ force: true });
-        setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
-        setUpdatedTier(tier);
-        setShowPlanUpdatedPrompt(true);
+        if (resolvedCheckoutUrl) {
+          await openCheckoutUrl(resolvedCheckoutUrl, 'checkout', returnStrategy, resolvedSuccessUrl ?? undefined, resolvedCancelUrl ?? undefined);
+          setStatusText('Processing payment...');
+        } else {
+          setStatusText('Syncing subscription status...');
+        }
+        await syncSubscriptionAfterCheckout(tier);
       }
     } catch (error) {
       const typedError = error as { message?: string; code?: string; status?: number; redirectUrl?: string } | undefined;
       const rawMessage = error instanceof Error ? error.message : t('plans.checkoutError');
-      if (typedError?.code === 'MANAGE_EXISTING_SUBSCRIPTION' && typedError.redirectUrl) {
+      const safeRedirectUrl = sanitizeExternalHttpUrl(typedError?.redirectUrl);
+      if (typedError?.code === 'MANAGE_EXISTING_SUBSCRIPTION' && safeRedirectUrl) {
         try {
           await clearPendingBillingTier();
-          await openCheckoutUrl(typedError.redirectUrl, 'portal');
+          await openCheckoutUrl(safeRedirectUrl, 'portal');
           setStatusText(t('plans.redirectingToPortalForUpgrade'));
         } catch (portalError) {
           const portalMessage = portalError instanceof Error ? portalError.message : t('plans.portalError');
