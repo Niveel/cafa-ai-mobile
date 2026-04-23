@@ -189,45 +189,57 @@ export default function PlansScreen() {
     }
   }, []);
 
-  const syncSubscriptionAfterCheckout = useCallback(async (requestedTier: SubscriptionTier) => {
+  const syncSubscriptionAfterCheckout = useCallback((
+    requestedTier: SubscriptionTier,
+    baseline?: { tier: SubscriptionTier; status: string } | null,
+  ) => {
     const timeoutAt = Date.now() + 60_000;
     let attempt = 0;
-    while (Date.now() < timeoutAt) {
-      try {
-        const latest = await getSubscriptionOverview({ force: true });
-        setOverview(latest);
-        latestSubscriptionRef.current = {
-          tier: latest.subscription.tier,
-          status: latest.subscription.status,
-        };
-        if (latest.subscription.tier === requestedTier && isPaymentHealthyStatus(latest.subscription.status)) {
-          setStatusText(t('plans.upgradeVerified', { plan: tierLabel(requestedTier) }));
-          await loadBillingData({ force: true });
-          return;
-        }
+    const run = async () => {
+      while (Date.now() < timeoutAt) {
+        try {
+          const latest = await getSubscriptionOverview({ force: true });
+          setOverview(latest);
+          latestSubscriptionRef.current = {
+            tier: latest.subscription.tier,
+            status: latest.subscription.status,
+          };
+          if (latest.subscription.tier === requestedTier && isPaymentHealthyStatus(latest.subscription.status)) {
+            const hadEntitlementChange = !baseline || baseline.tier !== requestedTier || !isPaymentHealthyStatus(baseline.status);
+            setStatusText(
+              hadEntitlementChange
+                ? t('plans.upgradeVerified', { plan: tierLabel(requestedTier) })
+                : t('plans.alreadySubscribed'),
+            );
+            await loadBillingData({ force: true });
+            return;
+          }
 
-        const scheduledTier = latest.scheduledTier ?? null;
-        const scheduledChangeAt = latest.scheduledChangeAt ?? null;
-        if (scheduledTier && scheduledTier === requestedTier && latest.subscription.tier !== requestedTier) {
-          const when = scheduledChangeAt ? new Date(scheduledChangeAt).toLocaleDateString() : 'the next billing cycle';
-          setStatusText(`Plan change to ${tierLabel(requestedTier)} is scheduled for ${when}.`);
-          await loadBillingData({ force: true });
-          return;
-        }
+          const scheduledTier = latest.scheduledTier ?? null;
+          const scheduledChangeAt = latest.scheduledChangeAt ?? null;
+          if (scheduledTier && scheduledTier === requestedTier && latest.subscription.tier !== requestedTier) {
+            const when = scheduledChangeAt ? new Date(scheduledChangeAt).toLocaleDateString() : 'the next billing cycle';
+            setStatusText(`Plan change to ${tierLabel(requestedTier)} is scheduled for ${when}.`);
+            await loadBillingData({ force: true });
+            return;
+          }
 
-        if (isPaymentProblemStatus(latest.subscription.status)) {
-          setStatusText('Payment is pending or failed. Please update your payment method in the billing portal.');
-          await loadBillingData({ force: true });
-          return;
+          if (isPaymentProblemStatus(latest.subscription.status)) {
+            setStatusText('Payment is pending or failed. Please update your payment method in the billing portal.');
+            await loadBillingData({ force: true });
+            return;
+          }
+        } catch {
+          // keep polling until timeout
         }
-      } catch {
-        // keep polling until timeout
+        const pollDelayMs = attempt < 8 ? 2_500 : 5_000;
+        attempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
       }
-      const pollDelayMs = attempt < 8 ? 2_500 : 5_000;
-      attempt += 1;
-      await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
-    }
-    setStatusText(t('plans.upgradeSyncPending'));
+      setStatusText(t('plans.upgradeSyncPending'));
+    };
+
+    return run();
   }, [loadBillingData, t]);
 
   const syncSubscriptionAfterPortalReturn = useCallback(async () => {
@@ -466,6 +478,10 @@ export default function PlansScreen() {
     if (tier === 'free') return;
     setBusyTier(tier);
     setStatusText('');
+    const baselineSubscription = latestSubscriptionRef.current ?? {
+      tier: currentTier,
+      status: overview?.subscription.status ?? 'inactive',
+    };
 
     try {
       await setPendingBillingTier(tier);
@@ -481,7 +497,7 @@ export default function PlansScreen() {
       if (checkoutMode === 'subscription_updated') {
         await clearPendingBillingTier();
         setStatusText('Syncing subscription status...');
-        await syncSubscriptionAfterCheckout(tier);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
         return;
       }
 
@@ -492,7 +508,7 @@ export default function PlansScreen() {
       if (checkoutMode === 'checkout_started' && resolvedCheckoutUrl) {
         await openCheckoutUrl(resolvedCheckoutUrl, 'checkout', returnStrategy, resolvedSuccessUrl ?? undefined, resolvedCancelUrl ?? undefined);
         setStatusText('Processing payment...');
-        await syncSubscriptionAfterCheckout(tier);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
       } else {
         await clearPendingBillingTier();
         if (resolvedCheckoutUrl) {
@@ -501,7 +517,7 @@ export default function PlansScreen() {
         } else {
           setStatusText('Syncing subscription status...');
         }
-        await syncSubscriptionAfterCheckout(tier);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
       }
     } catch (error) {
       const typedError = error as { message?: string; code?: string; status?: number; redirectUrl?: string } | undefined;
