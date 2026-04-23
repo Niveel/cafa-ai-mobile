@@ -2506,7 +2506,7 @@ export default function ChatScreen() {
       <Modal
         visible={!isAuthenticated && guestUpsellVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setGuestUpsellVisible(false)}
         statusBarTranslucent
       >
@@ -2514,8 +2514,9 @@ export default function ChatScreen() {
           style={{
             flex: 1,
             backgroundColor: 'rgba(4, 6, 12, 0.58)',
-            justifyContent: 'center',
-            paddingHorizontal: 18,
+            justifyContent: 'flex-end',
+            paddingHorizontal: 0,
+            paddingBottom: 0,
           }}
         >
           <Pressable
@@ -2529,11 +2530,15 @@ export default function ChatScreen() {
             accessibilityViewIsModal
             accessibilityRole="alert"
             style={{
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
               borderWidth: 1.5,
               borderColor: colors.primary,
-              borderRadius: 24,
               backgroundColor: isDark ? '#101015' : '#FFFFFF',
               padding: 18,
+              paddingBottom: Math.max(insets.bottom + 10, 18),
               shadowColor: '#000000',
               shadowOpacity: isDark ? 0.5 : 0.18,
               shadowRadius: 16,
