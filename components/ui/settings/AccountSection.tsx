@@ -441,7 +441,9 @@ export function AccountSection({
         </View>
 
         <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 6, lineHeight: 13 }}>
-          {t('settings.account.cancelSubscriptionHint')}
+          {Platform.OS === 'ios'
+            ? t('settings.account.cancelSubscriptionHintIos')
+            : t('settings.account.cancelSubscriptionHint')}
         </Text>
       </View>
 
