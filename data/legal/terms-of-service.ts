@@ -2,109 +2,193 @@ import type { LegalDocument } from '@/types';
 
 export const TERMS_OF_SERVICE_DOCUMENT: LegalDocument = {
   title: 'Terms of Service',
-  lastUpdated: 'March 30, 2026',
+  lastUpdated: 'April 26, 2026',
   intro: [
-    'These Terms of Service govern your access to and use of Cafa AI.',
-    'By using the service, you agree to these terms. If you do not agree, do not use the service.',
+    'These Terms of Service govern your access to and use of Cafa AI, including our chat, image generation, video generation, voice synthesis, and all related features and applications (collectively, the "Service").',
+    'By creating an account or using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.',
   ],
   sections: [
     {
+      id: 'who-we-are',
+      heading: 'Who We Are',
+      paragraphs: [
+        'Cafa AI is an AI-powered platform that provides conversational AI, image generation, video generation, and voice synthesis features to individuals through our mobile application.',
+        'Our mission is to make powerful AI tools accessible, useful, and safe for everyday users.',
+      ],
+    },
+    {
       id: 'eligibility',
-      heading: 'Eligibility and Accounts',
-      lists: [
-        {
-          kind: 'unordered',
-          items: [
-            'You must provide accurate account information.',
-            'You are responsible for safeguarding your credentials.',
-            'You are responsible for activity under your account.',
-            'You must be at least the age required by applicable law in your jurisdiction.',
-          ],
-        },
+      heading: 'Registration and Access',
+      paragraphs: [
+        'Minimum age. You must be at least 13 years old, or the minimum age required in your country to consent to use digital services. If you are under 18, you must have a parent or legal guardian\'s permission to use the Service.',
+        'Account registration. You must provide accurate, current, and complete information when creating an account. You are solely responsible for all activity that occurs under your account, and you agree not to share your login credentials or grant access to your account to any other person.',
+        'Guest access. The Service may allow limited access without an account. Guest usage is subject to daily limits and reduced feature availability, and may be modified or discontinued at any time.',
       ],
     },
     {
       id: 'acceptable-use',
-      heading: 'Acceptable Use',
-      paragraphs: ['You agree not to misuse the service or attempt to disrupt platform operations.'],
+      heading: 'Using Our Service',
+      paragraphs: [
+        'What you can do. Subject to these Terms, you may access and use the Service for personal, non-commercial purposes. You agree to comply with all applicable laws and any guidelines or policies we make available.',
+        'What you cannot do. You may not use the Service for any illegal, harmful, or abusive purpose. Specifically, you may not:',
+      ],
       lists: [
         {
           kind: 'unordered',
           items: [
-            'Do not use the service for unlawful, harmful, or abusive activities.',
-            'Do not attempt unauthorized access to systems or data.',
-            'Do not interfere with security, rate limits, or service integrity.',
-            'Do not upload content you do not have rights to use.',
+            'Use the Service in a way that infringes, misappropriates, or violates anyone\'s rights.',
+            'Upload, submit, or generate content that is unlawful, defamatory, obscene, or harmful to others.',
+            'Attempt to reverse engineer, decompile, or extract the source code or underlying models of our Service.',
+            'Systematically scrape, harvest, or programmatically extract content or AI-generated output from the Service.',
+            'Misrepresent AI-generated output as being created by a human.',
+            'Circumvent rate limits, usage quotas, access controls, or any security or safety measures.',
+            'Use the Service to develop products or services that compete with Cafa AI.',
+            'Interfere with or disrupt the integrity or performance of the Service or its infrastructure.',
           ],
         },
       ],
     },
     {
       id: 'content',
-      heading: 'User Content and Generated Output',
+      heading: 'Content and Generated Output',
       paragraphs: [
-        'You retain ownership of the content you submit, subject to rights needed for us to operate the service.',
-        'You are responsible for reviewing generated output and verifying accuracy before relying on it.',
+        'Your input. You may submit text, voice, images, documents, and other content to the Service ("Input"). You are responsible for ensuring that your Input does not violate any applicable law or these Terms, and that you have all rights necessary to submit it.',
+        'Generated output. The Service produces AI-generated content based on your Input, including text responses, images, and videos ("Output"). As between you and Cafa AI, you retain ownership of Output you generate, subject to these Terms.',
+        'Our use of content. We may use your Input and Output to operate, maintain, and improve the Service, enforce our policies, and comply with applicable law. We do not sell your personal content to third parties.',
+        'Accuracy of output. AI-generated content is probabilistic and may not always be accurate, complete, or suitable for your use case. You understand and agree that:',
       ],
-    },
-    {
-      id: 'subscriptions',
-      heading: 'Subscriptions and Billing',
       lists: [
         {
           kind: 'unordered',
           items: [
-            'Paid plans may renew automatically unless canceled.',
-            'Fees are billed according to the plan selected at checkout.',
-            'Usage limits and feature access vary by plan.',
-            'Taxes and third-party payment terms may apply.',
+            'Output may contain errors, inaccuracies, or content that does not reflect real facts, people, or events.',
+            'You should not rely on Output as the sole source of truth or as a substitute for professional advice (including legal, medical, or financial guidance).',
+            'You are responsible for evaluating and verifying Output before using or sharing it.',
+            'Output generated by other users may be similar to your own; our support for your ownership does not extend to output generated by others.',
           ],
         },
       ],
     },
     {
-      id: 'service-availability',
-      heading: 'Service Availability',
+      id: 'feedback',
+      heading: 'Feedback',
       paragraphs: [
-        'We may modify, suspend, or discontinue features at any time.',
-        'We do not guarantee uninterrupted or error-free service.',
+        'We welcome your feedback, suggestions, and ideas about the Service. By submitting feedback through message reactions, the Help form, or other means, you grant us the right to use that feedback without restriction or compensation.',
+      ],
+    },
+    {
+      id: 'ip-rights',
+      heading: 'Our Intellectual Property',
+      paragraphs: [
+        'Cafa AI and its licensors own all rights, title, and interest in and to the Service, including its design, software, underlying AI models, branding, and content we create. These Terms do not grant you any rights to use our name, logo, or branding except as expressly permitted.',
+      ],
+    },
+    {
+      id: 'subscriptions',
+      heading: 'Subscriptions and Billing',
+      paragraphs: [
+        'Paid plans. Cafa AI offers paid subscription plans (Cafa Smart, Cafa Pro, and Cafa Max) that unlock higher usage limits and additional features. Plan details and pricing are displayed in the app before purchase.',
+        'Billing. When you subscribe to a paid plan, you authorize us (or our payment processors) to charge your selected payment method on a recurring basis at the applicable subscription interval. You are responsible for providing accurate billing information and for all applicable taxes.',
+        'Auto-renewal. Paid subscriptions renew automatically at the end of each billing period unless you cancel before the renewal date. On iOS, subscriptions are managed through Apple and governed by Apple\'s payment terms.',
+        'Cancellation. You may cancel your subscription at any time. Cancellation takes effect at the end of the current billing period; you will retain access to paid features until then. Payments are non-refundable except where required by applicable law.',
+        'Price changes. We may change subscription prices from time to time. We will give you reasonable advance notice of any price increase, and the new price will take effect on your next renewal. If you do not agree, you may cancel before the renewal date.',
+        'Failed payments. If a payment cannot be processed, we may downgrade your account to the free tier or restrict access to paid features until the balance is resolved.',
       ],
     },
     {
       id: 'termination',
       heading: 'Suspension and Termination',
       paragraphs: [
-        'We may suspend or terminate access if you violate these terms, create security risk, or misuse the platform.',
-        'You may stop using the service at any time and may request account deletion where supported.',
+        'By you. You may stop using the Service at any time. You may also request deletion of your account through the app or by contacting support.',
+        'By us. We reserve the right to suspend or terminate your access to the Service if we determine that:',
+      ],
+      lists: [
+        {
+          kind: 'unordered',
+          items: [
+            'You have violated these Terms or our usage policies.',
+            'We are required to do so by applicable law.',
+            'Your use of the Service creates risk or harm to Cafa AI, other users, or third parties.',
+            'Your account has been inactive for an extended period and you do not hold a paid subscription.',
+          ],
+        },
+      ],
+    },
+    {
+      id: 'service-availability',
+      heading: 'Service Availability and Changes',
+      paragraphs: [
+        'We work to keep the Service available and reliable, but we do not guarantee uninterrupted, error-free, or permanent availability of any feature.',
+        'We may update, modify, or discontinue features of the Service at any time. If we discontinue the Service entirely, we will provide reasonable advance notice and refund any prepaid, unused subscription amounts.',
+      ],
+    },
+    {
+      id: 'third-party',
+      heading: 'Third-Party Services',
+      paragraphs: [
+        'The Service integrates with third-party providers for functions such as payment processing, infrastructure, and AI model inference. These third-party services are subject to their own terms and privacy policies, and we are not responsible for their acts or omissions.',
       ],
     },
     {
       id: 'disclaimers',
-      heading: 'Disclaimers',
+      heading: 'Disclaimer of Warranties',
       paragraphs: [
-        'The service is provided on an "as is" and "as available" basis to the fullest extent permitted by law.',
-        'We disclaim warranties including merchantability, fitness for a particular purpose, and non-infringement.',
+        'THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE." TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, CAFA AI AND ITS AFFILIATES, LICENSORS, AND SERVICE PROVIDERS MAKE NO WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE.',
+        'WE DO NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE, OR THAT ANY CONTENT OR OUTPUT WILL BE ACCURATE, COMPLETE, OR RELIABLE. YOUR USE OF AI-GENERATED OUTPUT IS ENTIRELY AT YOUR OWN RISK.',
       ],
     },
     {
       id: 'liability',
       heading: 'Limitation of Liability',
       paragraphs: [
-        'To the maximum extent permitted by law, Cafa AI is not liable for indirect, incidental, special, consequential, or punitive damages.',
-        'Our aggregate liability is limited to amounts paid by you for the service in the period allowed by applicable law.',
+        'TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, CAFA AI AND ITS AFFILIATES WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR EXEMPLARY DAMAGES ARISING OUT OF OR RELATED TO THESE TERMS OR YOUR USE OF THE SERVICE, INCLUDING LOSS OF PROFITS, DATA, GOODWILL, OR BUSINESS OPPORTUNITIES, EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.',
+        'OUR TOTAL AGGREGATE LIABILITY TO YOU FOR ANY CLAIMS UNDER THESE TERMS SHALL NOT EXCEED THE GREATER OF THE AMOUNTS YOU PAID TO US FOR THE SERVICE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM, OR FIFTY DOLLARS ($50). THESE LIMITATIONS APPLY TO THE FULLEST EXTENT PERMITTED BY LAW.',
+        'Some jurisdictions do not allow the exclusion of certain warranties or the limitation of certain damages, so some of the above may not apply to you. In such cases, our liability is limited to the maximum extent permitted by law in your jurisdiction.',
       ],
     },
     {
-      id: 'changes',
-      heading: 'Changes to These Terms',
+      id: 'indemnity',
+      heading: 'Indemnification',
       paragraphs: [
-        'We may update these terms from time to time. Continued use after updates means you accept the revised terms.',
+        'To the extent permitted by applicable law, you agree to defend, indemnify, and hold harmless Cafa AI and its affiliates, officers, and personnel from any claims, damages, losses, and expenses (including reasonable legal fees) arising out of or relating to your use of the Service, your Input or Content, or your violation of these Terms.',
+      ],
+    },
+    {
+      id: 'copyright',
+      heading: 'Copyright and Intellectual Property Complaints',
+      paragraphs: [
+        'If you believe that content available through the Service infringes your intellectual property rights, please contact us through the Help page in the app with the following information:',
+      ],
+      lists: [
+        {
+          kind: 'unordered',
+          items: [
+            'A description of the copyrighted work or IP you believe has been infringed.',
+            'A description of the content you believe is infringing and where it can be found.',
+            'Your contact information including name and email address.',
+            'A statement that you have a good-faith belief that the use is not authorized by the rights holder, its agent, or the law.',
+            'A statement, under penalty of perjury, that the information you have provided is accurate and that you are the rights holder or are authorized to act on their behalf.',
+          ],
+        },
+      ],
+    },
+    {
+      id: 'general',
+      heading: 'General Terms',
+      paragraphs: [
+        'Assignment. You may not assign or transfer any rights or obligations under these Terms without our prior written consent. We may assign our rights and obligations to an affiliate, successor, or in connection with a business transaction.',
+        'Changes to these Terms. We may update these Terms from time to time to reflect changes in the Service, applicable law, or our business. We will notify you of material changes through the app or by email. Continued use of the Service after changes take effect constitutes your acceptance of the revised Terms.',
+        'Waiver and severability. Our failure to enforce any provision of these Terms is not a waiver of our right to do so in the future. If any part of these Terms is found to be unenforceable, the remaining provisions will continue in full force and effect.',
+        'Entire agreement. These Terms, together with our Privacy Policy, constitute the entire agreement between you and Cafa AI regarding the Service and supersede any prior agreements.',
+        'Governing law. These Terms are governed by applicable law. Nothing in these Terms limits any rights you may have under mandatory local consumer protection laws in your jurisdiction.',
       ],
     },
     {
       id: 'contact',
-      heading: 'Contact',
-      paragraphs: ['For questions about these terms, use the Help page contact form in the app.'],
+      heading: 'Contact Us',
+      paragraphs: [
+        'If you have any questions about these Terms of Service, please reach out through the Help page contact form in the app. We are happy to help.',
+      ],
     },
   ],
 };
