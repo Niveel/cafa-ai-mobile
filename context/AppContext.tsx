@@ -35,6 +35,7 @@ type AppContextValue = {
   isAuthenticated: boolean;
   authUser: AuthUser | null;
   refreshAuthUser: () => Promise<void>;
+  setAuthSubscriptionTier: (tier: AuthUser['subscriptionTier']) => void;
   login: () => void;
   signup: () => void;
   signOut: () => void;
@@ -185,6 +186,18 @@ export function AppProvider({ children }: AppProviderProps) {
     void hydrateAuth();
   }, [hydrateAuth]);
 
+  const setAuthSubscriptionTier = useCallback((tier: AuthUser['subscriptionTier']) => {
+    if (!tier) return;
+    setAuthUser((previous) => {
+      if (!previous) return previous;
+      if (previous.subscriptionTier === tier) return previous;
+      return {
+        ...previous,
+        subscriptionTier: tier,
+      };
+    });
+  }, []);
+
   const completeOnboarding = useCallback(() => {
     setHasCompletedOnboarding(true);
     void setOnboardingCompleted(true);
@@ -204,6 +217,7 @@ export function AppProvider({ children }: AppProviderProps) {
       isAuthenticated,
       authUser,
       refreshAuthUser: hydrateAuth,
+      setAuthSubscriptionTier,
       login,
       signup,
       signOut,
@@ -229,6 +243,7 @@ export function AppProvider({ children }: AppProviderProps) {
       language,
       login,
       signOut,
+      setAuthSubscriptionTier,
       signup,
       themeMode,
     ],

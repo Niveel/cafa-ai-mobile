@@ -15,6 +15,7 @@ import {
   getSubscriptionOverview,
   getSubscriptionPlans,
 } from '@/features';
+import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { purchasePackage } from '@/services/revenuecat/purchases';
@@ -138,6 +139,7 @@ function normalizeUsageAndLimits(
 }
 
 export default function PlansScreen() {
+  const { setAuthSubscriptionTier, refreshAuthUser } = useAppContext();
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -212,6 +214,7 @@ export default function PlansScreen() {
                 : t('plans.alreadySubscribed'),
             );
             await loadBillingData({ force: true });
+            await refreshAuthUser().catch(() => {});
             return;
           }
 
@@ -221,12 +224,14 @@ export default function PlansScreen() {
             const when = scheduledChangeAt ? new Date(scheduledChangeAt).toLocaleDateString() : 'the next billing cycle';
             setStatusText(`Plan change to ${tierLabel(requestedTier)} is scheduled for ${when}.`);
             await loadBillingData({ force: true });
+            await refreshAuthUser().catch(() => {});
             return;
           }
 
           if (isPaymentProblemStatus(latest.subscription.status)) {
             setStatusText('Payment is pending or failed. Please update your payment method in the billing portal.');
             await loadBillingData({ force: true });
+            await refreshAuthUser().catch(() => {});
             return;
           }
         } catch {
@@ -240,7 +245,7 @@ export default function PlansScreen() {
     };
 
     return run();
-  }, [loadBillingData, t]);
+  }, [loadBillingData, refreshAuthUser, t]);
 
   const syncSubscriptionAfterPortalReturn = useCallback(async () => {
     const previous = latestSubscriptionRef.current;
@@ -262,6 +267,7 @@ export default function PlansScreen() {
               status: latestOverview.subscription.status,
             }),
           );
+          await refreshAuthUser().catch(() => {});
           portalFlowActiveRef.current = false;
           return;
         }
@@ -282,7 +288,7 @@ export default function PlansScreen() {
       setStatusText(t('plans.portalSyncNoChange'));
     }
     portalFlowActiveRef.current = false;
-  }, [loadBillingData, t]);
+  }, [loadBillingData, refreshAuthUser, t]);
 
   useEffect(() => {
     const run = async () => {
@@ -301,6 +307,11 @@ export default function PlansScreen() {
 
     void run();
   }, [loadBillingData, t]);
+
+  useEffect(() => {
+    if (!overview?.subscription.tier) return;
+    setAuthSubscriptionTier(overview.subscription.tier);
+  }, [overview?.subscription.tier, setAuthSubscriptionTier]);
 
   useFocusEffect(
     useCallback(() => {
@@ -566,6 +577,24 @@ export default function PlansScreen() {
         const downgradeScheduled = requestedDowngrade && TIER_RANK[resolvedTier] > TIER_RANK[tier];
         const effectiveDate = getActiveExpirationDate(customerInfo);
         await refreshCustomerInfo();
+        setAuthSubscriptionTier(resolvedTier);
+        await refreshAuthUser().catch(() => {});
+        void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
+
+        // Defensive recovery: if purchase completed but entitlement is not visible yet,
+        // force a restore to reconcile App Store receipt ownership for this app user.
+        if (resolvedTier === 'free') {
+          setStatusText(t('plans.syncingSubscription'));
+          try {
+            await restorePurchases();
+            await refreshCustomerInfo();
+            await loadBillingData({ force: true });
+            void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
+          } catch {
+            // Keep the syncing state message; user can retry restore from the CTA.
+          }
+          return;
+        }
 
         if (downgradeScheduled) {
           setStatusText(
@@ -582,8 +611,28 @@ export default function PlansScreen() {
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : t('plans.checkoutError');
         console.log(`[plans-upgrade:ios] error="${errorMsg}"`);
+        const lower = errorMsg.toLowerCase();
+        const isAlreadyOwnedError =
+          lower.includes('already')
+          || lower.includes('subscribed')
+          || lower.includes('owned')
+          || lower.includes('purchase is already');
+        if (isAlreadyOwnedError) {
+          setStatusText(t('plans.syncingSubscription'));
+          try {
+            await restorePurchases();
+            await refreshCustomerInfo();
+            await loadBillingData({ force: true });
+            await refreshAuthUser().catch(() => {});
+            void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
+          } catch (restoreError) {
+            const restoreMessage = restoreError instanceof Error ? restoreError.message : t('plans.portalError');
+            setStatusText(restoreMessage);
+          }
+          return;
+        }
         // if user cancelled, don't show an ugly error message
-        if (!errorMsg.toLowerCase().includes('cancel')) {
+        if (!lower.includes('cancel')) {
           setStatusText(errorMsg);
         }
       } finally {
@@ -851,6 +900,8 @@ export default function PlansScreen() {
           const isCurrent = plan.tier === currentTier;
           const isBusy = busyTier === plan.tier;
           const isDowngrade = TIER_RANK[plan.tier] < TIER_RANK[currentTier];
+          const isFreeIncluded = plan.tier === 'free' && currentTier !== 'free';
+          const isPlanActionDisabled = isCurrent || isBusy || plan.isActive === false || isFreeIncluded;
           const subscriptionLength = plan.price?.interval === 'yr' ? 'Yearly' : 'Monthly';
           // on iOS, if we mapped a rank, maybe we don't know the exact order from RC. 
           // getHighestTier logic exists to evaluate 'free' vs 'pro', but we can just use simple === checks.
@@ -907,16 +958,18 @@ export default function PlansScreen() {
                 accessibilityLabel={
                   isCurrent
                     ? t('plans.currentPlan')
+                    : isFreeIncluded
+                      ? t('plans.included')
                     : t('plans.upgradeTo', { plan: plan.name || tierLabel(plan.tier) })
                 }
-                disabled={isCurrent || isBusy || plan.isActive === false}
+                disabled={isPlanActionDisabled}
                 onPress={() => {
                   requestUpgrade(plan.tier);
                 }}
                 className="mt-3 h-10 items-center justify-center rounded-full px-4"
                 style={{
                   backgroundColor:
-                    isCurrent || plan.isActive === false
+                    isPlanActionDisabled
                       ? isDark ? '#23232B' : '#ECECF2'
                       : colors.primary,
                   opacity: isBusy ? 0.75 : 1,
@@ -925,7 +978,7 @@ export default function PlansScreen() {
                 <Text
                   style={{
                     color:
-                      isCurrent || plan.isActive === false
+                      isPlanActionDisabled
                         ? colors.textSecondary
                         : '#FFFFFF',
                     fontSize: 13,
@@ -934,6 +987,8 @@ export default function PlansScreen() {
                 >
                   {isCurrent
                     ? t('plans.currentPlan')
+                    : isFreeIncluded
+                      ? t('plans.included')
                     : plan.isActive === false
                       ? t('plans.unavailable')
                       : isBusy

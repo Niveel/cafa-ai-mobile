@@ -76,11 +76,13 @@ import {
   type UiMessageAttachment,
 } from '@/components';
 import { useAppContext } from '@/context';
+import { useRevenueCat } from '@/context/RevenueCatContext';
 import {
   createAuthenticatedConversation,
   createGuestConversation,
   ensureGuestSession,
   generateImage,
+  getSubscriptionOverview,
   getAuthenticatedConversation,
   getGuestConversation,
   listAuthenticatedConversations,
@@ -206,6 +208,7 @@ async function getSharingModule() {
 export default function ChatScreen() {
   const COMPOSER_MIN_HEIGHT = 32;
   const COMPOSER_MAX_HEIGHT = 120;
+  const COMPOSER_VERTICAL_PADDING = Platform.OS === 'ios' ? 6 : 4;
   const ANDROID_KEYBOARD_CALIBRATION = 6;
   const IOS_COMPOSER_KEYBOARD_GAP = 2;
   const STREAM_FLUSH_INTERVAL_MS = 36;
@@ -215,9 +218,12 @@ export default function ChatScreen() {
   const VIDEO_JOB_RATE_LIMIT_BACKOFF_MS = 7000;
   const VIDEO_AUTO_SYNC_ATTEMPTS = 40;
   const VIDEO_AUTO_SYNC_INTERVAL_MS = 12000;
+  const LIMIT_RESTORE_SYNC_TIMEOUT_MS = 60_000;
+  const LIMIT_RESTORE_SYNC_POLL_MS = 3_000;
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const { isAuthenticated, authUser } = useAppContext();
+  const { isAuthenticated, authUser, refreshAuthUser, setAuthSubscriptionTier } = useAppContext();
+  const { restorePurchases, refreshCustomerInfo } = useRevenueCat();
   const { t, language } = useI18n();
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
@@ -248,6 +254,7 @@ export default function ChatScreen() {
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
+  const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
   const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
   const [downloadToastNotice, setDownloadToastNotice] = useState('');
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
@@ -584,6 +591,13 @@ export default function ChatScreen() {
     return t('chat.limit.chatReached');
   }, [t]);
 
+  const formatTierLabel = useCallback((tier: 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max') => {
+    if (tier === 'cafa_smart') return 'Cafa Smart';
+    if (tier === 'cafa_pro') return 'Cafa Pro';
+    if (tier === 'cafa_max') return 'Cafa Max';
+    return 'Free';
+  }, []);
+
   const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video') => {
     setUpgradeNoticeKind(kind);
     setStatusNotice(getLimitNoticeMessage(kind));
@@ -594,6 +608,67 @@ export default function ChatScreen() {
       noticeTimeoutRef.current = null;
     }, 5200);
   }, [getLimitNoticeMessage]);
+
+  const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {
+    if (Platform.OS !== 'ios' || !isAuthenticated || isLimitRestoreSyncing) return;
+
+    setIsLimitRestoreSyncing(true);
+    if (noticeTimeoutRef.current) {
+      clearTimeout(noticeTimeoutRef.current);
+      noticeTimeoutRef.current = null;
+    }
+    setStatusNotice(t('plans.syncingSubscription'));
+
+    try {
+      await restorePurchases();
+      await refreshCustomerInfo();
+
+      const timeoutAt = Date.now() + LIMIT_RESTORE_SYNC_TIMEOUT_MS;
+      let resolvedTier: 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max' = 'free';
+      while (Date.now() < timeoutAt) {
+        try {
+          const latest = await getSubscriptionOverview({ force: true });
+          const latestTier = latest.subscription.tier;
+          const latestStatus = latest.subscription.status;
+          const isUsablePaidTier =
+            latestTier !== 'free'
+            && (latestStatus === 'active' || latestStatus === 'trialing' || latestStatus === 'past_due');
+          if (isUsablePaidTier) {
+            resolvedTier = latestTier;
+            break;
+          }
+        } catch {
+          // Keep polling until timeout.
+        }
+        await new Promise((resolve) => setTimeout(resolve, LIMIT_RESTORE_SYNC_POLL_MS));
+      }
+
+      await refreshAuthUser().catch(() => {});
+      if (resolvedTier !== 'free') {
+        setAuthSubscriptionTier(resolvedTier);
+        setStatusNotice(t('plans.upgradeVerified', { plan: formatTierLabel(resolvedTier) }));
+        setUpgradeNoticeKind(null);
+        hapticSuccess();
+      } else {
+        setStatusNotice(t('plans.upgradeSyncPending'));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('plans.portalError');
+      setStatusNotice(message);
+      hapticError();
+    } finally {
+      setIsLimitRestoreSyncing(false);
+    }
+  }, [
+    formatTierLabel,
+    isAuthenticated,
+    isLimitRestoreSyncing,
+    refreshAuthUser,
+    refreshCustomerInfo,
+    restorePurchases,
+    setAuthSubscriptionTier,
+    t,
+  ]);
 
   const getFriendlyErrorMessage = useCallback((error: unknown, kind: 'chat' | 'image' | 'video' = 'chat') => {
     const typed = error as { code?: string; status?: number; message?: string } | undefined;
@@ -3174,7 +3249,9 @@ export default function ChatScreen() {
             multiline
             maxLength={3000}
             onContentSizeChange={(event) => {
-              const measured = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
+              const contentHeight = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
+              // iOS contentSize can under-report when multiline; include explicit vertical padding.
+              const measured = contentHeight + (COMPOSER_VERTICAL_PADDING * 2);
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
                 Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
@@ -3187,13 +3264,17 @@ export default function ChatScreen() {
             }}
             scrollEnabled={composerScrollable}
             accessibilityLabel={t('chat.input.accessibility')}
-            className="px-1.5 py-0.5"
+            className="px-1.5"
             style={{
               color: colors.textPrimary,
-              fontSize: input.trim().length ? 13 : 12,
+              fontSize: 13,
+              lineHeight: 18,
               height: composerHeight,
               minHeight: COMPOSER_MIN_HEIGHT,
               maxHeight: COMPOSER_MAX_HEIGHT,
+              paddingTop: COMPOSER_VERTICAL_PADDING,
+              paddingBottom: COMPOSER_VERTICAL_PADDING,
+              textAlignVertical: 'top',
               paddingRight: isAuthenticated ? 8 : 46,
             }}
           />
@@ -3374,6 +3455,31 @@ export default function ChatScreen() {
                         {t('chat.limit.upgradeCta')}
                       </Text>
                     </Pressable>
+                    {Platform.OS === 'ios' && isAuthenticated ? (
+                      <Pressable
+                        onPress={() => {
+                          hapticSelection();
+                          void restorePurchasesAndSyncFromLimitNotice();
+                        }}
+                        disabled={isLimitRestoreSyncing}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('chat.limit.restoreSync')}
+                        className="h-8 items-center justify-center rounded-full px-3"
+                        style={{
+                          borderWidth: 1,
+                          borderColor: colors.primary,
+                          opacity: isLimitRestoreSyncing ? 0.7 : 1,
+                        }}
+                      >
+                        {isLimitRestoreSyncing ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                            {t('chat.limit.restoreSync')}
+                          </Text>
+                        )}
+                      </Pressable>
+                    ) : null}
                     <Pressable
                       onPress={() => {
                         hapticSelection();
