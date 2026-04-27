@@ -63,3 +63,19 @@ export async function restorePurchases(): Promise<RCCustomerInfo | null> {
     throw error;
   }
 }
+
+/**
+ * Sync App Store purchases with RevenueCat for the current app user.
+ * Useful when a subscription exists in Apple but local entitlement is stale.
+ */
+export async function syncPurchases(): Promise<RCCustomerInfo | null> {
+  if (!isRCEnabled) return null;
+  try {
+    return await Purchases.syncPurchases();
+  } catch (error) {
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] syncPurchases failed', error);
+    }
+    return null;
+  }
+}

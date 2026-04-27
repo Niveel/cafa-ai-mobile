@@ -1,9 +1,15 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import Purchases from 'react-native-purchases';
 
 import { useAppContext } from '@/context/AppContext';
 import { initRevenueCat, identifyUser, resetUser, isRCEnabled } from '@/services/revenuecat';
-import { fetchCustomerInfo, fetchOffering, restorePurchases as restorePurchasesService } from '@/services/revenuecat/purchases';
+import {
+  fetchCustomerInfo,
+  fetchOffering,
+  restorePurchases as restorePurchasesService,
+  syncPurchases as syncPurchasesService,
+} from '@/services/revenuecat/purchases';
 import { resolveRCTier, getHighestTier } from '@/services/revenuecat/entitlements';
 import type { RCCustomerInfo, RCOffering, RevenueCatState } from '@/types/revenuecat.types';
 import type { SubscriptionTier } from '@/types';
@@ -18,12 +24,13 @@ type RevenueCatContextValue = RevenueCatState & {
 const RevenueCatContext = createContext<RevenueCatContextValue | undefined>(undefined);
 
 export function RevenueCatProvider({ children }: { children: ReactNode }) {
-  const { authUser, isAuthenticated } = useAppContext();
+  const { authUser, isAuthenticated, setAuthSubscriptionTier } = useAppContext();
   const [customerInfo, setCustomerInfo] = useState<RCCustomerInfo | null>(null);
   const [offering, setOffering] = useState<RCOffering | null>(null);
   const [isLoading, setIsLoading] = useState(isRCEnabled);
   const [error, setError] = useState<string | null>(null);
   const prevUserIdRef = useRef<string | null>(null);
+  const isReconcilingRef = useRef(false);
 
   const refreshOffering = useCallback(async (): Promise<RCOffering | null> => {
     if (!isRCEnabled) return null;
@@ -31,6 +38,39 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     setOffering(nextOffering);
     return nextOffering;
   }, []);
+
+  const reconcileIosEntitlements = useCallback(async (
+    info: RCCustomerInfo | null,
+    options?: { forceSync?: boolean },
+  ): Promise<RCCustomerInfo | null> => {
+    if (!isRCEnabled || !isAuthenticated || !authUser?.id) return info;
+
+    let resolvedInfo = info;
+    let resolvedTier = resolveRCTier(resolvedInfo);
+    if (resolvedTier !== 'free') {
+      setAuthSubscriptionTier(resolvedTier);
+      return resolvedInfo;
+    }
+
+    // If local entitlements look free, proactively sync App Store receipts.
+    if (isReconcilingRef.current) return resolvedInfo;
+    if (!options?.forceSync && (authUser.subscriptionTier ?? 'free') !== 'free') return resolvedInfo;
+
+    isReconcilingRef.current = true;
+    try {
+      const syncedInfo = await syncPurchasesService();
+      if (syncedInfo) {
+        resolvedInfo = syncedInfo;
+        resolvedTier = resolveRCTier(syncedInfo);
+      }
+      if (resolvedTier !== 'free') {
+        setAuthSubscriptionTier(resolvedTier);
+      }
+      return resolvedInfo;
+    } finally {
+      isReconcilingRef.current = false;
+    }
+  }, [authUser?.id, authUser?.subscriptionTier, isAuthenticated, setAuthSubscriptionTier]);
 
   // ─── Init RC once on mount (iOS only) ────────────────────────────────────
   useEffect(() => {
@@ -72,6 +112,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       identifyUser(currentId)
         .then(() => fetchCustomerInfo())
+        .then((info) => reconcileIosEntitlements(info, { forceSync: true }))
         .then((info) => {
           setCustomerInfo(info);
           setError(null);
@@ -91,7 +132,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       setCustomerInfo(null);
       resetUser().catch(() => {});
     }
-  }, [authUser?.id, isAuthenticated]);
+  }, [authUser?.id, isAuthenticated, reconcileIosEntitlements]);
 
   // ─── Derived state ────────────────────────────────────────────────────────
   const rcTier = resolveRCTier(customerInfo);
@@ -104,20 +145,22 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     if (!isRCEnabled) return;
     try {
       const info = await fetchCustomerInfo();
-      setCustomerInfo(info);
+      const reconciled = await reconcileIosEntitlements(info);
+      setCustomerInfo(reconciled);
       setError(null);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to refresh subscription info.';
       setError(message);
     }
-  }, []);
+  }, [reconcileIosEntitlements]);
 
   const restorePurchases = useCallback(async () => {
     if (!isRCEnabled) return;
     setIsLoading(true);
     try {
       const info = await restorePurchasesService();
-      setCustomerInfo(info);
+      const reconciled = await reconcileIosEntitlements(info, { forceSync: true });
+      setCustomerInfo(reconciled);
       setError(null);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to restore purchases.';
@@ -126,7 +169,16 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [reconcileIosEntitlements]);
+
+  useEffect(() => {
+    if (!isRCEnabled || !isAuthenticated || !authUser?.id) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void refreshCustomerInfo();
+    });
+    return () => sub.remove();
+  }, [authUser?.id, isAuthenticated, refreshCustomerInfo]);
 
   const value = useMemo<RevenueCatContextValue>(
     () => ({
