@@ -3243,17 +3243,21 @@ export default function ChatScreen() {
             multiline
             maxLength={3000}
             onContentSizeChange={(event) => {
+              if (!inputValueRef.current.trim()) {
+                setComposerHeight((prev) => (prev === COMPOSER_MIN_HEIGHT ? prev : COMPOSER_MIN_HEIGHT));
+                setComposerScrollable(false);
+                return;
+              }
               const contentHeight = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
-              // Keep this conservative on iOS to prevent height feedback loops.
-              const measured = contentHeight + (Platform.OS === 'ios' ? 2 : 0);
+              const measured = Math.ceil(contentHeight);
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
-                Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
+                Math.max(COMPOSER_MIN_HEIGHT, measured),
               );
               setComposerHeight((prev) => (Math.abs(prev - nextHeight) <= 1 ? prev : nextHeight));
               setComposerScrollable((prev) => {
-                if (prev) return measured > COMPOSER_MAX_HEIGHT - 8;
-                return measured > COMPOSER_MAX_HEIGHT + 4;
+                const nextScrollable = measured > COMPOSER_MAX_HEIGHT;
+                return prev === nextScrollable ? prev : nextScrollable;
               });
             }}
             scrollEnabled={composerScrollable}
