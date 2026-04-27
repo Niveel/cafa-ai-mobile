@@ -210,7 +210,6 @@ export default function ChatScreen() {
   const COMPOSER_MAX_HEIGHT = 120;
   const COMPOSER_VERTICAL_PADDING = Platform.OS === 'ios' ? 6 : 4;
   const ANDROID_KEYBOARD_CALIBRATION = 6;
-  const IOS_COMPOSER_KEYBOARD_GAP = 2;
   const STREAM_FLUSH_INTERVAL_MS = 36;
   const STREAM_FLUSH_CHARS = 28;
   const VIDEO_JOB_POLL_ATTEMPTS = 360;
@@ -249,7 +248,6 @@ export default function ChatScreen() {
   const [composerScrollable, setComposerScrollable] = useState(false);
   const [androidComposerOffset, setAndroidComposerOffset] = useState(0);
   const [iosComposerOffset, setIosComposerOffset] = useState(0);
-  const [isIosKeyboardVisible, setIsIosKeyboardVisible] = useState(false);
   const [authConversationId, setAuthConversationId] = useState<string | null>(null);
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
@@ -2437,54 +2435,38 @@ export default function ChatScreen() {
     const syncOffset = (screenY?: number, fallbackHeight?: number) => {
       const windowHeight = Dimensions.get('window').height;
       const keyboardHeight = Math.max(0, fallbackHeight ?? 0);
+      const updateOffset = (next: number) => {
+        const rounded = Math.max(0, Math.round(next));
+        setIosComposerOffset((prev) => (Math.abs(prev - rounded) <= EPSILON ? prev : rounded));
+      };
       if (typeof screenY === 'number') {
         const overlap = Math.max(0, windowHeight - screenY);
         const resolvedOffset = Math.max(overlap, keyboardHeight);
-        setIosComposerOffset(Math.max(0, resolvedOffset - safeBottomInset));
+        updateOffset(resolvedOffset - safeBottomInset);
         return;
       }
-      setIosComposerOffset(Math.max(0, keyboardHeight - safeBottomInset));
-    };
-
-    const setKeyboardVisible = (next: boolean) => {
-      setIsIosKeyboardVisible((prev) => (prev === next ? prev : next));
+      updateOffset(keyboardHeight - safeBottomInset);
     };
 
     const showSub = Keyboard.addListener('keyboardWillShow', (event) => {
-      setKeyboardVisible(true);
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
       const height = event.endCoordinates.height ?? 0;
       if (height <= safeBottomInset + EPSILON) {
+        setIosComposerOffset(0);
         return;
       }
-      setKeyboardVisible(true);
-      syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
-    });
-    const didChangeSub = Keyboard.addListener('keyboardDidChangeFrame', (event) => {
-      const height = event.endCoordinates.height ?? 0;
-      if (height <= safeBottomInset + EPSILON) {
-        return;
-      }
-      setKeyboardVisible(true);
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const hideSub = Keyboard.addListener('keyboardWillHide', () => {
-      setKeyboardVisible(false);
-      setIosComposerOffset(0);
-    });
-    const didHideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardVisible(false);
       setIosComposerOffset(0);
     });
 
     return () => {
       showSub.remove();
       changeSub.remove();
-      didChangeSub.remove();
       hideSub.remove();
-      didHideSub.remove();
     };
   }, [safeBottomInset]);
 
@@ -3241,7 +3223,7 @@ export default function ChatScreen() {
           style={{
             borderColor: colors.primary,
             backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF',
-            marginBottom: composerBottomInset + (Platform.OS === 'ios' && isIosKeyboardVisible ? IOS_COMPOSER_KEYBOARD_GAP : 0),
+            marginBottom: composerBottomInset,
           }}
         >
           <TextInput
@@ -3262,13 +3244,13 @@ export default function ChatScreen() {
             maxLength={3000}
             onContentSizeChange={(event) => {
               const contentHeight = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
-              // iOS contentSize can under-report when multiline; include explicit vertical padding.
-              const measured = contentHeight + (COMPOSER_VERTICAL_PADDING * 2);
+              // Keep this conservative on iOS to prevent height feedback loops.
+              const measured = contentHeight + (Platform.OS === 'ios' ? 2 : 0);
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
                 Math.max(COMPOSER_MIN_HEIGHT, Math.ceil(measured)),
               );
-              setComposerHeight((prev) => (Math.abs(prev - nextHeight) < 1 ? prev : nextHeight));
+              setComposerHeight((prev) => (Math.abs(prev - nextHeight) <= 1 ? prev : nextHeight));
               setComposerScrollable((prev) => {
                 if (prev) return measured > COMPOSER_MAX_HEIGHT - 8;
                 return measured > COMPOSER_MAX_HEIGHT + 4;
