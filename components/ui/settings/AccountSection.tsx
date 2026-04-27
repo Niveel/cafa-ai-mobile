@@ -24,6 +24,7 @@ import { API_BASE_URL } from '@/lib';
 import { createBillingPortalSession, getSubscriptionStatus } from '@/features/billing/services/subscriptions';
 import { deleteCurrentUserAccount, updateCurrentUserProfile, uploadCurrentUserAvatar } from '@/features/auth/services/auth';
 import { getAccessToken } from '@/services';
+import { openIosSubscriptionManagement } from '@/services/revenuecat';
 import type { AuthUser } from '@/types';
 import type { SubscriptionLifecycle, SubscriptionStatus } from '@/types/billing.types';
 import { AppPromptModal } from '../AppPromptModal';
@@ -292,6 +293,10 @@ export function AccountSection({
   const onCancelSubscription = async () => {
     setStatusText('');
     try {
+      if (Platform.OS === 'ios') {
+        await openIosSubscriptionManagement();
+        return;
+      }
       const returnUrl = `${appScheme}://billing/return`;
       const { url } = await createBillingPortalSession({
         platform: 'mobile',

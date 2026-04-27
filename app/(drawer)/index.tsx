@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
@@ -309,8 +309,17 @@ export default function ChatScreen() {
   const topPillBg = isDark ? '#10264D' : '#204079';
   const topPillBorder = '#204079';
   const dividerPill = '#204079';
+  const composerPlaceholder = useMemo(() => t('chat.input.placeholder'), [t]);
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
   const isFreshChatState = messages.length === 1 && isWelcomeMessage(messages[0]);
+
+  useEffect(() => {
+    // Avoid remounting TextInput on iOS to update placeholder text; remounting can
+    // cause focus jitter with keyboard frame callbacks.
+    composerInputRef.current?.setNativeProps?.({
+      placeholder: composerPlaceholder,
+    });
+  }, [composerPlaceholder]);
 
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;
@@ -2423,6 +2432,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
+    const EPSILON = 2;
 
     const syncOffset = (screenY?: number, fallbackHeight?: number) => {
       const windowHeight = Dimensions.get('window').height;
@@ -2436,34 +2446,36 @@ export default function ChatScreen() {
       setIosComposerOffset(Math.max(0, keyboardHeight - safeBottomInset));
     };
 
+    const setKeyboardVisible = (next: boolean) => {
+      setIsIosKeyboardVisible((prev) => (prev === next ? prev : next));
+    };
+
     const showSub = Keyboard.addListener('keyboardWillShow', (event) => {
-      setIsIosKeyboardVisible(true);
+      setKeyboardVisible(true);
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const changeSub = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
-      const visible = (event.endCoordinates.height ?? 0) > 0;
-      setIsIosKeyboardVisible(visible);
-      if (!visible) {
-        setIosComposerOffset(0);
+      const height = event.endCoordinates.height ?? 0;
+      if (height <= safeBottomInset + EPSILON) {
         return;
       }
+      setKeyboardVisible(true);
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const didChangeSub = Keyboard.addListener('keyboardDidChangeFrame', (event) => {
-      const visible = (event.endCoordinates.height ?? 0) > 0;
-      setIsIosKeyboardVisible(visible);
-      if (!visible) {
-        setIosComposerOffset(0);
+      const height = event.endCoordinates.height ?? 0;
+      if (height <= safeBottomInset + EPSILON) {
         return;
       }
+      setKeyboardVisible(true);
       syncOffset(event.endCoordinates.screenY, event.endCoordinates.height);
     });
     const hideSub = Keyboard.addListener('keyboardWillHide', () => {
-      setIsIosKeyboardVisible(false);
+      setKeyboardVisible(false);
       setIosComposerOffset(0);
     });
     const didHideSub = Keyboard.addListener('keyboardDidHide', () => {
-      setIsIosKeyboardVisible(false);
+      setKeyboardVisible(false);
       setIosComposerOffset(0);
     });
 
@@ -3243,7 +3255,7 @@ export default function ChatScreen() {
                 setComposerScrollable(false);
               }
             }}
-            placeholder={t('chat.input.placeholder')}
+            placeholder={composerPlaceholder}
             placeholderTextColor={colors.textSecondary}
             editable
             multiline

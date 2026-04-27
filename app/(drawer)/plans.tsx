@@ -19,6 +19,7 @@ import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { purchasePackage } from '@/services/revenuecat/purchases';
+import { openIosSubscriptionManagement } from '@/services/revenuecat';
 import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/entitlements';
 import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
@@ -147,6 +148,7 @@ export default function PlansScreen() {
   const [loading, setLoading] = useState(true);
   const [busyTier, setBusyTier] = useState<SubscriptionTier | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
+  const [isCancelLoading, setIsCancelLoading] = useState(false);
   const [overview, setOverview] = useState<SubscriptionOverview | null>(null);
   const [dailyUsage, setDailyUsage] = useState<UsageSnapshot | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -692,6 +694,19 @@ export default function PlansScreen() {
     }
   }, [refreshOffering]);
 
+  const onOpenIosSubscriptionManagement = async () => {
+    if (Platform.OS !== 'ios') return;
+    setIsCancelLoading(true);
+    setStatusText('');
+    try {
+      await openIosSubscriptionManagement();
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : t('plans.portalError'));
+    } finally {
+      setIsCancelLoading(false);
+    }
+  };
+
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
@@ -778,33 +793,59 @@ export default function PlansScreen() {
           </Text>
 
           {Platform.OS === 'ios' ? (
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Restore Purchases"
-              disabled={busyTier !== null}
-              onPress={async () => {
-                setBusyTier('free');
-                setStatusText('');
-                try {
-                  await restorePurchases();
-                  await refreshCustomerInfo();
-                  setStatusText('Purchases restored successfully!');
-                } catch (err) {
-                  setStatusText((err as Error).message);
-                } finally {
-                  setBusyTier(null);
-                }
-              }}
-              className="mt-3 h-10 items-center justify-center rounded-full px-4"
-              style={{
-                borderWidth: 1.2,
-                borderColor: colors.primary,
-              }}
-            >
-              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
-                Restore Purchases
-              </Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Restore Purchases"
+                disabled={busyTier !== null}
+                onPress={async () => {
+                  setBusyTier('free');
+                  setStatusText('');
+                  try {
+                    await restorePurchases();
+                    await refreshCustomerInfo();
+                    setStatusText('Purchases restored successfully!');
+                  } catch (err) {
+                    setStatusText((err as Error).message);
+                  } finally {
+                    setBusyTier(null);
+                  }
+                }}
+                className="mt-3 h-10 items-center justify-center rounded-full px-4"
+                style={{
+                  borderWidth: 1.2,
+                  borderColor: colors.primary,
+                }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+                  Restore Purchases
+                </Text>
+              </TouchableOpacity>
+              {activeTier !== 'free' ? (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={t('settings.account.cancelSubscription')}
+                  disabled={isCancelLoading}
+                  onPress={() => {
+                    void onOpenIosSubscriptionManagement();
+                  }}
+                  className="mt-2 h-10 items-center justify-center rounded-full px-4"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: '#E11D48',
+                    backgroundColor: isDark ? 'rgba(127,29,29,0.22)' : 'rgba(254,226,226,0.95)',
+                    opacity: isCancelLoading ? 0.75 : 1,
+                  }}
+                >
+                  <View className="flex-row items-center">
+                    {isCancelLoading ? <ActivityIndicator size="small" color="#E11D48" /> : null}
+                    <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '700', marginLeft: isCancelLoading ? 8 : 0 }}>
+                      {t('settings.account.cancelSubscription')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+            </>
           ) : (
             <TouchableOpacity
               accessibilityRole="button"

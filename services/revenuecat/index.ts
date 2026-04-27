@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import Purchases from 'react-native-purchases';
 
 /**
@@ -67,4 +67,32 @@ export async function resetUser(): Promise<void> {
     // logOut throws if the user is already anonymous — safe to ignore
     console.warn('[revenuecat:reset] logOut failed (may be anonymous already)', error);
   }
+}
+
+/**
+ * Open the App Store subscription management page on iOS.
+ * Users can cancel RevenueCat-managed App Store subscriptions there.
+ */
+export async function openIosSubscriptionManagement(): Promise<void> {
+  if (Platform.OS !== 'ios') {
+    throw new Error('Subscription management via App Store is available on iOS only.');
+  }
+
+  const candidates = [
+    'https://apps.apple.com/account/subscriptions',
+    'itms-apps://apps.apple.com/account/subscriptions',
+  ];
+
+  for (const url of candidates) {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) continue;
+      await Linking.openURL(url);
+      return;
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  throw new Error('Could not open App Store subscriptions right now.');
 }
