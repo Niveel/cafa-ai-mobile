@@ -67,6 +67,11 @@ export function AppProvider({ children }: AppProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const hasTrackedAppOpenRef = useRef(false);
+  const appDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
+    if (!__DEV__) return;
+    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
+    console.log(`[app-debug] ${event}${suffix}`);
+  }, []);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
 
@@ -83,16 +88,21 @@ export function AppProvider({ children }: AppProviderProps) {
       }
 
       const me = await fetchCurrentUser();
+      appDebug('auth:hydrate:success', {
+        userId: me?.id ?? null,
+        subscriptionTier: me?.subscriptionTier ?? 'free',
+      });
       setIsAuthenticated(true);
       setAuthUser(me);
     } catch {
+      appDebug('auth:hydrate:error');
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
       await clearSessionTokens();
       setIsAuthenticated(false);
       setAuthUser(null);
     }
-  }, []);
+  }, [appDebug]);
 
   useEffect(() => {
     setupAuthInterceptor();
@@ -191,12 +201,25 @@ export function AppProvider({ children }: AppProviderProps) {
     setAuthUser((previous) => {
       if (!previous) return previous;
       if (previous.subscriptionTier === tier) return previous;
+      appDebug('auth:setSubscriptionTier', {
+        userId: previous.id,
+        previousTier: previous.subscriptionTier ?? 'free',
+        nextTier: tier,
+      });
       return {
         ...previous,
         subscriptionTier: tier,
       };
     });
-  }, []);
+  }, [appDebug]);
+
+  useEffect(() => {
+    appDebug('auth:snapshot', {
+      isAuthenticated,
+      userId: authUser?.id ?? null,
+      subscriptionTier: authUser?.subscriptionTier ?? 'free',
+    });
+  }, [appDebug, authUser?.id, authUser?.subscriptionTier, isAuthenticated]);
 
   const completeOnboarding = useCallback(() => {
     setHasCompletedOnboarding(true);

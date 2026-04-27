@@ -162,6 +162,11 @@ export default function PlansScreen() {
   const lastForegroundRefreshAtRef = useRef(0);
   const portalFlowActiveRef = useRef(false);
   const latestSubscriptionRef = useRef<{ tier: SubscriptionTier; status: string } | null>(null);
+  const plansDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
+    if (!__DEV__) return;
+    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
+    console.log(`[plans-debug] ${event}${suffix}`);
+  }, []);
 
   const toErrorMessage = (error: unknown) => {
     if (error instanceof Error) return error.message;
@@ -170,11 +175,20 @@ export default function PlansScreen() {
 
   const loadBillingData = useCallback(async (options?: { force?: boolean }) => {
     try {
+      plansDebug('loadBillingData:start', {
+        force: Boolean(options?.force),
+      });
       const [nextOverview, nextPlansPayload, nextDailyUsage] = await Promise.all([
         getSubscriptionOverview({ force: options?.force }),
         getSubscriptionPlans({ force: options?.force }),
         getDailyUsage({ force: options?.force }),
       ]);
+      plansDebug('loadBillingData:resolved', {
+        overviewTier: nextOverview.subscription.tier,
+        overviewStatus: nextOverview.subscription.status,
+        planCount: nextPlansPayload.plans?.length ?? 0,
+        chatUsed: nextDailyUsage.chatUsed ?? null,
+      });
       setOverview(nextOverview);
       latestSubscriptionRef.current = {
         tier: nextOverview.subscription.tier,
@@ -191,12 +205,17 @@ export default function PlansScreen() {
       );
       throw error;
     }
-  }, []);
+  }, [plansDebug]);
 
   const syncSubscriptionAfterCheckout = useCallback((
     requestedTier: SubscriptionTier,
     baseline?: { tier: SubscriptionTier; status: string } | null,
   ) => {
+    plansDebug('syncAfterCheckout:start', {
+      requestedTier,
+      baselineTier: baseline?.tier ?? null,
+      baselineStatus: baseline?.status ?? null,
+    });
     const timeoutAt = Date.now() + 60_000;
     let attempt = 0;
     const run = async () => {
@@ -208,6 +227,13 @@ export default function PlansScreen() {
             tier: latest.subscription.tier,
             status: latest.subscription.status,
           };
+          plansDebug('syncAfterCheckout:poll', {
+            attempt,
+            latestTier: latest.subscription.tier,
+            latestStatus: latest.subscription.status,
+            scheduledTier: latest.scheduledTier ?? null,
+            scheduledChangeAt: latest.scheduledChangeAt ?? null,
+          });
           if (latest.subscription.tier === requestedTier && isPaymentHealthyStatus(latest.subscription.status)) {
             const hadEntitlementChange = !baseline || baseline.tier !== requestedTier || !isPaymentHealthyStatus(baseline.status);
             setStatusText(
@@ -244,13 +270,18 @@ export default function PlansScreen() {
         await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
       }
       setStatusText(t('plans.upgradeSyncPending'));
+      plansDebug('syncAfterCheckout:timeout', { requestedTier });
     };
 
     return run();
-  }, [loadBillingData, refreshAuthUser, t]);
+  }, [loadBillingData, plansDebug, refreshAuthUser, t]);
 
   const syncSubscriptionAfterPortalReturn = useCallback(async () => {
     const previous = latestSubscriptionRef.current;
+    plansDebug('syncAfterPortal:start', {
+      previousTier: previous?.tier ?? null,
+      previousStatus: previous?.status ?? null,
+    });
     const timeoutAt = Date.now() + 24_000;
     let latestOverview: SubscriptionOverview | null = null;
     let hadError = false;
@@ -258,6 +289,10 @@ export default function PlansScreen() {
     while (Date.now() < timeoutAt) {
       try {
         latestOverview = await loadBillingData({ force: true });
+        plansDebug('syncAfterPortal:poll', {
+          latestTier: latestOverview.subscription.tier,
+          latestStatus: latestOverview.subscription.status,
+        });
         const changed =
           !previous ||
           previous.tier !== latestOverview.subscription.tier ||
@@ -290,7 +325,8 @@ export default function PlansScreen() {
       setStatusText(t('plans.portalSyncNoChange'));
     }
     portalFlowActiveRef.current = false;
-  }, [loadBillingData, refreshAuthUser, t]);
+    plansDebug('syncAfterPortal:end');
+  }, [loadBillingData, plansDebug, refreshAuthUser, t]);
 
   useEffect(() => {
     const run = async () => {
@@ -312,8 +348,12 @@ export default function PlansScreen() {
 
   useEffect(() => {
     if (!overview?.subscription.tier) return;
+    plansDebug('overview:setAuthTier', {
+      tier: overview.subscription.tier,
+      status: overview.subscription.status,
+    });
     setAuthSubscriptionTier(overview.subscription.tier);
-  }, [overview?.subscription.tier, setAuthSubscriptionTier]);
+  }, [overview?.subscription.status, overview?.subscription.tier, plansDebug, setAuthSubscriptionTier]);
 
   useFocusEffect(
     useCallback(() => {
@@ -572,9 +612,20 @@ export default function PlansScreen() {
 
       setBusyTier(tier);
       setStatusText('');
+      plansDebug('requestUpgrade:ios:start', {
+        requestedTier: tier,
+        currentTier,
+        hasPackage: Boolean(targetPlan?._rcPackage),
+        packageId: targetPlan?._rcPackage?.identifier ?? null,
+      });
       try {
         const customerInfo = await purchasePackage(targetPlan._rcPackage);
         const resolvedTier = resolveRCTier(customerInfo);
+        plansDebug('requestUpgrade:ios:purchaseResult', {
+          resolvedTier,
+          activeEntitlements: Object.keys(customerInfo?.entitlements?.active ?? {}),
+          activeSubscriptions: customerInfo?.activeSubscriptions ?? [],
+        });
         const requestedDowngrade = TIER_RANK[tier] < TIER_RANK[currentTier];
         const downgradeScheduled = requestedDowngrade && TIER_RANK[resolvedTier] > TIER_RANK[tier];
         const effectiveDate = getActiveExpirationDate(customerInfo);
@@ -587,6 +638,7 @@ export default function PlansScreen() {
         // force a restore to reconcile App Store receipt ownership for this app user.
         if (resolvedTier === 'free') {
           setStatusText(t('plans.syncingSubscription'));
+          plansDebug('requestUpgrade:ios:free-after-purchase:restoring');
           try {
             await restorePurchases();
             await refreshCustomerInfo();
@@ -612,6 +664,7 @@ export default function PlansScreen() {
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : t('plans.checkoutError');
+        plansDebug('requestUpgrade:ios:error', { requestedTier: tier, error: errorMsg });
         console.log(`[plans-upgrade:ios] error="${errorMsg}"`);
         const lower = errorMsg.toLowerCase();
         const isAlreadyOwnedError =
@@ -621,6 +674,7 @@ export default function PlansScreen() {
           || lower.includes('purchase is already');
         if (isAlreadyOwnedError) {
           setStatusText(t('plans.syncingSubscription'));
+          plansDebug('requestUpgrade:ios:already-owned:restore-flow', { requestedTier: tier });
           try {
             await restorePurchases();
             await refreshCustomerInfo();
@@ -655,6 +709,7 @@ export default function PlansScreen() {
   const onOpenBillingPortal = async () => {
     setIsPortalLoading(true);
     setStatusText('');
+    plansDebug('portal:open:start');
     try {
       const returnUrl = `${appScheme}://billing/return`;
       const portal = await createBillingPortalSession({
@@ -677,6 +732,7 @@ export default function PlansScreen() {
       setStatusText(message);
     } finally {
       setIsPortalLoading(false);
+      plansDebug('portal:open:end');
     }
   };
 
@@ -698,14 +754,40 @@ export default function PlansScreen() {
     if (Platform.OS !== 'ios') return;
     setIsCancelLoading(true);
     setStatusText('');
+    plansDebug('iosSubscriptionManagement:open:start');
     try {
       await openIosSubscriptionManagement();
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : t('plans.portalError'));
     } finally {
       setIsCancelLoading(false);
+      plansDebug('iosSubscriptionManagement:open:end');
     }
   };
+
+  useEffect(() => {
+    plansDebug('snapshot', {
+      platform: Platform.OS,
+      activeTier,
+      currentTier,
+      overviewTier: overview?.subscription.tier ?? null,
+      overviewStatus: overview?.subscription.status ?? null,
+      offeringPackages: offering?.availablePackages?.map((pkg) => pkg.identifier) ?? [],
+      displayPlanTiers: displayPlans.map((plan) => plan.tier),
+      busyTier,
+      statusText,
+    });
+  }, [
+    activeTier,
+    busyTier,
+    currentTier,
+    displayPlans,
+    offering,
+    overview?.subscription.status,
+    overview?.subscription.tier,
+    plansDebug,
+    statusText,
+  ]);
 
   return (
     <RequireAuthRoute>
@@ -801,14 +883,29 @@ export default function PlansScreen() {
                 onPress={async () => {
                   setBusyTier('free');
                   setStatusText('');
+                  plansDebug('restoreButton:pressed', {
+                    currentTier,
+                    activeTier,
+                    overviewTier: overview?.subscription.tier ?? null,
+                    overviewStatus: overview?.subscription.status ?? null,
+                  });
                   try {
                     await restorePurchases();
                     await refreshCustomerInfo();
+                    await loadBillingData({ force: true });
+                    await refreshAuthUser().catch(() => {});
+                    plansDebug('restoreButton:resolved', {
+                      currentTierAfter: Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free'),
+                    });
                     setStatusText('Purchases restored successfully!');
                   } catch (err) {
+                    plansDebug('restoreButton:error', {
+                      message: err instanceof Error ? err.message : 'unknown',
+                    });
                     setStatusText((err as Error).message);
                   } finally {
                     setBusyTier(null);
+                    plansDebug('restoreButton:end');
                   }
                 }}
                 className="mt-3 h-10 items-center justify-center rounded-full px-4"

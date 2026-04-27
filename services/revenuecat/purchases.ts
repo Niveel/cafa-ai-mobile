@@ -9,7 +9,15 @@ import type { RCCustomerInfo, RCOffering, RCPackage } from '@/types/revenuecat.t
 export async function fetchCustomerInfo(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    return await Purchases.getCustomerInfo();
+    const info = await Purchases.getCustomerInfo();
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] fetchCustomerInfo:resolved', {
+        appUserId: info?.originalAppUserId ?? null,
+        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
+        activeSubscriptions: info?.activeSubscriptions ?? [],
+      });
+    }
+    return info;
   } catch (error) {
     if (__DEV__) {
       console.log('[revenuecat:purchases] fetchCustomerInfo failed', error);
@@ -55,7 +63,15 @@ export async function purchasePackage(pkg: RCPackage): Promise<RCCustomerInfo> {
 export async function restorePurchases(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    return await Purchases.restorePurchases();
+    const info = await Purchases.restorePurchases();
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] restorePurchases:resolved', {
+        appUserId: info?.originalAppUserId ?? null,
+        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
+        activeSubscriptions: info?.activeSubscriptions ?? [],
+      });
+    }
+    return info;
   } catch (error) {
     if (__DEV__) {
       console.log('[revenuecat:purchases] restorePurchases failed', error);
@@ -71,7 +87,15 @@ export async function restorePurchases(): Promise<RCCustomerInfo | null> {
 export async function syncPurchases(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    return await Purchases.syncPurchases();
+    const info = await Purchases.syncPurchases();
+    if (__DEV__) {
+      console.log('[revenuecat:purchases] syncPurchases:resolved', {
+        appUserId: info?.originalAppUserId ?? null,
+        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
+        activeSubscriptions: info?.activeSubscriptions ?? [],
+      });
+    }
+    return info;
   } catch (error) {
     if (__DEV__) {
       console.log('[revenuecat:purchases] syncPurchases failed', error);
