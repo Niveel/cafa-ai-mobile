@@ -3250,13 +3250,22 @@ export default function ChatScreen() {
               }
               const contentHeight = event.nativeEvent.contentSize.height ?? COMPOSER_MIN_HEIGHT;
               const measured = Math.ceil(contentHeight);
+
+              if (Platform.OS === 'ios') {
+                setComposerScrollable((prev) => {
+                  const nextScrollable = measured >= COMPOSER_MAX_HEIGHT - 1;
+                  return prev === nextScrollable ? prev : nextScrollable;
+                });
+                return;
+              }
+
               const nextHeight = Math.min(
                 COMPOSER_MAX_HEIGHT,
                 Math.max(COMPOSER_MIN_HEIGHT, measured),
               );
               setComposerHeight((prev) => (Math.abs(prev - nextHeight) <= 1 ? prev : nextHeight));
               setComposerScrollable((prev) => {
-                const nextScrollable = measured > COMPOSER_MAX_HEIGHT;
+                const nextScrollable = measured >= COMPOSER_MAX_HEIGHT - 1;
                 return prev === nextScrollable ? prev : nextScrollable;
               });
             }}
@@ -3267,7 +3276,7 @@ export default function ChatScreen() {
               color: colors.textPrimary,
               fontSize: 13,
               lineHeight: 18,
-              height: composerHeight,
+              height: Platform.OS === 'ios' ? undefined : composerHeight,
               minHeight: COMPOSER_MIN_HEIGHT,
               maxHeight: COMPOSER_MAX_HEIGHT,
               paddingTop: COMPOSER_VERTICAL_PADDING,
