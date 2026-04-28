@@ -22,6 +22,7 @@ import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -302,8 +303,11 @@ export default function ChatScreen() {
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const codeCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guestResponseCountRef = useRef(0);
-  const guestUpsellNextAtRef = useRef(3);
+  const guestUpsellStateRef = useRef<{ windowStartedAt: number; responseCount: number; shown: boolean }>({
+    windowStartedAt: 0,
+    responseCount: 0,
+    shown: false,
+  });
   const menuTouchRef = useRef(false);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
@@ -326,6 +330,9 @@ export default function ChatScreen() {
   const initialNewChatTokenRef = useRef<string | null>(null);
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  const GUEST_UPSELL_STATE_KEY = 'cafa_ai_guest_upsell_state_v1';
+  const GUEST_UPSELL_AFTER_RESPONSES = 3;
+  const GUEST_UPSELL_WINDOW_MS = 24 * 60 * 60 * 1000;
   const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
   const safeBottomInset = Math.max(insets.bottom, 0);
   const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
@@ -775,12 +782,42 @@ export default function ChatScreen() {
   }, [getLimitNoticeMessage, t]);
 
   useEffect(() => {
-    guestResponseCountRef.current = 0;
-    guestUpsellNextAtRef.current = 3;
     if (isAuthenticated) {
       setGuestUpsellVisible(false);
+      return;
     }
-  }, [isAuthenticated]);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(GUEST_UPSELL_STATE_KEY);
+        const now = Date.now();
+        if (!raw) {
+          guestUpsellStateRef.current = { windowStartedAt: now, responseCount: 0, shown: false };
+          return;
+        }
+        const parsed = JSON.parse(raw) as Partial<{ windowStartedAt: number; responseCount: number; shown: boolean }>;
+        const windowStartedAt = typeof parsed.windowStartedAt === 'number' ? parsed.windowStartedAt : 0;
+        const responseCount = typeof parsed.responseCount === 'number' ? parsed.responseCount : 0;
+        const shown = parsed.shown === true;
+        const isExpired = windowStartedAt <= 0 || now - windowStartedAt >= GUEST_UPSELL_WINDOW_MS;
+        const nextState = isExpired
+          ? { windowStartedAt: now, responseCount: 0, shown: false }
+          : { windowStartedAt, responseCount, shown };
+        if (!cancelled) {
+          guestUpsellStateRef.current = nextState;
+        }
+      } catch {
+        if (!cancelled) {
+          guestUpsellStateRef.current = { windowStartedAt: Date.now(), responseCount: 0, shown: false };
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [GUEST_UPSELL_STATE_KEY, GUEST_UPSELL_WINDOW_MS, isAuthenticated]);
 
   const renderInlineMarkdown = useCallback((
     content: string,
@@ -1383,7 +1420,6 @@ export default function ChatScreen() {
         const parsedText = raw.trim();
         if (!parsedText) return;
         responseLogEmitted = true;
-        console.log(`[chat-response:parsed] attempt=${attemptId} ${parsedText}`);
       };
 
       const userMessage: UiMessage = {
@@ -1490,11 +1526,26 @@ export default function ChatScreen() {
                 hapticSuccess();
                 setStreamingModelLabel(null);
                 logParsedResponseForAttempt(assistantResponseBuffer);
-                guestResponseCountRef.current += 1;
-                if (guestResponseCountRef.current >= guestUpsellNextAtRef.current) {
-                  guestUpsellNextAtRef.current += 4;
+                const now = Date.now();
+                const currentUpsellState = guestUpsellStateRef.current;
+                const isExpired =
+                  currentUpsellState.windowStartedAt <= 0
+                  || now - currentUpsellState.windowStartedAt >= GUEST_UPSELL_WINDOW_MS;
+                const baseState = isExpired
+                  ? { windowStartedAt: now, responseCount: 0, shown: false }
+                  : currentUpsellState;
+                const nextUpsellState = {
+                  ...baseState,
+                  responseCount: baseState.responseCount + 1,
+                };
+                const shouldShowUpsellNow =
+                  !nextUpsellState.shown && nextUpsellState.responseCount >= GUEST_UPSELL_AFTER_RESPONSES;
+                if (shouldShowUpsellNow) {
+                  nextUpsellState.shown = true;
                   setGuestUpsellVisible(true);
                 }
+                guestUpsellStateRef.current = nextUpsellState;
+                void AsyncStorage.setItem(GUEST_UPSELL_STATE_KEY, JSON.stringify(nextUpsellState));
               }
               if (event.type === 'error') {
                 throw new Error(event.message || 'Guest chat stream failed.');

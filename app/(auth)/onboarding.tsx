@@ -257,21 +257,23 @@ export default function OnboardingScreen() {
 
         <View className="mb-5 flex-row items-center justify-between">
           <AppLogo compact />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('onboarding.skip')}
-            onPress={finish}
-            className="rounded-full px-3 py-1.5"
-            style={{
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(95,127,184,0.35)' : 'rgba(32,64,121,0.28)',
-              backgroundColor: isDark ? 'rgba(95,127,184,0.12)' : 'rgba(32,64,121,0.1)',
-            }}
-          >
-            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>
-              {t('onboarding.skip')}
-            </Text>
-          </Pressable>
+          {activeIndex < data.length - 1 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('onboarding.skip')}
+              onPress={finish}
+              className="rounded-full px-3 py-1.5"
+              style={{
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(95,127,184,0.35)' : 'rgba(32,64,121,0.28)',
+                backgroundColor: isDark ? 'rgba(95,127,184,0.12)' : 'rgba(32,64,121,0.1)',
+              }}
+            >
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>
+                {t('onboarding.skip')}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <AnimatedFlatList
