@@ -1,11 +1,12 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { AppState, useColorScheme } from 'react-native';
 import { usePostHog } from 'posthog-react-native';
 
 import { AppLanguage, colorsByMode, ThemeColors, ThemeMode, translate } from '@/config';
 import { setupAuthInterceptor } from '@/services';
 import {
   fetchCurrentUser,
+  syncSubscriptionState,
   invalidateAuthenticatedChatCache,
   invalidateGuestChatCache,
   logout as logoutRequest,
@@ -67,6 +68,7 @@ export function AppProvider({ children }: AppProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const hasTrackedAppOpenRef = useRef(false);
+  const lastSubscriptionSyncAtRef = useRef(0);
   const appDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
     if (!__DEV__) return;
     const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
@@ -94,6 +96,28 @@ export function AppProvider({ children }: AppProviderProps) {
       });
       setIsAuthenticated(true);
       setAuthUser(me);
+      try {
+        const synced = await syncSubscriptionState();
+        appDebug('auth:hydrate:sync:success', {
+          userId: me?.id ?? null,
+          syncedTier: synced.tier,
+          syncedStatus: synced.status,
+        });
+        setAuthUser((previous) => {
+          if (!previous || previous.id !== me.id) return previous;
+          if (previous.subscriptionTier === synced.tier) return previous;
+          return {
+            ...previous,
+            subscriptionTier: synced.tier,
+          };
+        });
+      } catch (syncError) {
+        const message = syncError instanceof Error ? syncError.message : 'unknown';
+        appDebug('auth:hydrate:sync:error', {
+          userId: me?.id ?? null,
+          message,
+        });
+      }
     } catch {
       appDebug('auth:hydrate:error');
       invalidateAuthenticatedChatCache();
@@ -103,6 +127,35 @@ export function AppProvider({ children }: AppProviderProps) {
       setAuthUser(null);
     }
   }, [appDebug]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !isAuthenticated || !authUser?.id) return;
+      if (Date.now() - lastSubscriptionSyncAtRef.current < 12_000) return;
+      lastSubscriptionSyncAtRef.current = Date.now();
+      void syncSubscriptionState()
+        .then((synced) => {
+          appDebug('appState:subscriptionSync:success', {
+            userId: authUser.id,
+            syncedTier: synced.tier,
+            syncedStatus: synced.status,
+          });
+          setAuthUser((previous) => {
+            if (!previous || previous.id !== authUser.id) return previous;
+            if (previous.subscriptionTier === synced.tier) return previous;
+            return {
+              ...previous,
+              subscriptionTier: synced.tier,
+            };
+          });
+        })
+        .catch((syncError) => {
+          const message = syncError instanceof Error ? syncError.message : 'unknown';
+          appDebug('appState:subscriptionSync:error', { userId: authUser.id, message });
+        });
+    });
+    return () => sub.remove();
+  }, [appDebug, authUser?.id, isAuthenticated]);
 
   useEffect(() => {
     setupAuthInterceptor();

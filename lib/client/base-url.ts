@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-export const PROD_BASE_URL = 'https://cafaapi.niveel.com/api/v1';
+export const PROD_BASE_URL = 'https://cafaapi.niveel.com/api/v1'; 
 
 function getExpoHost() {
   const expoConfigHostUri = (Constants.expoConfig as { hostUri?: string } | null)?.hostUri;
@@ -14,7 +14,18 @@ function getExpoHost() {
 const detectedHost = getExpoHost();
 const FALLBACK_DEV_HOST = '172.31.48.1';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
-const resolvedHost = LOOPBACK_HOSTS.has(detectedHost) ? '' : detectedHost;
+const EXPO_TUNNEL_HOST_SUFFIXES = ['.exp.direct', '.exp.host', '.expo.dev'];
+
+function isExpoTunnelHost(host: string) {
+  return EXPO_TUNNEL_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
+const shouldIgnoreDetectedHost =
+  !detectedHost
+  || LOOPBACK_HOSTS.has(detectedHost)
+  || isExpoTunnelHost(detectedHost);
+
+const resolvedHost = shouldIgnoreDetectedHost ? '' : detectedHost;
 
 export const DEV_BASE_URL = `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
 

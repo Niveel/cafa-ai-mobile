@@ -82,6 +82,7 @@ import {
   createGuestConversation,
   ensureGuestSession,
   generateImage,
+  syncSubscriptionState,
   getSubscriptionOverview,
   getAuthenticatedConversation,
   getGuestConversation,
@@ -640,11 +641,16 @@ export default function ChatScreen() {
     try {
       await restorePurchases();
       await refreshCustomerInfo();
+      const synced = await syncSubscriptionState().catch(() => null);
+      if (synced?.tier && synced.tier !== 'free') {
+        setAuthSubscriptionTier(synced.tier);
+      }
       homeDebug('restoreFromLimit:post-refresh', {
         authTier: authUser?.subscriptionTier ?? 'free',
         rcTier,
         backendTier,
         activeTier,
+        syncedTier: synced?.tier ?? null,
       });
 
       const timeoutAt = Date.now() + LIMIT_RESTORE_SYNC_TIMEOUT_MS;

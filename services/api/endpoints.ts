@@ -50,6 +50,7 @@ export const apiEndpoints = {
   subscriptions: {
     plans: `${API_BASE_PATH}/subscriptions/plans`,
     status: `${API_BASE_PATH}/subscriptions/status`,
+    sync: `${API_BASE_PATH}/subscriptions/sync`,
     checkout: `${API_BASE_PATH}/subscriptions/checkout`,
     portal: `${API_BASE_PATH}/subscriptions/portal`,
   },

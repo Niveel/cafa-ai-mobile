@@ -2,11 +2,13 @@ import { AxiosError, AxiosResponse } from 'axios';
 
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import {
+  CanonicalSubscriptionTier,
   DailyUsagePayload,
   SubscriptionOverview,
   SubscriptionLifecycle,
   SubscriptionPlansPayload,
   SubscriptionStatus,
+  SubscriptionSyncPayload,
   SubscriptionTier,
   UsageSnapshot,
 } from '@/types';
@@ -59,6 +61,46 @@ export function invalidateBillingCache() {
   overviewCache = null;
   plansCache = null;
   usageCache = null;
+}
+
+export function mapSubscriptionTierToInternal(
+  tier: SubscriptionTier | CanonicalSubscriptionTier | null | undefined,
+): SubscriptionTier {
+  const normalized = (tier ?? '').toString().trim().toLowerCase();
+  if (normalized === 'cafa_max' || normalized === 'max') return 'cafa_max';
+  if (normalized === 'cafa_pro' || normalized === 'pro') return 'cafa_pro';
+  if (normalized === 'cafa_smart' || normalized === 'smart') return 'cafa_smart';
+  return 'free';
+}
+
+export async function syncSubscriptionState() {
+  try {
+    const response: AxiosResponse<{ data: SubscriptionSyncPayload }> = await apiClient.post(
+      apiEndpoints.subscriptions.sync,
+      {},
+    );
+    const data = response.data.data ?? {};
+    const tier = mapSubscriptionTierToInternal(data.internal_tier ?? data.tier);
+    const scheduledTier =
+      data.scheduled_tier == null
+        ? null
+        : mapSubscriptionTierToInternal(data.scheduled_tier);
+
+    invalidateBillingCache();
+
+    return {
+      tier,
+      status: data.status ?? 'unknown',
+      productId: data.product_id ?? null,
+      currentPeriodEnd: data.current_period_end ?? null,
+      scheduledTier,
+      scheduledChangeAt: data.scheduled_change_at ?? null,
+      internalTier: data.internal_tier ? mapSubscriptionTierToInternal(data.internal_tier) : null,
+      raw: data,
+    };
+  } catch (error) {
+    throw mapApiError(error);
+  }
 }
 
 export async function getSubscriptionStatus() {

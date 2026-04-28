@@ -14,12 +14,13 @@ import {
   getDailyUsage,
   getSubscriptionOverview,
   getSubscriptionPlans,
+  syncSubscriptionState,
 } from '@/features';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { purchasePackage } from '@/services/revenuecat/purchases';
-import { openIosSubscriptionManagement } from '@/services/revenuecat';
+import { getRevenueCatAppUserId, identifyUser, openIosSubscriptionManagement } from '@/services/revenuecat';
 import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/entitlements';
 import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
@@ -140,7 +141,7 @@ function normalizeUsageAndLimits(
 }
 
 export default function PlansScreen() {
-  const { setAuthSubscriptionTier, refreshAuthUser } = useAppContext();
+  const { authUser, setAuthSubscriptionTier, refreshAuthUser } = useAppContext();
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
@@ -160,6 +161,8 @@ export default function PlansScreen() {
   const [isRefreshingOfferings, setIsRefreshingOfferings] = useState(false);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
   const lastForegroundRefreshAtRef = useRef(0);
+  const lastSyncAtRef = useRef(0);
+  const syncInFlightRef = useRef<Promise<Awaited<ReturnType<typeof syncSubscriptionState>> | null> | null>(null);
   const portalFlowActiveRef = useRef(false);
   const latestSubscriptionRef = useRef<{ tier: SubscriptionTier; status: string } | null>(null);
   const plansDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
@@ -207,6 +210,45 @@ export default function PlansScreen() {
     }
   }, [plansDebug]);
 
+  const syncSubscriptionAndApplyTier = useCallback(async (options?: { force?: boolean }) => {
+    const now = Date.now();
+    const minIntervalMs = 8_000;
+    if (!options?.force && now - lastSyncAtRef.current < minIntervalMs) {
+      plansDebug('syncEndpoint:skipped', { reason: 'throttled' });
+      return null;
+    }
+    if (syncInFlightRef.current) {
+      return syncInFlightRef.current;
+    }
+
+    syncInFlightRef.current = (async () => {
+      try {
+        lastSyncAtRef.current = Date.now();
+        const synced = await syncSubscriptionState();
+        setAuthSubscriptionTier(synced.tier);
+        plansDebug('syncEndpoint:resolved', {
+          tier: synced.tier,
+          status: synced.status,
+          scheduledTier: synced.scheduledTier,
+          scheduledChangeAt: synced.scheduledChangeAt,
+        });
+        return synced;
+      } catch (error) {
+        const typed = error as { status?: number; code?: string; message?: string } | undefined;
+        const message = typed?.message ?? (error instanceof Error ? error.message : 'unknown');
+        if (typed?.status === 429 || typed?.code === 'RATE_LIMIT_EXCEEDED') {
+          plansDebug('syncEndpoint:rate-limited', { status: typed?.status ?? null, code: typed?.code ?? null, message });
+          return null;
+        }
+        throw error;
+      } finally {
+        syncInFlightRef.current = null;
+      }
+    })();
+
+    return syncInFlightRef.current;
+  }, [plansDebug, setAuthSubscriptionTier]);
+
   const syncSubscriptionAfterCheckout = useCallback((
     requestedTier: SubscriptionTier,
     baseline?: { tier: SubscriptionTier; status: string } | null,
@@ -221,6 +263,9 @@ export default function PlansScreen() {
     const run = async () => {
       while (Date.now() < timeoutAt) {
         try {
+          if (attempt === 0 || attempt % 3 === 0) {
+            await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
+          }
           const latest = await getSubscriptionOverview({ force: true });
           setOverview(latest);
           latestSubscriptionRef.current = {
@@ -265,7 +310,7 @@ export default function PlansScreen() {
         } catch {
           // keep polling until timeout
         }
-        const pollDelayMs = attempt < 8 ? 2_500 : 5_000;
+        const pollDelayMs = attempt < 4 ? 5_000 : 8_000;
         attempt += 1;
         await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
       }
@@ -274,7 +319,7 @@ export default function PlansScreen() {
     };
 
     return run();
-  }, [loadBillingData, plansDebug, refreshAuthUser, t]);
+  }, [loadBillingData, plansDebug, refreshAuthUser, syncSubscriptionAndApplyTier, t]);
 
   const syncSubscriptionAfterPortalReturn = useCallback(async () => {
     const previous = latestSubscriptionRef.current;
@@ -333,6 +378,7 @@ export default function PlansScreen() {
       setLoading(true);
       setStatusText('');
       try {
+        await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
         await loadBillingData({ force: true });
       } catch (error) {
         setStatusText(
@@ -344,7 +390,7 @@ export default function PlansScreen() {
     };
 
     void run();
-  }, [loadBillingData, t]);
+  }, [loadBillingData, syncSubscriptionAndApplyTier, t]);
 
   useEffect(() => {
     if (!overview?.subscription.tier) return;
@@ -358,12 +404,15 @@ export default function PlansScreen() {
   useFocusEffect(
     useCallback(() => {
       // Drawer screens can stay mounted; refresh usage every time plans is focused.
-      void loadBillingData({ force: true }).catch((error) => {
+      void (async () => {
+        await syncSubscriptionAndApplyTier().catch(() => null);
+        await loadBillingData({ force: true });
+      })().catch((error) => {
         const message = toErrorMessage(error);
         console.log(`[plans-focus-refresh:error] message="${message}"`);
       });
       return () => {};
-    }, [loadBillingData]),
+    }, [loadBillingData, syncSubscriptionAndApplyTier]),
   );
 
   useEffect(() => {
@@ -397,7 +446,10 @@ export default function PlansScreen() {
       }
       if (Date.now() - lastForegroundRefreshAtRef.current < 12_000) return;
       lastForegroundRefreshAtRef.current = Date.now();
-      void loadBillingData().catch((error) => {
+      void (async () => {
+        await syncSubscriptionAndApplyTier().catch(() => null);
+        await loadBillingData();
+      })().catch((error) => {
         const typedError = error as { code?: string; status?: number } | undefined;
         const message = toErrorMessage(error);
         console.log(
@@ -406,7 +458,7 @@ export default function PlansScreen() {
       });
     });
     return () => sub.remove();
-  }, [loadBillingData, syncSubscriptionAfterPortalReturn]);
+  }, [loadBillingData, syncSubscriptionAfterPortalReturn, syncSubscriptionAndApplyTier]);
 
   const currentTier = Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free');
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
@@ -607,6 +659,27 @@ export default function PlansScreen() {
     if (tier === 'free' || tier === currentTier) return;
 
     if (Platform.OS === 'ios') {
+      if (!authUser?.id) {
+        setStatusText('Please sign in again before purchasing.');
+        return;
+      }
+      try {
+        await identifyUser(authUser.id);
+        const rcAppUserId = await getRevenueCatAppUserId();
+        plansDebug('purchaseIdentity:check', {
+          expectedAppUserId: authUser.id,
+          rcAppUserId,
+        });
+        if (!rcAppUserId || rcAppUserId.startsWith('$RCAnonymousID:')) {
+          setStatusText('Subscription identity is still syncing. Please wait a few seconds and try again.');
+          return;
+        }
+      } catch (identityError) {
+        const message = identityError instanceof Error ? identityError.message : 'Failed to validate purchase identity.';
+        setStatusText(message);
+        return;
+      }
+
       const targetPlan = displayPlans.find(p => p.tier === tier) as any;
       if (!targetPlan?._rcPackage) return;
 
@@ -625,12 +698,19 @@ export default function PlansScreen() {
           resolvedTier,
           activeEntitlements: Object.keys(customerInfo?.entitlements?.active ?? {}),
           activeSubscriptions: customerInfo?.activeSubscriptions ?? [],
+          allPurchasedProductIdentifiers: (customerInfo as { allPurchasedProductIdentifiers?: string[] } | undefined)?.allPurchasedProductIdentifiers ?? [],
         });
         const requestedDowngrade = TIER_RANK[tier] < TIER_RANK[currentTier];
+        const syncedAfterPurchase = await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
+        const effectiveTier = syncedAfterPurchase?.tier ?? resolvedTier;
+        const didResolveToRequestedTier = effectiveTier === tier;
         const downgradeScheduled = requestedDowngrade && TIER_RANK[resolvedTier] > TIER_RANK[tier];
         const effectiveDate = getActiveExpirationDate(customerInfo);
         await refreshCustomerInfo();
-        setAuthSubscriptionTier(resolvedTier);
+        await syncSubscriptionAndApplyTier().catch(() => null);
+        if (resolvedTier !== 'free') {
+          setAuthSubscriptionTier(effectiveTier);
+        }
         await refreshAuthUser().catch(() => {});
         void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
 
@@ -642,6 +722,7 @@ export default function PlansScreen() {
           try {
             await restorePurchases();
             await refreshCustomerInfo();
+            await syncSubscriptionAndApplyTier().catch(() => null);
             await loadBillingData({ force: true });
             void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
           } catch {
@@ -657,6 +738,15 @@ export default function PlansScreen() {
               date: effectiveDate ? effectiveDate.toLocaleDateString() : 'the next renewal date',
             }),
           );
+        } else if (!didResolveToRequestedTier) {
+          // Apple may defer plan changes to the next billing cycle depending on
+          // subscription group level/duration rules.
+          const when = effectiveDate ? effectiveDate.toLocaleDateString() : 'the next renewal date';
+          if (TIER_RANK[tier] > TIER_RANK[effectiveTier]) {
+            setStatusText(`Purchase recorded. ${tierLabel(tier)} may take effect on ${when}. Current active plan is ${tierLabel(effectiveTier)}.`);
+          } else {
+            setStatusText(`Plan change is pending until ${when}. Current active plan is ${tierLabel(effectiveTier)}.`);
+          }
         } else {
           setStatusText(t('plans.planUpdatedInPlace', { plan: tierLabel(tier) }));
           setUpdatedTier(tier);
@@ -678,6 +768,7 @@ export default function PlansScreen() {
           try {
             await restorePurchases();
             await refreshCustomerInfo();
+            await syncSubscriptionAndApplyTier().catch(() => null);
             await loadBillingData({ force: true });
             await refreshAuthUser().catch(() => {});
             void syncSubscriptionAfterCheckout(tier, latestSubscriptionRef.current);
@@ -892,6 +983,7 @@ export default function PlansScreen() {
                   try {
                     await restorePurchases();
                     await refreshCustomerInfo();
+                    await syncSubscriptionAndApplyTier().catch(() => null);
                     await loadBillingData({ force: true });
                     await refreshAuthUser().catch(() => {});
                     plansDebug('restoreButton:resolved', {

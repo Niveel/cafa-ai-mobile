@@ -1,4 +1,5 @@
 export type SubscriptionTier = 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max';
+export type CanonicalSubscriptionTier = 'free' | 'smart' | 'pro' | 'max';
 
 export type SubscriptionStatus = {
   tier: SubscriptionTier;
@@ -87,4 +88,14 @@ export type DailyUsagePayload = {
       limit?: number | null;
     };
   };
+};
+
+export type SubscriptionSyncPayload = {
+  tier?: CanonicalSubscriptionTier | SubscriptionTier;
+  status?: string;
+  product_id?: string | null;
+  current_period_end?: string | null;
+  scheduled_tier?: CanonicalSubscriptionTier | SubscriptionTier | null;
+  scheduled_change_at?: string | null;
+  internal_tier?: SubscriptionTier | null;
 };

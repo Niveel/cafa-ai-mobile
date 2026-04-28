@@ -48,10 +48,18 @@ export function initRevenueCat() {
  */
 export async function identifyUser(userId: string): Promise<void> {
   if (!isRCEnabled) return;
+  await Purchases.logIn(userId);
+}
+
+export async function getRevenueCatAppUserId(): Promise<string | null> {
+  if (!isRCEnabled) return null;
   try {
-    await Purchases.logIn(userId);
+    return await Purchases.getAppUserID();
   } catch (error) {
-    console.warn('[revenuecat:identify] logIn failed', error);
+    if (__DEV__) {
+      console.log('[revenuecat:identify] getAppUserID failed', error);
+    }
+    return null;
   }
 }
 

@@ -24,7 +24,7 @@ type RevenueCatContextValue = RevenueCatState & {
 const RevenueCatContext = createContext<RevenueCatContextValue | undefined>(undefined);
 
 export function RevenueCatProvider({ children }: { children: ReactNode }) {
-  const { authUser, isAuthenticated, setAuthSubscriptionTier } = useAppContext();
+  const { authUser, isAuthenticated } = useAppContext();
   const [customerInfo, setCustomerInfo] = useState<RCCustomerInfo | null>(null);
   const [offering, setOffering] = useState<RCOffering | null>(null);
   const [isLoading, setIsLoading] = useState(isRCEnabled);
@@ -67,7 +67,6 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     });
     if (resolvedTier !== 'free') {
       rcDebug('reconcile:resolved-without-sync', { resolvedTier });
-      setAuthSubscriptionTier(resolvedTier);
       return resolvedInfo;
     }
 
@@ -89,14 +88,11 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
         activeEntitlements: Object.keys(syncedInfo?.entitlements?.active ?? {}),
         activeSubscriptions: syncedInfo?.activeSubscriptions ?? [],
       });
-      if (resolvedTier !== 'free') {
-        setAuthSubscriptionTier(resolvedTier);
-      }
       return resolvedInfo;
     } finally {
       isReconcilingRef.current = false;
     }
-  }, [authUser?.id, authUser?.subscriptionTier, isAuthenticated, rcDebug, setAuthSubscriptionTier]);
+  }, [authUser?.id, authUser?.subscriptionTier, isAuthenticated, rcDebug]);
 
   // ─── Init RC once on mount (iOS only) ────────────────────────────────────
   useEffect(() => {
@@ -177,7 +173,9 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   // ─── Derived state ────────────────────────────────────────────────────────
   const rcTier = resolveRCTier(customerInfo);
   const backendTier = authUser?.subscriptionTier || 'free';
-  const activeTier = isRCEnabled ? getHighestTier(rcTier, backendTier) : backendTier;
+  // For authenticated users, backend/sync is canonical source of truth.
+  // RC tier is still useful for diagnostics and purchase flow internals.
+  const activeTier = isAuthenticated ? backendTier : (isRCEnabled ? getHighestTier(rcTier, backendTier) : backendTier);
   const isPro = activeTier !== 'free';
 
   // ─── Actions ─────────────────────────────────────────────────────────────
