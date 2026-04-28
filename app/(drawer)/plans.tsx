@@ -22,7 +22,6 @@ import { useRevenueCat } from '@/context/RevenueCatContext';
 import { purchasePackage } from '@/services/revenuecat/purchases';
 import { getRevenueCatAppUserId, identifyUser, openIosSubscriptionManagement } from '@/services/revenuecat';
 import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/entitlements';
-import { API_BASE_URL } from '@/lib';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
 
@@ -165,11 +164,7 @@ export default function PlansScreen() {
   const syncInFlightRef = useRef<Promise<Awaited<ReturnType<typeof syncSubscriptionState>> | null> | null>(null);
   const portalFlowActiveRef = useRef(false);
   const latestSubscriptionRef = useRef<{ tier: SubscriptionTier; status: string } | null>(null);
-  const plansDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
-    if (!__DEV__) return;
-    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
-    console.log(`[plans-debug] ${event}${suffix}`);
-  }, []);
+  const plansDebug = useCallback((_event: string, _payload?: Record<string, unknown>) => {}, []);
 
   const toErrorMessage = (error: unknown) => {
     if (error instanceof Error) return error.message;
@@ -201,11 +196,6 @@ export default function PlansScreen() {
       setDailyUsage(nextDailyUsage);
       return nextOverview;
     } catch (error) {
-      const typedError = error as { code?: string; status?: number } | undefined;
-      const message = toErrorMessage(error);
-      console.log(
-        `[plans-load:error] endpoints=${API_BASE_URL}/subscriptions/status,${API_BASE_URL}/subscriptions/plans,${API_BASE_URL}/users/me/usage code=${typedError?.code ?? 'unknown'} status=${typedError?.status ?? 'unknown'} message="${message}"`,
-      );
       throw error;
     }
   }, [plansDebug]);
@@ -355,11 +345,7 @@ export default function PlansScreen() {
         }
       } catch (error) {
         hadError = true;
-        const typedError = error as { code?: string; status?: number } | undefined;
-        const message = toErrorMessage(error);
-        console.log(
-          `[plans-portal-sync:error] endpoints=${API_BASE_URL}/subscriptions/status,${API_BASE_URL}/subscriptions/plans,${API_BASE_URL}/users/me/usage code=${typedError?.code ?? 'unknown'} status=${typedError?.status ?? 'unknown'} message="${message}"`,
-        );
+        void error;
       }
       await new Promise((resolve) => setTimeout(resolve, 3_000));
     }
@@ -407,10 +393,7 @@ export default function PlansScreen() {
       void (async () => {
         await syncSubscriptionAndApplyTier().catch(() => null);
         await loadBillingData({ force: true });
-      })().catch((error) => {
-        const message = toErrorMessage(error);
-        console.log(`[plans-focus-refresh:error] message="${message}"`);
-      });
+      })().catch(() => {});
       return () => {};
     }, [loadBillingData, syncSubscriptionAndApplyTier]),
   );
@@ -418,7 +401,6 @@ export default function PlansScreen() {
   useEffect(() => {
     const handleUrl = (url: string | null | undefined) => {
       if (!url) return;
-      console.log(`[plans-linking:handle] url=${url}`);
       if (isBillingSuccessUrl(url, appScheme)) {
         router.replace('/billing/success');
       } else if (isBillingCancelUrl(url, appScheme)) {
@@ -431,7 +413,6 @@ export default function PlansScreen() {
     });
 
     const sub = Linking.addEventListener('url', (event) => {
-      console.log(`[plans-linking:event] url=${event.url}`);
       handleUrl(event.url);
     });
     return () => sub.remove();
@@ -449,13 +430,7 @@ export default function PlansScreen() {
       void (async () => {
         await syncSubscriptionAndApplyTier().catch(() => null);
         await loadBillingData();
-      })().catch((error) => {
-        const typedError = error as { code?: string; status?: number } | undefined;
-        const message = toErrorMessage(error);
-        console.log(
-          `[plans-foreground-refresh:error] endpoints=${API_BASE_URL}/subscriptions/status,${API_BASE_URL}/subscriptions/plans,${API_BASE_URL}/users/me/usage code=${typedError?.code ?? 'unknown'} status=${typedError?.status ?? 'unknown'} message="${message}"`,
-        );
-      });
+      })().catch(() => {});
     });
     return () => sub.remove();
   }, [loadBillingData, syncSubscriptionAfterPortalReturn, syncSubscriptionAndApplyTier]);
@@ -516,36 +491,28 @@ export default function PlansScreen() {
       try {
         const redirectUri = `${appScheme}://billing`;
         const authResult = await WebBrowser.openAuthSessionAsync(url, redirectUri);
-        console.log(
-          `[plans-redirect:auth-session] type=${authResult.type} redirectUri=${redirectUri} returnedUrl=${'url' in authResult ? authResult.url ?? 'none' : 'none'}`,
-        );
         if (authResult.type === 'success' && authResult.url) {
           const expectedSuccessPrefix = expectedSuccessUrl
             ? expectedSuccessUrl.replace('?session_id={CHECKOUT_SESSION_ID}', '')
             : null;
           if (expectedSuccessPrefix && authResult.url.startsWith(expectedSuccessPrefix)) {
-            console.log('[plans-redirect:route] matched=checkout-success-url');
             router.replace('/billing/success');
             return;
           }
           if (expectedCancelUrl && authResult.url.startsWith(expectedCancelUrl)) {
-            console.log('[plans-redirect:route] matched=checkout-cancel-url');
             router.replace('/billing/cancel');
             return;
           }
           if (isBillingSuccessUrl(authResult.url, appScheme)) {
-            console.log('[plans-redirect:route] matched=billing/success');
             router.replace('/billing/success');
             return;
           }
           if (isBillingCancelUrl(authResult.url, appScheme)) {
-            console.log('[plans-redirect:route] matched=billing/cancel');
             router.replace('/billing/cancel');
             return;
           }
         }
       } catch {
-        console.log('[plans-redirect:auth-session] failed, falling back to browser');
         // fallback below
       }
     }
@@ -557,17 +524,14 @@ export default function PlansScreen() {
       });
       return;
     } catch {
-      console.log('[plans-redirect:browser] openBrowserAsync failed, trying Linking.openURL');
       // Fallback below.
     }
 
     const canOpen = await Linking.canOpenURL(url);
-    console.log(`[plans-redirect:linking] canOpen=${canOpen}`);
     if (!canOpen) {
       throw new Error('Could not open Stripe checkout URL.');
     }
     await Linking.openURL(url);
-    console.log('[plans-redirect:linking] opened with Linking.openURL');
   };
 
   const openExternalLegalUrl = async (url: string) => {
@@ -644,9 +608,6 @@ export default function PlansScreen() {
       const isAlreadySubscribed = typedError?.code === 'ALREADY_SUBSCRIBED';
       const message = isAlreadySubscribed ? t('plans.alreadySubscribed') : rawMessage;
       await clearPendingBillingTier();
-      console.log(
-        `[plans-upgrade:error] endpoint=${API_BASE_URL}/subscriptions/checkout tier=${tier} currentTier=${currentTier} currentStatus=${overview?.subscription.status ?? 'unknown'} code=${typedError?.code ?? 'unknown'} status=${typedError?.status ?? 'unknown'} message="${rawMessage}"`,
-      );
       setStatusText(
         message,
       );
@@ -755,7 +716,6 @@ export default function PlansScreen() {
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : t('plans.checkoutError');
         plansDebug('requestUpgrade:ios:error', { requestedTier: tier, error: errorMsg });
-        console.log(`[plans-upgrade:ios] error="${errorMsg}"`);
         const lower = errorMsg.toLowerCase();
         const isAlreadyOwnedError =
           lower.includes('already')
@@ -817,9 +777,6 @@ export default function PlansScreen() {
         error instanceof Error
           ? error.message
           : t('plans.portalError');
-      console.log(
-        `[plans-portal:error] endpoint=${API_BASE_URL}/subscriptions/portal message="${message}"`,
-      );
       setStatusText(message);
     } finally {
       setIsPortalLoading(false);

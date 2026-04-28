@@ -31,11 +31,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const prevUserIdRef = useRef<string | null>(null);
   const isReconcilingRef = useRef(false);
-  const rcDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
-    if (!__DEV__) return;
-    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
-    console.log(`[rc-debug] ${event}${suffix}`);
-  }, []);
+  const rcDebug = useCallback((_event: string, _payload?: Record<string, unknown>) => {}, []);
 
   const refreshOffering = useCallback(async (): Promise<RCOffering | null> => {
     if (!isRCEnabled) return null;
@@ -121,11 +117,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isRCEnabled) return;
 
-    refreshOffering().catch((e) => {
-        if (__DEV__) {
-          console.warn('[revenuecat:context] fetchOffering failed', e);
-        }
-      });
+    refreshOffering().catch(() => {});
   }, [refreshOffering]);
 
   // ─── Identify / reset user when auth state changes ───────────────────────
@@ -155,9 +147,6 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
         .catch((e) => {
           const message = e instanceof Error ? e.message : 'Failed to load subscription info.';
           rcDebug('identify:error', { appUserId: currentId, message });
-          if (__DEV__) {
-             console.log('[revenuecat:context] identify/fetch failed', e);
-          }
           setError(message);
         })
         .finally(() => setIsLoading(false));

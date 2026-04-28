@@ -223,13 +223,8 @@ export default function ChatScreen() {
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { isAuthenticated, authUser, refreshAuthUser, setAuthSubscriptionTier } = useAppContext();
-  const { restorePurchases, refreshCustomerInfo, activeTier, rcTier, backendTier } = useRevenueCat();
+  const { restorePurchases, refreshCustomerInfo } = useRevenueCat();
   const { t, language } = useI18n();
-  const homeDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
-    if (!__DEV__) return;
-    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
-    console.log(`[home-debug] ${event}${suffix}`);
-  }, []);
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
       id: 'welcome-1',
@@ -625,12 +620,6 @@ export default function ChatScreen() {
   const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {
     if (Platform.OS !== 'ios' || !isAuthenticated || isLimitRestoreSyncing) return;
 
-    homeDebug('restoreFromLimit:start', {
-      authTier: authUser?.subscriptionTier ?? 'free',
-      rcTier,
-      backendTier,
-      activeTier,
-    });
     setIsLimitRestoreSyncing(true);
     if (noticeTimeoutRef.current) {
       clearTimeout(noticeTimeoutRef.current);
@@ -645,14 +634,6 @@ export default function ChatScreen() {
       if (synced?.tier && synced.tier !== 'free') {
         setAuthSubscriptionTier(synced.tier);
       }
-      homeDebug('restoreFromLimit:post-refresh', {
-        authTier: authUser?.subscriptionTier ?? 'free',
-        rcTier,
-        backendTier,
-        activeTier,
-        syncedTier: synced?.tier ?? null,
-      });
-
       const timeoutAt = Date.now() + LIMIT_RESTORE_SYNC_TIMEOUT_MS;
       let resolvedTier: 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max' = 'free';
       while (Date.now() < timeoutAt) {
@@ -663,11 +644,6 @@ export default function ChatScreen() {
           const isUsablePaidTier =
             latestTier !== 'free'
             && (latestStatus === 'active' || latestStatus === 'trialing' || latestStatus === 'past_due');
-          homeDebug('restoreFromLimit:poll', {
-            latestTier,
-            latestStatus,
-            isUsablePaidTier,
-          });
           if (isUsablePaidTier) {
             resolvedTier = latestTier;
             break;
@@ -681,57 +657,28 @@ export default function ChatScreen() {
       await refreshAuthUser().catch(() => {});
       if (resolvedTier !== 'free') {
         setAuthSubscriptionTier(resolvedTier);
-        homeDebug('restoreFromLimit:resolved-paid', { resolvedTier });
         setStatusNotice(t('plans.upgradeVerified', { plan: formatTierLabel(resolvedTier) }));
         setUpgradeNoticeKind(null);
         hapticSuccess();
       } else {
-        homeDebug('restoreFromLimit:resolved-free');
         setStatusNotice(t('plans.upgradeSyncPending'));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : t('plans.portalError');
-      homeDebug('restoreFromLimit:error', { message });
       setStatusNotice(message);
       hapticError();
     } finally {
       setIsLimitRestoreSyncing(false);
-      homeDebug('restoreFromLimit:end');
     }
   }, [
-    activeTier,
-    authUser?.subscriptionTier,
-    backendTier,
     formatTierLabel,
-    homeDebug,
     isAuthenticated,
     isLimitRestoreSyncing,
-    rcTier,
     refreshAuthUser,
     refreshCustomerInfo,
     restorePurchases,
     setAuthSubscriptionTier,
     t,
-  ]);
-
-  useEffect(() => {
-    homeDebug('snapshot', {
-      platform: Platform.OS,
-      isAuthenticated,
-      authTier: authUser?.subscriptionTier ?? 'free',
-      rcTier,
-      backendTier,
-      activeTier,
-      canAttachDocuments,
-    });
-  }, [
-    activeTier,
-    authUser?.subscriptionTier,
-    backendTier,
-    canAttachDocuments,
-    homeDebug,
-    isAuthenticated,
-    rcTier,
   ]);
 
   const getFriendlyErrorMessage = useCallback((error: unknown, kind: 'chat' | 'image' | 'video' = 'chat') => {

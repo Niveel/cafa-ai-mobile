@@ -3,7 +3,7 @@ import Purchases from 'react-native-purchases';
 
 /**
  * RevenueCat iOS API key.
- * Android uses Stripe — RC is skipped entirely on Android.
+ * Android uses Stripe - RC is skipped entirely on Android.
  */
 const RC_IOS_API_KEY = process.env.EXPO_PUBLIC_RC_IOS_API_KEY?.trim() ?? '';
 
@@ -13,38 +13,24 @@ export const isRCEnabled = Platform.OS === 'ios';
 let hasConfiguredRevenueCat = false;
 
 /**
- * Initialize the RevenueCat SDK. Safe to call multiple times — SDK ignores
- * subsequent calls after the first configuration.
+ * Initialize the RevenueCat SDK. Safe to call multiple times.
  * Must be called before any other RC methods.
  */
 export function initRevenueCat() {
   if (Platform.OS !== 'ios') return;
   if (hasConfiguredRevenueCat) return;
-  if (!RC_IOS_API_KEY) {
-    console.warn('[revenuecat:init] EXPO_PUBLIC_RC_IOS_API_KEY is missing. RevenueCat is disabled for this build.');
-    return;
-  }
+  if (!RC_IOS_API_KEY) return;
 
   try {
-    // Use a custom log handler to prevent RevenueCat's default console.error
-    // from crashing the app in production or showing redboxes in dev.
-    Purchases.setLogHandler((logLevel, message) => {
-      if (__DEV__) {
-        // Just console.log the messages even if they are errors, to avoid redboxes
-        console.log(`[RC Log] [${logLevel}] ${message}`);
-      }
-    });
     Purchases.configure({ apiKey: RC_IOS_API_KEY });
     hasConfiguredRevenueCat = true;
-  } catch (error) {
-    console.warn('[revenuecat:init] configure failed. RevenueCat is disabled for this session.', error);
+  } catch {
+    // Keep RC disabled for this session.
   }
 }
 
 /**
  * Identify the logged-in user to RevenueCat.
- * Using authUser.id (MongoDB _id) as the RC app user ID ensures
- * RC webhooks can cross-reference with your backend.
  */
 export async function identifyUser(userId: string): Promise<void> {
   if (!isRCEnabled) return;
@@ -55,31 +41,25 @@ export async function getRevenueCatAppUserId(): Promise<string | null> {
   if (!isRCEnabled) return null;
   try {
     return await Purchases.getAppUserID();
-  } catch (error) {
-    if (__DEV__) {
-      console.log('[revenuecat:identify] getAppUserID failed', error);
-    }
+  } catch {
     return null;
   }
 }
 
 /**
  * Reset RevenueCat user on sign-out.
- * This reverts to an anonymous RC user so the next login starts fresh.
  */
 export async function resetUser(): Promise<void> {
   if (!isRCEnabled) return;
   try {
     await Purchases.logOut();
-  } catch (error) {
-    // logOut throws if the user is already anonymous — safe to ignore
-    console.warn('[revenuecat:reset] logOut failed (may be anonymous already)', error);
+  } catch {
+    // logOut throws if the user is already anonymous.
   }
 }
 
 /**
  * Open the App Store subscription management page on iOS.
- * Users can cancel RevenueCat-managed App Store subscriptions there.
  */
 export async function openIosSubscriptionManagement(): Promise<void> {
   if (Platform.OS !== 'ios') {

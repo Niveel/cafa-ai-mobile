@@ -9,19 +9,8 @@ import type { RCCustomerInfo, RCOffering, RCPackage } from '@/types/revenuecat.t
 export async function fetchCustomerInfo(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    const info = await Purchases.getCustomerInfo();
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] fetchCustomerInfo:resolved', {
-        appUserId: info?.originalAppUserId ?? null,
-        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
-        activeSubscriptions: info?.activeSubscriptions ?? [],
-      });
-    }
-    return info;
-  } catch (error) {
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] fetchCustomerInfo failed', error);
-    }
+    return await Purchases.getCustomerInfo();
+  } catch {
     return null;
   }
 }
@@ -35,10 +24,7 @@ export async function fetchOffering(): Promise<RCOffering | null> {
   try {
     const offerings = await Purchases.getOfferings();
     return offerings.current ?? null;
-  } catch (error) {
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] fetchOffering failed', error);
-    }
+  } catch {
     return null;
   }
 }
@@ -63,19 +49,8 @@ export async function purchasePackage(pkg: RCPackage): Promise<RCCustomerInfo> {
 export async function restorePurchases(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    const info = await Purchases.restorePurchases();
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] restorePurchases:resolved', {
-        appUserId: info?.originalAppUserId ?? null,
-        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
-        activeSubscriptions: info?.activeSubscriptions ?? [],
-      });
-    }
-    return info;
+    return await Purchases.restorePurchases();
   } catch (error) {
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] restorePurchases failed', error);
-    }
     throw error;
   }
 }
@@ -87,19 +62,8 @@ export async function restorePurchases(): Promise<RCCustomerInfo | null> {
 export async function syncPurchases(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    const info = await Purchases.syncPurchases();
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] syncPurchases:resolved', {
-        appUserId: info?.originalAppUserId ?? null,
-        activeEntitlements: Object.keys(info?.entitlements?.active ?? {}),
-        activeSubscriptions: info?.activeSubscriptions ?? [],
-      });
-    }
-    return info;
-  } catch (error) {
-    if (__DEV__) {
-      console.log('[revenuecat:purchases] syncPurchases failed', error);
-    }
+    return await Purchases.syncPurchases();
+  } catch {
     return null;
   }
 }

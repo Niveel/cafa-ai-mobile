@@ -69,11 +69,6 @@ export function AppProvider({ children }: AppProviderProps) {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const hasTrackedAppOpenRef = useRef(false);
   const lastSubscriptionSyncAtRef = useRef(0);
-  const appDebug = useCallback((event: string, payload?: Record<string, unknown>) => {
-    if (!__DEV__) return;
-    const suffix = payload ? ` ${JSON.stringify(payload)}` : '';
-    console.log(`[app-debug] ${event}${suffix}`);
-  }, []);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
 
@@ -90,19 +85,10 @@ export function AppProvider({ children }: AppProviderProps) {
       }
 
       const me = await fetchCurrentUser();
-      appDebug('auth:hydrate:success', {
-        userId: me?.id ?? null,
-        subscriptionTier: me?.subscriptionTier ?? 'free',
-      });
       setIsAuthenticated(true);
       setAuthUser(me);
       try {
         const synced = await syncSubscriptionState();
-        appDebug('auth:hydrate:sync:success', {
-          userId: me?.id ?? null,
-          syncedTier: synced.tier,
-          syncedStatus: synced.status,
-        });
         setAuthUser((previous) => {
           if (!previous || previous.id !== me.id) return previous;
           if (previous.subscriptionTier === synced.tier) return previous;
@@ -112,21 +98,16 @@ export function AppProvider({ children }: AppProviderProps) {
           };
         });
       } catch (syncError) {
-        const message = syncError instanceof Error ? syncError.message : 'unknown';
-        appDebug('auth:hydrate:sync:error', {
-          userId: me?.id ?? null,
-          message,
-        });
+        void syncError;
       }
     } catch {
-      appDebug('auth:hydrate:error');
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
       await clearSessionTokens();
       setIsAuthenticated(false);
       setAuthUser(null);
     }
-  }, [appDebug]);
+  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -135,11 +116,6 @@ export function AppProvider({ children }: AppProviderProps) {
       lastSubscriptionSyncAtRef.current = Date.now();
       void syncSubscriptionState()
         .then((synced) => {
-          appDebug('appState:subscriptionSync:success', {
-            userId: authUser.id,
-            syncedTier: synced.tier,
-            syncedStatus: synced.status,
-          });
           setAuthUser((previous) => {
             if (!previous || previous.id !== authUser.id) return previous;
             if (previous.subscriptionTier === synced.tier) return previous;
@@ -150,12 +126,11 @@ export function AppProvider({ children }: AppProviderProps) {
           });
         })
         .catch((syncError) => {
-          const message = syncError instanceof Error ? syncError.message : 'unknown';
-          appDebug('appState:subscriptionSync:error', { userId: authUser.id, message });
+          void syncError;
         });
     });
     return () => sub.remove();
-  }, [appDebug, authUser?.id, isAuthenticated]);
+  }, [authUser?.id, isAuthenticated]);
 
   useEffect(() => {
     setupAuthInterceptor();
@@ -254,25 +229,12 @@ export function AppProvider({ children }: AppProviderProps) {
     setAuthUser((previous) => {
       if (!previous) return previous;
       if (previous.subscriptionTier === tier) return previous;
-      appDebug('auth:setSubscriptionTier', {
-        userId: previous.id,
-        previousTier: previous.subscriptionTier ?? 'free',
-        nextTier: tier,
-      });
       return {
         ...previous,
         subscriptionTier: tier,
       };
     });
-  }, [appDebug]);
-
-  useEffect(() => {
-    appDebug('auth:snapshot', {
-      isAuthenticated,
-      userId: authUser?.id ?? null,
-      subscriptionTier: authUser?.subscriptionTier ?? 'free',
-    });
-  }, [appDebug, authUser?.id, authUser?.subscriptionTier, isAuthenticated]);
+  }, []);
 
   const completeOnboarding = useCallback(() => {
     setHasCompletedOnboarding(true);
