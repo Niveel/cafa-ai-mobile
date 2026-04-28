@@ -31,4 +31,6 @@ export const DEV_BASE_URL = `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/ap
 
 const envBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
-export const API_BASE_URL = envBaseUrl ?? (__DEV__ ? DEV_BASE_URL : PROD_BASE_URL);
+export const API_BASE_URL = __DEV__
+  ? (envBaseUrl ?? DEV_BASE_URL)
+  : PROD_BASE_URL;
