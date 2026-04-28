@@ -323,6 +323,48 @@ export async function sendGuestMessageStream(
 ) {
   invalidateGuestChatCache(conversationId);
   guestListCache = null;
+  const emitReplayPayload = async (
+    payload: GuestApiResponse<{
+      replayed?: boolean;
+      messageId?: string;
+      requestId?: string;
+      message?: {
+        _id?: string;
+        content?: string;
+      };
+    }> | null,
+  ) => {
+    if (!payload?.success) {
+      throw toGuestApiError(payload?.message ?? 'Invalid guest message response.');
+    }
+
+    const assistantContent = payload.data?.message?.content ?? '';
+    const assistantMessageId = payload.data?.message?._id ?? payload.data?.messageId;
+
+    if (assistantContent) {
+      for (let index = 0; index < assistantContent.length; index += FALLBACK_CHUNK_SIZE) {
+        const chunk = assistantContent.slice(index, index + FALLBACK_CHUNK_SIZE);
+        onEvent({ type: 'delta', content: chunk, requestId: payload.data?.requestId });
+        await sleep(FALLBACK_CHUNK_DELAY_MS);
+      }
+    } else if (assistantMessageId) {
+      try {
+        const detail = await getGuestConversation(conversationId, { force: true });
+        const replayedMessage = detail.messages
+          .slice()
+          .reverse()
+          .find((item) => item._id === assistantMessageId && item.role === 'assistant');
+        if (replayedMessage?.content) {
+          onEvent({ type: 'delta', content: replayedMessage.content, requestId: payload.data?.requestId });
+        }
+      } catch {
+        // best-effort replay resolution
+      }
+    }
+
+    onEvent({ type: 'done', messageId: assistantMessageId, requestId: payload.data?.requestId });
+  };
+
   const sendNonStreamFallback = async () => {
     const nonStreamResponse = await withGuestAuth(
       `/guest/chat/${conversationId}/messages`,
@@ -355,36 +397,7 @@ export async function sendGuestMessageStream(
         content?: string;
       };
     }> | null;
-
-    if (!payload?.success) {
-      throw toGuestApiError(payload?.message ?? 'Invalid guest message response.');
-    }
-
-    const assistantContent = payload.data?.message?.content ?? '';
-    const assistantMessageId = payload.data?.message?._id ?? payload.data?.messageId;
-
-    if (assistantContent) {
-      for (let index = 0; index < assistantContent.length; index += FALLBACK_CHUNK_SIZE) {
-        const chunk = assistantContent.slice(index, index + FALLBACK_CHUNK_SIZE);
-        onEvent({ type: 'delta', content: chunk, requestId: payload.data?.requestId });
-        await sleep(FALLBACK_CHUNK_DELAY_MS);
-      }
-    } else if (assistantMessageId) {
-      try {
-        const detail = await getGuestConversation(conversationId, { force: true });
-        const replayedMessage = detail.messages
-          .slice()
-          .reverse()
-          .find((item) => item._id === assistantMessageId && item.role === 'assistant');
-        if (replayedMessage?.content) {
-          onEvent({ type: 'delta', content: replayedMessage.content, requestId: payload.data?.requestId });
-        }
-      } catch {
-        // best-effort replay resolution
-      }
-    }
-
-    onEvent({ type: 'done', messageId: assistantMessageId, requestId: payload.data?.requestId });
+    await emitReplayPayload(payload);
   };
 
   const response = await withGuestAuth(
@@ -412,6 +425,19 @@ export async function sendGuestMessageStream(
 
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.includes('text/event-stream')) {
+    const payload = (await response.json().catch(() => null)) as GuestApiResponse<{
+      replayed?: boolean;
+      messageId?: string;
+      requestId?: string;
+      message?: {
+        _id?: string;
+        content?: string;
+      };
+    }> | null;
+    if (payload?.success) {
+      await emitReplayPayload(payload);
+      return;
+    }
     await sendNonStreamFallback();
     return;
   }

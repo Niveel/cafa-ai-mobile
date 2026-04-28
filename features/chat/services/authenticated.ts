@@ -82,6 +82,11 @@ export type AuthChatStreamEvent =
   | { type: 'delta'; content: string; requestId?: string; timestamp?: string }
   | { type: 'done'; tokens?: number; messageId?: string; requestId?: string; timestamp?: string }
   | { type: 'error'; code?: string; message: string; requestId?: string; timestamp?: string };
+type AuthSendDebugEvent =
+  | { stage: 'start'; endpoint: string; idempotencyKey: string; platform: string; transport: 'xhr' | 'fetch-web' }
+  | { stage: 'response'; endpoint: string; idempotencyKey: string; status: number; contentType: string | null; transport: string }
+  | { stage: 'error'; endpoint: string; idempotencyKey: string; message: string; transport: string }
+  | { stage: 'done'; endpoint: string; idempotencyKey: string; transport: string };
 
 type AuthReplayResponse = ApiResponse<{
   replayed?: boolean;
@@ -107,6 +112,7 @@ type AuthRefreshResponse = {
 
 type AuthSendError = Error & { status?: number; code?: string };
 type ChatCacheOptions = { force?: boolean };
+type AuthStreamTransportError = Error & { code?: string };
 
 let authRefreshPromise: Promise<string> | null = null;
 const AUTH_STREAM_DEBUG = false;
@@ -256,6 +262,12 @@ function parseSseChunk(chunk: string) {
 function createAuthSendError(message: string, status?: number, code?: string): AuthSendError {
   const error = new Error(message) as AuthSendError;
   error.status = status;
+  error.code = code;
+  return error;
+}
+
+function createAuthStreamTransportError(message: string, code: string): AuthStreamTransportError {
+  const error = new Error(message) as AuthStreamTransportError;
   error.code = code;
   return error;
 }
@@ -471,6 +483,7 @@ export async function sendAuthenticatedMessageStream(
   onEvent: (event: AuthChatStreamEvent) => void,
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
+  onDebug?: (event: AuthSendDebugEvent) => void,
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -484,6 +497,14 @@ export async function sendAuthenticatedMessageStream(
   const selectedModelId =
     selectedModel === 'ultra' ? 'cafa_ultra' : selectedModel === 'smart' ? 'cafa_smart' : 'cafa_swift';
   const idempotencyKey = createIdempotencyKey();
+  const transport = Platform.OS !== 'web' ? 'xhr' : 'fetch-web';
+  onDebug?.({
+    stage: 'start',
+    endpoint,
+    idempotencyKey,
+    platform: Platform.OS,
+    transport,
+  });
   authStreamLog(
     'start',
     `endpoint=${endpoint} messageLen=${message.length} language=${language} model=${selectedModel} idempotencyKey=${idempotencyKey}`,
@@ -577,6 +598,14 @@ export async function sendAuthenticatedMessageStream(
       'fallback-json:response',
       `status=${replayResponse.status} contentType=${replayResponse.headers.get('content-type') ?? 'unknown'}`,
     );
+    onDebug?.({
+      stage: 'response',
+      endpoint,
+      idempotencyKey,
+      status: replayResponse.status,
+      contentType: replayResponse.headers.get('content-type'),
+      transport: 'fallback-json',
+    });
     if (!replayResponse.ok) {
       throw await parseHttpError(replayResponse, 'Could not send your message right now.');
     }
@@ -596,15 +625,26 @@ export async function sendAuthenticatedMessageStream(
       let lastOffset = 0;
       let buffer = '';
       let settled = false;
+      let streamAccepted = false;
+      let streamStarted = false;
+      let pendingErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
       const rejectOnce = (error: unknown) => {
         if (settled) return;
+        if (pendingErrorTimer) {
+          clearTimeout(pendingErrorTimer);
+          pendingErrorTimer = null;
+        }
         settled = true;
         reject(error);
       };
 
       const resolveOnce = () => {
         if (settled) return;
+        if (pendingErrorTimer) {
+          clearTimeout(pendingErrorTimer);
+          pendingErrorTimer = null;
+        }
         settled = true;
         resolve();
       };
@@ -617,6 +657,7 @@ export async function sendAuthenticatedMessageStream(
       xhr.onprogress = () => {
         const next = xhr.responseText.slice(lastOffset);
         if (!next) return;
+        streamStarted = true;
         lastOffset = xhr.responseText.length;
         buffer += next;
         authStreamLog('xhr:progress', `chunkLen=${next.length} totalLen=${xhr.responseText.length}`);
@@ -634,7 +675,12 @@ export async function sendAuthenticatedMessageStream(
             );
             onEvent(event);
             if (event.type === 'error') {
-              rejectOnce(new Error(event.message || 'Authenticated stream failed.'));
+              rejectOnce(
+                createAuthStreamTransportError(
+                  event.message || 'Authenticated stream failed.',
+                  'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+                ),
+              );
               return;
             }
           } catch {
@@ -645,7 +691,26 @@ export async function sendAuthenticatedMessageStream(
 
       xhr.onerror = () => {
         authStreamLog('xhr:error');
-        rejectOnce(new Error('Network request failed.'));
+        if (settled) return;
+        // Android can emit onerror just before onload for valid SSE responses.
+        // Briefly delay rejection so onload can win if status/content-type are valid.
+        if (pendingErrorTimer) {
+          clearTimeout(pendingErrorTimer);
+        }
+        pendingErrorTimer = setTimeout(() => {
+          if (settled) return;
+          pendingErrorTimer = null;
+          if (streamAccepted || streamStarted) {
+            rejectOnce(
+              createAuthStreamTransportError(
+                'Authenticated stream transport dropped after stream start.',
+                'AUTH_STREAM_DROPPED_AFTER_START',
+              ),
+            );
+            return;
+          }
+          rejectOnce(new Error('Network request failed.'));
+        }, 220);
       };
 
       xhr.onload = async () => {
@@ -653,6 +718,14 @@ export async function sendAuthenticatedMessageStream(
           'xhr:load',
           `status=${xhr.status} contentType=${xhr.getResponseHeader('content-type') ?? 'unknown'} bufferedLen=${buffer.length}`,
         );
+        onDebug?.({
+          stage: 'response',
+          endpoint,
+          idempotencyKey,
+          status: xhr.status,
+          contentType: xhr.getResponseHeader('content-type'),
+          transport: 'xhr',
+        });
         if (xhr.status === 401 && allowRefresh) {
           authStreamLog('xhr:401-refresh', 'refreshing token');
           void refreshAccessTokenForStreamSend()
@@ -675,6 +748,7 @@ export async function sendAuthenticatedMessageStream(
           return;
         }
 
+        streamAccepted = true;
         const contentType = xhr.getResponseHeader('content-type') ?? '';
         if (!contentType.includes('text/event-stream')) {
           authStreamLog('xhr:non-sse-response');
@@ -705,7 +779,12 @@ export async function sendAuthenticatedMessageStream(
               );
               onEvent(event);
               if (event.type === 'error') {
-                rejectOnce(new Error(event.message || 'Authenticated stream failed.'));
+                rejectOnce(
+                  createAuthStreamTransportError(
+                    event.message || 'Authenticated stream failed.',
+                    'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+                  ),
+                );
                 return;
               }
             }
@@ -720,31 +799,8 @@ export async function sendAuthenticatedMessageStream(
     });
   };
 
-  if (Platform.OS !== 'web') {
-    try {
-      await streamViaXhr();
-      return;
-    } catch {
-      authStreamLog('native:xhr-failed-fallback-json');
-      await runJsonReplayFallback();
-      return;
-    }
-  }
-
-  let response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      Accept: 'text/event-stream',
-      Authorization: `Bearer ${accessToken}`,
-      'Idempotency-Key': idempotencyKey,
-    },
-    body: buildFormData(),
-  });
-
-  if (response.status === 401) {
-    authStreamLog('web:401-refresh', 'refreshing token');
-    accessToken = await refreshAccessTokenForStreamSend();
-    response = await fetch(endpoint, {
+  const streamViaFetch = async (transportLabel: 'fetch-web', allowRefresh = true): Promise<void> => {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Accept: 'text/event-stream',
@@ -753,60 +809,122 @@ export async function sendAuthenticatedMessageStream(
       },
       body: buildFormData(),
     });
-  }
 
-  authStreamLog(
-    'web:response',
-    `status=${response.status} contentType=${response.headers.get('content-type') ?? 'unknown'}`,
-  );
-  if (!response.ok) {
-    throw await parseHttpError(response, 'Could not send your message right now.');
-  }
-
-  const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('text/event-stream')) {
-    const payload = (await response.json().catch(() => null)) as AuthReplayResponse | null;
-    if (!payload?.success) {
-      throw new Error(payload?.message ?? 'Missing response stream from authenticated chat.');
+    if (response.status === 401 && allowRefresh) {
+      authStreamLog(`${transportLabel}:401-refresh`, 'refreshing token');
+      accessToken = await refreshAccessTokenForStreamSend();
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Accept: 'text/event-stream',
+          Authorization: `Bearer ${accessToken}`,
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: buildFormData(),
+      });
     }
-    await emitFromReplay(payload.data);
-    return;
-  }
 
-  const reader = response.body?.getReader();
-  if (!reader) {
-    authStreamLog('web:no-reader-fallback-json');
-    await runJsonReplayFallback();
-    return;
-  }
+    authStreamLog(
+      `${transportLabel}:response`,
+      `status=${response.status} contentType=${response.headers.get('content-type') ?? 'unknown'}`,
+    );
+    onDebug?.({
+      stage: 'response',
+      endpoint,
+      idempotencyKey,
+      status: response.status,
+      contentType: response.headers.get('content-type'),
+      transport: transportLabel,
+    });
+    if (!response.ok) {
+      throw await parseHttpError(response, 'Could not send your message right now.');
+    }
 
-  const decoder = new TextDecoder();
-  let buffer = '';
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/event-stream')) {
+      const payload = (await response.json().catch(() => null)) as AuthReplayResponse | null;
+      if (!payload?.success) {
+        throw new Error(payload?.message ?? 'Missing response stream from authenticated chat.');
+      }
+      await emitFromReplay(payload.data);
+      return;
+    }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    const reader = response.body?.getReader();
+    if (!reader) {
+      authStreamLog(`${transportLabel}:no-reader`);
+      authStreamLog(`${transportLabel}:no-reader-fallback-json`);
+      await runJsonReplayFallback();
+      return;
+    }
 
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split(/\r?\n\r?\n/);
-    buffer = chunks.pop() ?? '';
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-    for (const chunk of chunks) {
-      const lines = chunk.split('\n');
-      const dataLine = lines.find((line) => line.startsWith('data:'));
-      if (!dataLine) continue;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      const raw = dataLine.replace(/^data:\s*/, '');
-      const event = JSON.parse(raw) as AuthChatStreamEvent;
-      authStreamLog(
-        'web:event',
-        `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
-      );
-      onEvent(event);
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split(/\r?\n\r?\n/);
+      buffer = chunks.pop() ?? '';
 
-      if (event.type === 'error') {
-        throw new Error(event.message || 'Authenticated stream failed.');
+      for (const chunk of chunks) {
+        if (!chunk.trim()) continue;
+        const event = parseSseChunk(chunk);
+        if (!event) continue;
+        authStreamLog(
+          `${transportLabel}:event`,
+          `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
+        );
+        onEvent(event);
+        if (event.type === 'error') {
+          throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
+        }
       }
     }
+
+    if (buffer.trim()) {
+      try {
+        const trailingChunks = buffer.split(/\r?\n\r?\n/).filter((chunk) => chunk.trim());
+        for (const trailingChunk of trailingChunks) {
+          const event = parseSseChunk(trailingChunk);
+          if (!event) continue;
+          onEvent(event);
+          if (event.type === 'error') {
+            throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
+          }
+        }
+      } catch {
+        // ignore trailing parse noise
+      }
+    }
+  };
+
+  if (Platform.OS !== 'web') {
+    try {
+      await streamViaXhr();
+      onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'xhr' });
+      return;
+    } catch (error) {
+      authStreamLog('native:xhr-failed-fallback-json');
+      try {
+        await runJsonReplayFallback();
+        onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'fallback-json' });
+      } catch (error) {
+        onDebug?.({
+          stage: 'error',
+          endpoint,
+          idempotencyKey,
+          message: error instanceof Error ? error.message : 'Unknown authenticated send error.',
+          transport: 'fallback-json',
+        });
+        throw error;
+      }
+      return;
+    }
   }
+
+  await streamViaFetch('fetch-web');
+  onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'fetch-web' });
 }

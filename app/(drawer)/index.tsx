@@ -7,6 +7,7 @@ import {
   Dimensions,
   Keyboard, 
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -149,10 +150,15 @@ type SharingModule = {
   shareAsync: (url: string, options?: { mimeType?: string; dialogTitle?: string }) => Promise<void>;
 };
 
+type ExpoWebBrowserModule = {
+  openBrowserAsync: (url: string) => Promise<unknown>;
+};
+
 let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
 let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
 let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
 let sharingModulePromise: Promise<SharingModule> | null = null;
+let webBrowserModulePromise: Promise<ExpoWebBrowserModule> | null = null;
 
 async function getExpoAudioModule() {
   if (!expoAudioModulePromise) {
@@ -203,6 +209,19 @@ async function getSharingModule() {
   } catch {
     sharingModulePromise = null;
     throw new Error('File sharing is unavailable in this build. Rebuild the app or update Expo Go.');
+  }
+}
+
+async function getWebBrowserModule() {
+  if (!webBrowserModulePromise) {
+    webBrowserModulePromise = import('expo-web-browser') as Promise<ExpoWebBrowserModule>;
+  }
+
+  try {
+    return await webBrowserModulePromise;
+  } catch {
+    webBrowserModulePromise = null;
+    throw new Error('In-app browser is unavailable in this build.');
   }
 }
 
@@ -300,6 +319,11 @@ export default function ChatScreen() {
   const videoGenerationInFlightRef = useRef(false);
   const videoAutoSyncInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
+  const isSendRunInFlightRef = useRef(false);
+  const lastSendAttemptAtRef = useRef(0);
+  const sendAttemptSeqRef = useRef(0);
+  const lastHandledNewChatTokenRef = useRef<string | null>(null);
+  const initialNewChatTokenRef = useRef<string | null>(null);
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
   const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
@@ -319,6 +343,22 @@ export default function ChatScreen() {
       placeholder: composerPlaceholder,
     });
   }, [composerPlaceholder]);
+
+  const openInAppBrowser = useCallback(async (url: string) => {
+    const target = url.trim();
+    if (!/^https?:\/\//i.test(target)) {
+      return;
+    }
+    try {
+      const WebBrowser = await getWebBrowserModule();
+      await WebBrowser.openBrowserAsync(target);
+    } catch {
+      const canOpen = await Linking.canOpenURL(target);
+      if (canOpen) {
+        await Linking.openURL(target);
+      }
+    }
+  }, []);
 
   const resolveBackendAssetUrl = useCallback((rawUrl?: string | null) => {
     if (!rawUrl) return null;
@@ -527,6 +567,21 @@ export default function ChatScreen() {
     }
   }, [mapAuthMessageToUiMessage]);
 
+  const reconcileAuthConversationAfterSend = useCallback(async (conversationId: string) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        const detail = await getAuthenticatedConversation(conversationId, { force: true });
+        if (detail.messages.length > 0) {
+          applyAuthConversationDetail(detail);
+          return;
+        }
+      } catch {
+        // retry until attempts exhausted
+      }
+      await new Promise((resolve) => setTimeout(resolve, 240));
+    }
+  }, [applyAuthConversationDetail]);
+
   useEffect(() => {
     if (!isAuthenticated) {
       setAssetAccessToken(null);
@@ -733,12 +788,20 @@ export default function ChatScreen() {
   ) => {
     const textColor = options?.textColor ?? colors.textPrimary;
     const isCode = options?.isCode ?? false;
-    if (isCode || (!content.includes('**') && !content.includes('*') && !content.includes('`'))) {
+    if (
+      isCode
+      || (
+        !content.includes('**')
+        && !content.includes('*')
+        && !content.includes('`')
+        && !content.includes('](')
+      )
+    ) {
       return content;
     }
 
     const result: ReactNode[] = [];
-    const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    const pattern = /(\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
     let lastIndex = 0;
     let matchIndex = 0;
     let match = pattern.exec(content);
@@ -749,7 +812,30 @@ export default function ChatScreen() {
       }
 
       const token = match[0];
-      if (token.startsWith('`') && token.endsWith('`')) {
+      if (token.startsWith('[')) {
+        const linkMatch = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(token);
+        if (linkMatch) {
+          const [, label, url] = linkMatch;
+          result.push(
+            <Text
+              key={`md-link-${matchIndex}`}
+              onPress={() => {
+                void openInAppBrowser(url);
+              }}
+              suppressHighlighting
+              style={{
+                color: colors.primary,
+                textDecorationLine: 'underline',
+                fontWeight: '600',
+              }}
+            >
+              {label}
+            </Text>,
+          );
+        } else {
+          result.push(token);
+        }
+      } else if (token.startsWith('`') && token.endsWith('`')) {
         result.push(
           <Text
             key={`md-code-${matchIndex}`}
@@ -790,7 +876,7 @@ export default function ChatScreen() {
     }
 
     return result.length ? result : content;
-  }, [colors.textPrimary, isDark]);
+  }, [colors.primary, colors.textPrimary, isDark, openInAppBrowser]);
 
   type PrismTokenNode = string | {
     type: string;
@@ -1262,13 +1348,43 @@ export default function ChatScreen() {
     const run = async () => {
       const trimmed = inputValueRef.current.trim();
       const attachmentsForSend = [...attachedAssets];
-      if ((!trimmed && attachmentsForSend.length === 0) || isSending) return;
+      const attemptId = ++sendAttemptSeqRef.current;
+      const now = Date.now();
+      const sinceLastAttemptMs = now - lastSendAttemptAtRef.current;
+      const SEND_DEBOUNCE_MS = 450;
+
+      if (!trimmed && attachmentsForSend.length === 0) {
+        return;
+      }
+
+      if (sinceLastAttemptMs < SEND_DEBOUNCE_MS) {
+        return;
+      }
+
+      if (isSendRunInFlightRef.current || isSending) {
+        return;
+      }
+      lastSendAttemptAtRef.current = now;
+      isSendRunInFlightRef.current = true;
+
       let lastEndpoint = `${API_BASE_URL}/chat`;
+      let lastIdempotencyKey = '';
+      let activeAuthConversationId: string | null = null;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
       let requestedVideoPrompt = '';
       let requestedVideoConversationId = '';
       let requestedVideoStartedAt = 0;
       let didMutateChats = false;
+      const sendStartedAt = Date.now();
+      let responseLogEmitted = false;
+      let assistantResponseBuffer = '';
+      const logParsedResponseForAttempt = (raw: string) => {
+        if (responseLogEmitted) return;
+        const parsedText = raw.trim();
+        if (!parsedText) return;
+        responseLogEmitted = true;
+        console.log(`[chat-response:parsed] attempt=${attemptId} ${parsedText}`);
+      };
 
       const userMessage: UiMessage = {
         id: `user-${Date.now()}`,
@@ -1366,12 +1482,14 @@ export default function ChatScreen() {
                   assistantFirstDeltaRef.current = true;
                   hapticSelection();
                 }
+                assistantResponseBuffer += event.content;
                 queueAssistantDelta(assistantId, event.content);
               }
               if (event.type === 'done') {
                 flushPendingAssistantDelta();
                 hapticSuccess();
                 setStreamingModelLabel(null);
+                logParsedResponseForAttempt(assistantResponseBuffer);
                 guestResponseCountRef.current += 1;
                 if (guestResponseCountRef.current >= guestUpsellNextAtRef.current) {
                   guestUpsellNextAtRef.current += 4;
@@ -1395,8 +1513,13 @@ export default function ChatScreen() {
           const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
           conversationId = created.conversationId;
           setAuthConversationId(conversationId);
+          router.setParams({ conversationId, newChat: undefined });
           didMutateChats = true;
         }
+        if (conversationId !== params.conversationId) {
+          router.setParams({ conversationId, newChat: undefined });
+        }
+        activeAuthConversationId = conversationId;
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         if (extractedVideoPrompt) {
@@ -1539,53 +1662,66 @@ export default function ChatScreen() {
         }
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
-        await sendAuthenticatedMessageStream(conversationId, trimmed, attachmentsForSend, (event) => {
-          if (event.type === 'meta') {
-            setStreamingModelLabel(
-              resolveModelBadgeLabel(event.model, activeModel),
-            );
-            if (event.messageId) {
-              const previousAssistantId = activeAssistantId;
-              activeAssistantId = event.messageId;
-              pendingAssistantIdRef.current = event.messageId;
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === previousAssistantId ? { ...message, id: event.messageId! } : message,
-                ),
+        await sendAuthenticatedMessageStream(
+          conversationId,
+          trimmed,
+          attachmentsForSend,
+          (event) => {
+            if (event.type === 'meta') {
+              setStreamingModelLabel(
+                resolveModelBadgeLabel(event.model, activeModel),
               );
-            }
-            return;
-          }
-
-          if (event.type === 'delta') {
-            if (!assistantFirstDeltaRef.current) {
-              assistantFirstDeltaRef.current = true;
-              hapticSelection();
-            }
-            queueAssistantDelta(activeAssistantId, event.content);
-            return;
-          }
-
-          if (event.type === 'done') {
-            flushPendingAssistantDelta();
-            hapticSuccess();
-            setStreamingModelLabel(null);
-            if (event.messageId) {
-              const previousAssistantId = activeAssistantId;
-              activeAssistantId = event.messageId;
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === previousAssistantId
-                    ? { ...message, id: event.messageId!, tokens: event.tokens }
-                    : message,
-                ),
-              );
-              void syncAssistantMessageAfterStream(conversationId, event.messageId, previousAssistantId);
+              if (event.messageId) {
+                const previousAssistantId = activeAssistantId;
+                activeAssistantId = event.messageId;
+                pendingAssistantIdRef.current = event.messageId;
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === previousAssistantId ? { ...message, id: event.messageId! } : message,
+                  ),
+                );
+              }
               return;
             }
-            void syncAssistantMessageAfterStream(conversationId, activeAssistantId, assistantId);
-          }
-        }, language, activeModel);
+
+            if (event.type === 'delta') {
+              if (!assistantFirstDeltaRef.current) {
+                assistantFirstDeltaRef.current = true;
+                hapticSelection();
+              }
+              assistantResponseBuffer += event.content;
+              queueAssistantDelta(activeAssistantId, event.content);
+              return;
+            }
+
+            if (event.type === 'done') {
+              flushPendingAssistantDelta();
+              hapticSuccess();
+              setStreamingModelLabel(null);
+              logParsedResponseForAttempt(assistantResponseBuffer);
+              if (event.messageId) {
+                const previousAssistantId = activeAssistantId;
+                activeAssistantId = event.messageId;
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === previousAssistantId
+                      ? { ...message, id: event.messageId!, tokens: event.tokens }
+                      : message,
+                  ),
+                );
+                void syncAssistantMessageAfterStream(conversationId, event.messageId, previousAssistantId);
+                return;
+              }
+              void syncAssistantMessageAfterStream(conversationId, activeAssistantId, assistantId);
+            }
+          },
+          language,
+          activeModel,
+          (debugEvent) => {
+            lastIdempotencyKey = debugEvent.idempotencyKey;
+          },
+        );
+        await reconcileAuthConversationAfterSend(conversationId);
         didMutateChats = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
@@ -1593,6 +1729,7 @@ export default function ChatScreen() {
         const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
+        const isAuthStreamTransportError = code.startsWith('AUTH_STREAM_');
         const delayedVideoError =
           requestKind === 'video'
           && (
@@ -1605,6 +1742,37 @@ export default function ChatScreen() {
         }
         if (requestKind === 'video') {
           videoGenerationInFlightRef.current = false;
+        }
+        if (isAuthenticated && isAuthStreamTransportError) {
+          const recoveryConversationId = activeAuthConversationId ?? authConversationId;
+          if (recoveryConversationId) {
+            for (let recoveryAttempt = 1; recoveryAttempt <= 3; recoveryAttempt += 1) {
+              try {
+                await new Promise((resolve) => setTimeout(resolve, 260 * recoveryAttempt));
+                const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
+                const hasAssistantReply = detail.messages
+                  .slice()
+                  .reverse()
+                  .some((item) => item.role === 'assistant' && item.content.trim().length > 0);
+                if (!hasAssistantReply) continue;
+                applyAuthConversationDetail(detail);
+                const recoveredAssistant = [...detail.messages]
+                  .reverse()
+                  .find((item) => (
+                    item.role === 'assistant'
+                    && item.content.trim().length > 0
+                    && new Date(item.createdAt).getTime() >= sendStartedAt - 2000
+                  ));
+                if (recoveredAssistant) {
+                  logParsedResponseForAttempt(recoveredAssistant.content);
+                }
+                didMutateChats = true;
+                return;
+              } catch {
+                // continue recovery retries
+              }
+            }
+          }
         }
         if (delayedVideoError) {
           const delayedMessage = t('chat.videoGenerationDelayed');
@@ -1634,7 +1802,6 @@ export default function ChatScreen() {
         if (isLimitError) {
           showLimitNotice(requestKind);
         }
-        console.log(`[chat-send:error] endpoint=${lastEndpoint} message="${message}"`);
         hapticError();
         setStreamingModelLabel(null);
 
@@ -1661,6 +1828,7 @@ export default function ChatScreen() {
         }
         setStreamingModelLabel(null);
         setIsSending(false);
+        isSendRunInFlightRef.current = false;
         if (didMutateChats) {
           emitChatMutated();
         }
@@ -2269,6 +2437,7 @@ export default function ChatScreen() {
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         )[0];
         setAuthConversationId(latest.id);
+        router.setParams({ conversationId: latest.id, newChat: undefined });
 
         const detail = await getAuthenticatedConversation(latest.id);
         if (!detail.messages.length) {
@@ -2306,14 +2475,23 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
-    const shouldStartNewChat = typeof params.newChat === 'string' && params.newChat.trim().length > 0;
+    const newChatToken = typeof params.newChat === 'string' ? params.newChat.trim() : '';
+    if (initialNewChatTokenRef.current === null) {
+      initialNewChatTokenRef.current = newChatToken || '';
+    }
+    const shouldStartNewChat =
+      newChatToken.length > 0
+      && newChatToken !== initialNewChatTokenRef.current
+      && newChatToken !== lastHandledNewChatTokenRef.current;
     if (shouldStartNewChat) {
+      lastHandledNewChatTokenRef.current = newChatToken;
       setAuthConversationId(null);
       setGuestConversationId(null);
       setInput('');
       inputValueRef.current = '';
       setAttachedAssets([]);
       setMessages([createWelcomeMessage()]);
+      router.setParams({ newChat: undefined, conversationId: undefined });
       return;
     }
     if (!targetConversationId) return;
