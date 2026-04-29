@@ -672,11 +672,7 @@ export default function ChatScreen() {
     setUpgradeNoticeKind(kind);
     setStatusNotice(getLimitNoticeMessage(kind));
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
-    noticeTimeoutRef.current = setTimeout(() => {
-      setStatusNotice('');
-      setUpgradeNoticeKind(null);
-      noticeTimeoutRef.current = null;
-    }, 5200);
+    noticeTimeoutRef.current = null;
   }, [getLimitNoticeMessage]);
 
   const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {

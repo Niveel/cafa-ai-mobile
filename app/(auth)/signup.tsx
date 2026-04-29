@@ -91,6 +91,7 @@ export default function SignupScreen() {
                         const mapped = error as { code?: string; status?: number; message?: string };
                         const code = (mapped?.code ?? '').toUpperCase();
                         const message = mapped?.message ?? t('auth.signupFailed');
+                        const devOtp = extractDevOtpFromMessage(message);
                         const isEmailConflict =
                           mapped?.status === 409 ||
                           code.includes('EMAIL') ||
@@ -105,6 +106,17 @@ export default function SignupScreen() {
                         console.log(
                           `[signup-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.register} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
                         );
+                        if (devOtp) {
+                          router.push({
+                            pathname: '/(auth)/verify-otp',
+                            params: {
+                              email,
+                              flow: 'signup',
+                              devOtp,
+                            },
+                          });
+                          return;
+                        }
                         setAuthError(finalMessage);
                       }
                     }}
@@ -153,4 +165,12 @@ export default function SignupScreen() {
       </KeyboardAvoidingView>
     </AppScreen>
   );
+}
+
+function extractDevOtpFromMessage(message?: string) {
+  if (!__DEV__ || !message) return '';
+  const normalized = message.toLowerCase();
+  if (!normalized.includes('devotp') && !normalized.includes('dev otp') && !normalized.includes('verification code')) return '';
+  const match = message.match(/\b(\d{6})\b/);
+  return match ? match[1] : '';
 }

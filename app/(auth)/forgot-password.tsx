@@ -72,19 +72,30 @@ export default function ForgotPasswordScreen() {
                       setNotice('');
                       const email = values.email.trim();
                       try {
-                        await forgotPasswordRequest(email);
-                        setNotice('If that email is registered, a reset code has been sent');
+                        const response = await forgotPasswordRequest(email);
+                        const message = response?.message ?? '';
+                        const devOtp = response?.devOtp || extractDevOtpFromMessage(message);
+                        setNotice(devOtp ? `Development verification code: ${devOtp}` : 'If that email is registered, a reset code has been sent');
                         router.push({
                           pathname: '/(auth)/verify-otp',
-                          params: { email, flow: 'password-reset' },
+                          params: { email, flow: 'password-reset', ...(devOtp ? { devOtp } : {}) },
                         });
                       } catch (error) {
                         const mapped = error as { message?: string };
                         const message = mapped?.message ?? t('auth.forgotPasswordFailed');
+                        const devOtp = extractDevOtpFromMessage(message);
                         const shouldBypassInDev =
                           __DEV__
                           && message.toLowerCase().includes('email delivery failed');
 
+                        if (devOtp) {
+                          setNotice(`Development verification code: ${devOtp}`);
+                          router.push({
+                            pathname: '/(auth)/verify-otp',
+                            params: { email, flow: 'password-reset', devOtp },
+                          });
+                          return;
+                        }
                         if (shouldBypassInDev) {
                           setNotice('If that email is registered, a reset code has been sent');
                           router.push({
@@ -147,4 +158,12 @@ export default function ForgotPasswordScreen() {
       </KeyboardAvoidingView>
     </AppScreen>
   );
+}
+
+function extractDevOtpFromMessage(message?: string) {
+  if (!__DEV__ || !message) return '';
+  const normalized = message.toLowerCase();
+  if (!normalized.includes('devotp') && !normalized.includes('dev otp') && !normalized.includes('verification code')) return '';
+  const match = message.match(/\b(\d{6})\b/);
+  return match ? match[1] : '';
 }

@@ -87,6 +87,10 @@ function sanitizeExternalHttpUrl(rawUrl: unknown): string | null {
   return trimmed;
 }
 
+function createBillingTraceId(scope: string) {
+  return `mobile-${scope}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function isPaymentHealthyStatus(status?: string | null) {
   return status === 'active' || status === 'trialing';
 }
@@ -200,7 +204,7 @@ export default function PlansScreen() {
     }
   }, [plansDebug]);
 
-  const syncSubscriptionAndApplyTier = useCallback(async (options?: { force?: boolean }) => {
+  const syncSubscriptionAndApplyTier = useCallback(async (options?: { force?: boolean; traceId?: string; reason?: string }) => {
     const now = Date.now();
     const minIntervalMs = 8_000;
     if (!options?.force && now - lastSyncAtRef.current < minIntervalMs) {
@@ -214,7 +218,10 @@ export default function PlansScreen() {
     syncInFlightRef.current = (async () => {
       try {
         lastSyncAtRef.current = Date.now();
-        const synced = await syncSubscriptionState();
+        const synced = await syncSubscriptionState({
+          traceId: options?.traceId,
+          reason: options?.reason ?? (options?.force ? 'plans-force-sync' : 'plans-sync'),
+        });
         setAuthSubscriptionTier(synced.tier);
         plansDebug('syncEndpoint:resolved', {
           tier: synced.tier,
@@ -242,11 +249,13 @@ export default function PlansScreen() {
   const syncSubscriptionAfterCheckout = useCallback((
     requestedTier: SubscriptionTier,
     baseline?: { tier: SubscriptionTier; status: string } | null,
+    traceId?: string,
   ) => {
     plansDebug('syncAfterCheckout:start', {
       requestedTier,
       baselineTier: baseline?.tier ?? null,
       baselineStatus: baseline?.status ?? null,
+      traceId: traceId ?? null,
     });
     const timeoutAt = Date.now() + 60_000;
     let attempt = 0;
@@ -254,7 +263,11 @@ export default function PlansScreen() {
       while (Date.now() < timeoutAt) {
         try {
           if (attempt === 0 || attempt % 3 === 0) {
-            await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
+            await syncSubscriptionAndApplyTier({
+              force: true,
+              traceId,
+              reason: 'post-checkout-poll',
+            }).catch(() => null);
           }
           const latest = await getSubscriptionOverview({ force: true });
           setOverview(latest);
@@ -545,6 +558,8 @@ export default function PlansScreen() {
 
   const onUpgrade = async (tier: SubscriptionTier) => {
     if (tier === 'free') return;
+    const traceId = createBillingTraceId(`upgrade-${tier}`);
+    console.log(`[billing:trace] flow=upgrade tier=${tier} traceId=${traceId}`);
     setBusyTier(tier);
     setStatusText('');
     const baselineSubscription = latestSubscriptionRef.current ?? {
@@ -556,6 +571,7 @@ export default function PlansScreen() {
       await setPendingBillingTier(tier);
       const checkout = await createCheckoutSession(tier, {
         platform: 'mobile',
+        traceId,
       });
       const checkoutMode = (checkout as { mode?: string }).mode;
       const resolvedSuccessUrl = sanitizeExternalHttpUrl(checkout.successUrl);
@@ -566,7 +582,7 @@ export default function PlansScreen() {
       if (checkoutMode === 'subscription_updated') {
         await clearPendingBillingTier();
         setStatusText('Syncing subscription status...');
-        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription, traceId);
         return;
       }
 
@@ -577,7 +593,7 @@ export default function PlansScreen() {
       if (checkoutMode === 'checkout_started' && resolvedCheckoutUrl) {
         await openCheckoutUrl(resolvedCheckoutUrl, 'checkout', returnStrategy, resolvedSuccessUrl ?? undefined, resolvedCancelUrl ?? undefined);
         setStatusText('Processing payment...');
-        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription, traceId);
       } else {
         await clearPendingBillingTier();
         if (resolvedCheckoutUrl) {
@@ -586,7 +602,7 @@ export default function PlansScreen() {
         } else {
           setStatusText('Syncing subscription status...');
         }
-        await syncSubscriptionAfterCheckout(tier, baselineSubscription);
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription, traceId);
       }
     } catch (error) {
       const typedError = error as { message?: string; code?: string; status?: number; redirectUrl?: string } | undefined;
@@ -758,6 +774,8 @@ export default function PlansScreen() {
   };
 
   const onOpenBillingPortal = async () => {
+    const traceId = createBillingTraceId('portal');
+    console.log(`[billing:trace] flow=portal traceId=${traceId}`);
     setIsPortalLoading(true);
     setStatusText('');
     plansDebug('portal:open:start');
@@ -766,6 +784,7 @@ export default function PlansScreen() {
       const portal = await createBillingPortalSession({
         platform: 'mobile',
         returnUrl,
+        traceId,
       });
       portalFlowActiveRef.current = true;
       await openCheckoutUrl(portal.url, 'portal');
@@ -904,9 +923,16 @@ export default function PlansScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
             {t('plans.subscriptionStatus')}: {Platform.OS === 'ios' ? (activeTier !== 'free' ? 'active' : 'inactive') : (overview?.subscription.status ?? 'inactive')}
           </Text>
-          {Platform.OS !== 'ios' && subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
+          {subscriptionLifecycle?.willCancelAtPeriodEnd && subscriptionLifecycle.scheduledCancelAt ? (
             <Text style={{ color: '#B45309', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
               {t('plans.cancelsOn', { date: new Date(subscriptionLifecycle.scheduledCancelAt).toLocaleDateString() })}
+            </Text>
+          ) : null}
+          {overview?.scheduledTier && overview.scheduledTier !== currentTier ? (
+            <Text style={{ color: '#B45309', fontSize: 12, marginTop: 4, fontWeight: '600' }}>
+              {`Plan change to ${tierLabel(overview.scheduledTier)} is scheduled${
+                overview.scheduledChangeAt ? ` for ${new Date(overview.scheduledChangeAt).toLocaleDateString()}` : ' for the next billing cycle'
+              }.`}
             </Text>
           ) : null}
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>

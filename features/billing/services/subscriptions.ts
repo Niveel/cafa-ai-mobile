@@ -73,11 +73,15 @@ export function mapSubscriptionTierToInternal(
   return 'free';
 }
 
-export async function syncSubscriptionState() {
+export async function syncSubscriptionState(options?: { traceId?: string; reason?: string }) {
   try {
+    const headers: Record<string, string> = {};
+    if (options?.traceId) headers['x-cafa-trace-id'] = options.traceId;
+    if (options?.reason) headers['x-cafa-trace-reason'] = options.reason;
     const response: AxiosResponse<{ data: SubscriptionSyncPayload }> = await apiClient.post(
       apiEndpoints.subscriptions.sync,
       {},
+      { headers },
     );
     const data = response.data.data ?? {};
     const tier = mapSubscriptionTierToInternal(data.internal_tier ?? data.tier);
@@ -176,6 +180,7 @@ export async function createCheckoutSession(
     platform?: 'mobile';
     successUrl?: string;
     cancelUrl?: string;
+    traceId?: string;
   },
 ) {
   type CheckoutResponseData = {
@@ -208,9 +213,14 @@ export async function createCheckoutSession(
       cancelUrl: options?.cancelUrl,
     };
 
+    const headers: Record<string, string> = {};
+    if (options?.traceId) headers['x-cafa-trace-id'] = options.traceId;
+    headers['x-cafa-trace-reason'] = 'checkout';
+
     const response: AxiosResponse<{ data?: CheckoutResponseData }> = await apiClient.post(
       apiEndpoints.subscriptions.checkout,
       payload,
+      { headers },
     );
 
     const raw = response.data?.data ?? {};
@@ -315,15 +325,20 @@ export async function getDailyUsage(options?: { force?: boolean }) {
 export async function createBillingPortalSession(options?: {
   platform?: 'mobile';
   returnUrl?: string;
+  traceId?: string;
 }) {
   try {
     const payload = {
       platform: options?.platform,
       returnUrl: options?.returnUrl,
     };
+    const headers: Record<string, string> = {};
+    if (options?.traceId) headers['x-cafa-trace-id'] = options.traceId;
+    headers['x-cafa-trace-reason'] = 'portal';
     const response: AxiosResponse<{ data: { url: string } }> = await apiClient.post(
       apiEndpoints.subscriptions.portal,
       payload,
+      { headers },
     );
     return response.data.data;
   } catch (error) {

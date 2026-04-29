@@ -38,8 +38,14 @@ export async function verifyOtp(request: VerifyOtpRequest) {
 
 export async function resendOtp(email: string) {
   try {
-    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.resendOtp, { email });
-    return response.data?.message ?? 'Verification code sent to your email';
+    const response: AxiosResponse<{ message?: string; data?: { devOtp?: string } }> = await apiClient.post(
+      apiEndpoints.auth.resendOtp,
+      { email },
+    );
+    return {
+      message: response.data?.message ?? 'Verification code sent to your email',
+      devOtp: response.data?.data?.devOtp,
+    };
   } catch (error) {
     throw mapApiError(error);
   }
@@ -47,8 +53,14 @@ export async function resendOtp(email: string) {
 
 export async function forgotPassword(email: string) {
   try {
-    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.forgotPassword, { email });
-    return response.data?.message ?? 'If that email is registered, a reset code has been sent';
+    const response: AxiosResponse<{ message?: string; data?: { devOtp?: string } }> = await apiClient.post(
+      apiEndpoints.auth.forgotPassword,
+      { email },
+    );
+    return {
+      message: response.data?.message ?? 'If that email is registered, a reset code has been sent',
+      devOtp: response.data?.data?.devOtp,
+    };
   } catch (error) {
     throw mapApiError(error);
   }

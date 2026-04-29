@@ -93,6 +93,7 @@ export default function LoginScreen() {
                         const mapped = error as { code?: string; status?: number; message?: string };
                         const message = mapped?.message ?? t('auth.signinFailed');
                         const code = mapped?.code ?? '';
+                        const devOtp = extractDevOtpFromMessage(message);
                         console.log(
                           `[login-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.login} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
                         );
@@ -103,6 +104,7 @@ export default function LoginScreen() {
                             params: {
                               email: identity,
                               flow: 'login',
+                              ...(devOtp ? { devOtp } : {}),
                             },
                           });
                           return;
@@ -215,4 +217,12 @@ export default function LoginScreen() {
       </KeyboardAvoidingView>
     </AppScreen>
   );
+}
+
+function extractDevOtpFromMessage(message?: string) {
+  if (!__DEV__ || !message) return '';
+  const normalized = message.toLowerCase();
+  if (!normalized.includes('devotp') && !normalized.includes('dev otp') && !normalized.includes('verification code')) return '';
+  const match = message.match(/\b(\d{6})\b/);
+  return match ? match[1] : '';
 }

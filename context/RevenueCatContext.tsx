@@ -66,9 +66,10 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       return resolvedInfo;
     }
 
-    // If local entitlements look free, proactively sync App Store receipts.
+    // Only sync App Store receipts when explicitly requested by user action
+    // (e.g. tapping "Restore Purchases" or a purchase-recovery flow).
     if (isReconcilingRef.current) return resolvedInfo;
-    if (!options?.forceSync && (authUser.subscriptionTier ?? 'free') !== 'free') return resolvedInfo;
+    if (!options?.forceSync) return resolvedInfo;
 
     isReconcilingRef.current = true;
     try {
@@ -133,7 +134,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       rcDebug('identify:start', { appUserId: currentId });
       identifyUser(currentId)
         .then(() => fetchCustomerInfo())
-        .then((info) => reconcileIosEntitlements(info, { forceSync: true }))
+        .then((info) => reconcileIosEntitlements(info))
         .then((info) => {
           rcDebug('identify:resolved', {
             appUserId: currentId,
