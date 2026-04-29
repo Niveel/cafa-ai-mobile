@@ -215,11 +215,15 @@ async function withGuestAuth(
   headers.set('Authorization', `Bearer ${session.guestSessionToken}`);
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-  if (response.status !== 401 || !retryOnInvalidSession) return response;
+  if (!retryOnInvalidSession) return response;
 
   const payload = (await response.clone().json().catch(() => null)) as GuestApiResponse<unknown> | null;
-  const code = payload?.code ?? payload?.error;
-  if (code !== 'GUEST_TOKEN_INVALID' && code !== 'GUEST_AUTH_REQUIRED') {
+  const code = `${payload?.code ?? payload?.error ?? ''}`.toUpperCase();
+  const shouldRefreshGuestToken =
+    code === 'GUEST_TOKEN_INVALID'
+    || code === 'GUEST_AUTH_REQUIRED'
+    || code === 'GUEST_SESSION_EXPIRED';
+  if (!shouldRefreshGuestToken) {
     return response;
   }
 
