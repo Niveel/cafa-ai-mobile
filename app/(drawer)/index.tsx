@@ -755,6 +755,9 @@ export default function ChatScreen() {
     if (code === 'GUEST_ENDPOINT_UNAVAILABLE' || message.includes('guest mode is unavailable on this backend')) {
       return 'Guest mode is currently unavailable. Please try again later or sign in.';
     }
+    if (code === 'GUEST_NETWORK_ERROR') {
+      return rawMessage || 'Guest mode could not reach the server. Check your connection and try again.';
+    }
     if (typed?.status === 401 || code === 'TOKEN_EXPIRED' || code === 'UNAUTHORIZED') {
       return 'Your session expired. Please sign in again.';
     }

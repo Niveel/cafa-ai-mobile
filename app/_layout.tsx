@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Stack, usePathname, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { Animated, Easing, Image, useColorScheme, View } from 'react-native';
+import { Animated, AppState, Easing, Image, Linking, useColorScheme, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 
 import '../global.css';
+import { AppPromptModal } from '@/components';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
+import { checkStoreUpdate } from '@/features';
 import { useAppTheme } from '@/hooks';
 
 const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTicae';
@@ -51,6 +53,38 @@ function PostHogScreenTracker() {
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
   const { isReady: appIsReady } = useAppContext();
+  const [updateModalVisible, setUpdateModalVisible] = useState(false);
+  const [storeUpdateUrl, setStoreUpdateUrl] = useState<string | null>(null);
+  const [latestStoreVersion, setLatestStoreVersion] = useState<string | null>(null);
+  const isCheckingForStoreUpdateRef = useRef(false);
+
+  useEffect(() => {
+    if (!appIsReady) return;
+
+    const runCheck = async () => {
+      if (isCheckingForStoreUpdateRef.current) return;
+      isCheckingForStoreUpdateRef.current = true;
+      try {
+        const result = await checkStoreUpdate();
+        if (result.hasUpdate) {
+          setStoreUpdateUrl(result.storeUrl);
+          setLatestStoreVersion(result.latestVersion);
+          setUpdateModalVisible(true);
+          return;
+        }
+        setUpdateModalVisible(false);
+      } finally {
+        isCheckingForStoreUpdateRef.current = false;
+      }
+    };
+
+    void runCheck();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void runCheck();
+    });
+    return () => sub.remove();
+  }, [appIsReady]);
 
   if (!appIsReady) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
@@ -65,6 +99,25 @@ function AppNavigator() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(drawer)" />
       </Stack>
+      <AppPromptModal
+        visible={updateModalVisible}
+        title="Update available"
+        message={
+          latestStoreVersion
+            ? `A newer app version (${latestStoreVersion}) is available. Please update for the best experience.`
+            : 'A newer app version is available. Please update for the best experience.'
+        }
+        confirmLabel="Update now"
+        cancelLabel="Later"
+        iconName="cloud-download-outline"
+        onCancel={() => setUpdateModalVisible(false)}
+        onConfirm={() => {
+          if (storeUpdateUrl) {
+            void Linking.openURL(storeUpdateUrl);
+          }
+          setUpdateModalVisible(false);
+        }}
+      />
     </>
   );
 }

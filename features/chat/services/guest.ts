@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/lib';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   clearGuestSessionStorage,
   getGuestSessionExpiresAt,
@@ -75,6 +76,7 @@ const guestDetailPromises = new Map<string, Promise<GuestConversationDetail>>();
 const GUEST_MODEL = 'gpt-4o-mini';
 const FALLBACK_CHUNK_SIZE = 6;
 const FALLBACK_CHUNK_DELAY_MS = 12;
+const GUEST_LAST_ERROR_KEY = 'cafa_ai_guest_last_error_v1';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,6 +91,52 @@ function toGuestApiError(message: string, code?: string, status?: number): Guest
   error.code = code;
   error.status = status;
   return error;
+}
+
+async function persistGuestErrorLog(details: {
+  phase: string;
+  endpoint: string;
+  message: string;
+  code?: string;
+  status?: number;
+  requestId?: string | null;
+  rawBodySnippet?: string | null;
+  responseContentType?: string | null;
+  responseServer?: string | null;
+  responseCfRay?: string | null;
+}) {
+  const payload = {
+    ...details,
+    at: new Date().toISOString(),
+  };
+  try {
+    await AsyncStorage.setItem(GUEST_LAST_ERROR_KEY, JSON.stringify(payload));
+  } catch {
+    // Best-effort diagnostics only.
+  }
+  console.log('[guest:error]', payload);
+}
+
+export async function getLastGuestErrorLog() {
+  const raw = await AsyncStorage.getItem(GUEST_LAST_ERROR_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as {
+      at: string;
+      phase: string;
+      endpoint: string;
+      message: string;
+      code?: string;
+      status?: number;
+      requestId?: string | null;
+      rawBodySnippet?: string | null;
+      responseContentType?: string | null;
+      responseServer?: string | null;
+      responseCfRay?: string | null;
+    };
+  } catch {
+    return null;
+  }
 }
 
 function cloneGuestSummaryList(list: GuestConversationSummary[]) {
@@ -116,6 +164,7 @@ export function invalidateGuestChatCache(conversationId?: string) {
 
 async function parseGuestResponseError(response: Response, fallback: string, endpoint?: string) {
   const rawText = await response.text().catch(() => '');
+  const requestId = response.headers.get('x-request-id') ?? response.headers.get('x-correlation-id');
   const payload = (() => {
     if (!rawText) return null;
     try {
@@ -124,8 +173,21 @@ async function parseGuestResponseError(response: Response, fallback: string, end
       return null;
     }
   })();
-  const backendMessage = (payload?.message ?? rawText.trim()) || `${fallback} (HTTP ${response.status})`;
+  const backendMessage = (payload?.message ?? rawText.trim())
+    || `${fallback} (HTTP ${response.status}${requestId ? `, requestId: ${requestId}` : ''})`;
   const backendCode = payload?.code ?? payload?.error;
+  void persistGuestErrorLog({
+    phase: 'http_error_response',
+    endpoint: endpoint ?? 'unknown',
+    message: backendMessage,
+    code: backendCode,
+    status: response.status,
+    requestId,
+    rawBodySnippet: rawText ? rawText.slice(0, 500) : null,
+    responseContentType: response.headers.get('content-type'),
+    responseServer: response.headers.get('server'),
+    responseCfRay: response.headers.get('cf-ray'),
+  });
 
   if (response.status === 404 && (backendCode === 'NOT_FOUND' || endpoint?.includes('/guest/'))) {
     const message = 'Guest mode is currently unavailable. Please try again later.';
@@ -214,7 +276,23 @@ async function withGuestAuth(
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${session.guestSessionToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const endpoint = `${API_BASE_URL}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { ...init, headers });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network request failed.';
+    void persistGuestErrorLog({
+      phase: 'fetch_initial',
+      endpoint,
+      message,
+      code: 'GUEST_NETWORK_ERROR',
+    });
+    throw toGuestApiError(
+      `Guest request failed before reaching server (${message}). Endpoint: ${endpoint}`,
+      'GUEST_NETWORK_ERROR',
+    );
+  }
   if (!retryOnInvalidSession) return response;
 
   const payload = (await response.clone().json().catch(() => null)) as GuestApiResponse<unknown> | null;
@@ -232,7 +310,21 @@ async function withGuestAuth(
   const fresh = await createGuestSession();
   const retryHeaders = new Headers(init.headers);
   retryHeaders.set('Authorization', `Bearer ${fresh.guestSessionToken}`);
-  return fetch(`${API_BASE_URL}${path}`, { ...init, headers: retryHeaders });
+  try {
+    return await fetch(endpoint, { ...init, headers: retryHeaders });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network request failed.';
+    void persistGuestErrorLog({
+      phase: 'fetch_retry',
+      endpoint,
+      message,
+      code: 'GUEST_NETWORK_ERROR',
+    });
+    throw toGuestApiError(
+      `Guest retry request failed (${message}). Endpoint: ${endpoint}`,
+      'GUEST_NETWORK_ERROR',
+    );
+  }
 }
 
 export async function createGuestConversation(title?: string) {
@@ -243,7 +335,7 @@ export async function createGuestConversation(title?: string) {
   });
 
   if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not create guest conversation.');
+    throw await parseGuestResponseError(response, 'Could not create guest conversation.', `${API_BASE_URL}/guest/chat`);
   }
 
   const payload = (await response.json()) as GuestApiResponse<{
@@ -274,7 +366,7 @@ export async function listGuestConversations(options?: GuestCacheOptions) {
   guestListPromise = (async () => {
     const response = await withGuestAuth('/guest/chat');
     if (!response.ok) {
-      throw await parseGuestResponseError(response, 'Could not load guest conversations.');
+      throw await parseGuestResponseError(response, 'Could not load guest conversations.', `${API_BASE_URL}/guest/chat`);
     }
 
     const payload = (await response.json()) as GuestApiResponse<GuestConversationSummary[]>;
@@ -305,7 +397,7 @@ export async function getGuestConversation(conversationId: string, options?: Gue
   const detailPromise = (async () => {
     const response = await withGuestAuth(`/guest/chat/${conversationId}`);
     if (!response.ok) {
-      throw await parseGuestResponseError(response, 'Could not load guest conversation.');
+      throw await parseGuestResponseError(response, 'Could not load guest conversation.', `${API_BASE_URL}/guest/chat/${conversationId}`);
     }
 
     const payload = (await response.json()) as GuestApiResponse<GuestConversationDetail>;
@@ -327,8 +419,8 @@ export async function sendGuestMessageStream(
   conversationId: string,
   message: string,
   onEvent: (event: GuestStreamEvent) => void,
-  idempotencyKey: string,
-  language: 'en' | 'fr' | 'es' | 'pt' = 'en',
+  _idempotencyKey: string,
+  _language: 'en' | 'fr' | 'es' | 'pt' = 'en',
 ) {
   invalidateGuestChatCache(conversationId);
   guestListCache = null;
@@ -381,14 +473,10 @@ export async function sendGuestMessageStream(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({
           message,
-          content: message,
           stream: false,
-          model: GUEST_MODEL,
-          language,
         }),
       },
       true,
@@ -410,78 +498,5 @@ export async function sendGuestMessageStream(
     await emitReplayPayload(payload);
   };
 
-  const response = await withGuestAuth(
-    `/guest/chat/${conversationId}/messages`,
-    {
-      method: 'POST',
-      headers: {
-        Accept: 'text/event-stream',
-        'Content-Type': 'application/json',
-        'Idempotency-Key': idempotencyKey,
-      },
-      body: JSON.stringify({
-        message,
-        content: message,
-        stream: true,
-        model: GUEST_MODEL,
-        language,
-      }),
-    },
-    true,
-  );
-
-  if (!response.ok) {
-    throw await parseGuestResponseError(response, 'Could not send guest message.', `${API_BASE_URL}/guest/chat/${conversationId}/messages`);
-  }
-
-  const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('text/event-stream')) {
-    const payload = (await response.json().catch(() => null)) as GuestApiResponse<{
-      replayed?: boolean;
-      messageId?: string;
-      requestId?: string;
-      message?: {
-        _id?: string;
-        content?: string;
-      };
-    }> | null;
-    if (payload?.success) {
-      await emitReplayPayload(payload);
-      return;
-    }
-    await sendNonStreamFallback();
-    return;
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    await sendNonStreamFallback();
-    return;
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const segments = buffer.split('\n\n');
-    buffer = segments.pop() ?? '';
-
-    for (const segment of segments) {
-      const line = segment
-        .split('\n')
-        .find((entry) => entry.startsWith('data:'))
-        ?.replace(/^data:\s*/, '');
-      if (!line) continue;
-
-      const event = JSON.parse(line) as GuestStreamEvent;
-      onEvent(event);
-      if (event.type === 'error') {
-        throw toGuestApiError(event.message || 'Guest stream failed.', event.code);
-      }
-    }
-  }
+  await sendNonStreamFallback();
 }
