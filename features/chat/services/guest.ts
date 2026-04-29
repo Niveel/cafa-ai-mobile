@@ -115,8 +115,16 @@ export function invalidateGuestChatCache(conversationId?: string) {
 }
 
 async function parseGuestResponseError(response: Response, fallback: string, endpoint?: string) {
-  const payload = (await response.json().catch(() => null)) as GuestApiResponse<unknown> | null;
-  const backendMessage = payload?.message ?? fallback;
+  const rawText = await response.text().catch(() => '');
+  const payload = (() => {
+    if (!rawText) return null;
+    try {
+      return JSON.parse(rawText) as GuestApiResponse<unknown>;
+    } catch {
+      return null;
+    }
+  })();
+  const backendMessage = (payload?.message ?? rawText.trim()) || `${fallback} (HTTP ${response.status})`;
   const backendCode = payload?.code ?? payload?.error;
 
   if (response.status === 404 && (backendCode === 'NOT_FOUND' || endpoint?.includes('/guest/'))) {
@@ -209,13 +217,10 @@ async function withGuestAuth(
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (response.status !== 401 || !retryOnInvalidSession) return response;
 
-  const payload = (await response.json().catch(() => null)) as GuestApiResponse<unknown> | null;
+  const payload = (await response.clone().json().catch(() => null)) as GuestApiResponse<unknown> | null;
   const code = payload?.code ?? payload?.error;
   if (code !== 'GUEST_TOKEN_INVALID' && code !== 'GUEST_AUTH_REQUIRED') {
-    return new Response(JSON.stringify(payload), {
-      status: response.status,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return response;
   }
 
   sessionCache = null;
@@ -376,6 +381,7 @@ export async function sendGuestMessageStream(
         },
         body: JSON.stringify({
           message,
+          content: message,
           stream: false,
           model: GUEST_MODEL,
           language,
@@ -411,6 +417,7 @@ export async function sendGuestMessageStream(
       },
       body: JSON.stringify({
         message,
+        content: message,
         stream: true,
         model: GUEST_MODEL,
         language,
