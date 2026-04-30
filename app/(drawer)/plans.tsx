@@ -25,9 +25,6 @@ import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/en
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
 
-const PRIVACY_POLICY_URL = 'https://www.cafaai.com/privacy';
-const TERMS_OF_USE_URL = 'https://www.cafaai.com/terms';
-
 function tierLabel(tier?: SubscriptionTier) {
   switch (tier) {
     case 'cafa_smart':
@@ -553,15 +550,6 @@ export default function PlansScreen() {
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {
       throw new Error('Could not open Stripe checkout URL.');
-    }
-    await Linking.openURL(url);
-  };
-
-  const openExternalLegalUrl = async (url: string) => {
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      setStatusText('Unable to open legal link right now. Please try again.');
-      return;
     }
     await Linking.openURL(url);
   };
@@ -1235,9 +1223,9 @@ export default function PlansScreen() {
           <View className="mt-2 flex-row items-center">
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Open Privacy Policy"
+              accessibilityLabel="Open Privacy Policy Screen"
               onPress={() => {
-                void openExternalLegalUrl(PRIVACY_POLICY_URL);
+                router.push('/privacy-policy');
               }}
               className="mr-3 rounded-full px-3 py-1.5"
               style={{ borderWidth: 1, borderColor: colors.primary }}
@@ -1246,9 +1234,9 @@ export default function PlansScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Open Terms of Use"
+              accessibilityLabel="Open Terms of Use Screen"
               onPress={() => {
-                void openExternalLegalUrl(TERMS_OF_USE_URL);
+                router.push('/terms-of-service');
               }}
               className="rounded-full px-3 py-1.5"
               style={{ borderWidth: 1, borderColor: colors.primary }}
