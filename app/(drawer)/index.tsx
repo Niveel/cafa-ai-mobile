@@ -70,6 +70,7 @@ import {
   resolveModelBadgeLabel,
   UserPromptActionsRow,
   VideoGenerationPlaceholder,
+  createStarterPromptCycler,
   createIdempotencyKey,
   getPromptTitle,
   isMediaGenerationPrompt,
@@ -158,7 +159,7 @@ type ExpoWebBrowserModule = {
 let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
 let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
 let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
-let sharingModulePromise: Promise<SharingModule> | null = null;
+let sharingModulePromise: Promise<unknown> | null = null;
 let webBrowserModulePromise: Promise<ExpoWebBrowserModule> | null = null;
 
 async function getExpoAudioModule() {
@@ -202,14 +203,24 @@ async function getDocumentPickerModule() {
 
 async function getSharingModule() {
   if (!sharingModulePromise) {
-    sharingModulePromise = import('expo-sharing') as Promise<SharingModule>;
+    sharingModulePromise = import('expo-sharing');
   }
 
   try {
-    return await sharingModulePromise;
+    const loaded = await sharingModulePromise;
+    const candidate = (loaded as { default?: unknown })?.default ?? loaded;
+    const moduleLike = candidate as Partial<SharingModule> | null | undefined;
+    if (
+      moduleLike
+      && typeof moduleLike.isAvailableAsync === 'function'
+      && typeof moduleLike.shareAsync === 'function'
+    ) {
+      return moduleLike as SharingModule;
+    }
+    return null;
   } catch {
     sharingModulePromise = null;
-    throw new Error('File sharing is unavailable in this build. Rebuild the app or update Expo Go.');
+    return null;
   }
 }
 
@@ -288,11 +299,7 @@ export default function ChatScreen() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
-  const starterPromptKeys: ('chat.prompt.quick1' | 'chat.prompt.quick2' | 'chat.prompt.quick3')[] = [
-    'chat.prompt.quick1',
-    'chat.prompt.quick2',
-    'chat.prompt.quick3',
-  ];
+  const [starterPrompts, setStarterPrompts] = useState<string[]>([]);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
@@ -328,6 +335,7 @@ export default function ChatScreen() {
   const sendAttemptSeqRef = useRef(0);
   const lastHandledNewChatTokenRef = useRef<string | null>(null);
   const initialNewChatTokenRef = useRef<string | null>(null);
+  const starterPromptCyclerRef = useRef(createStarterPromptCycler());
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
   const GUEST_UPSELL_STATE_KEY = 'cafa_ai_guest_upsell_state_v1';
@@ -342,6 +350,16 @@ export default function ChatScreen() {
   const composerPlaceholder = useMemo(() => t('chat.input.placeholder'), [t]);
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
   const isFreshChatState = messages.length === 1 && isWelcomeMessage(messages[0]);
+  const rotateStarterPrompts = useCallback(() => {
+    const selected = starterPromptCyclerRef.current();
+    if (selected.length) {
+      setStarterPrompts(selected);
+    }
+  }, []);
+
+  useEffect(() => {
+    rotateStarterPrompts();
+  }, [rotateStarterPrompts]);
 
   useEffect(() => {
     // Avoid remounting TextInput on iOS to update placeholder text; remounting can
@@ -2137,6 +2155,82 @@ export default function ChatScreen() {
     }
   };
 
+  const shareGeneratedMediaMessage = async (options: {
+    remoteUrl?: string;
+    mediaId?: string;
+    defaultExtension: string;
+    filePrefix: 'image' | 'video';
+    mimeType: string;
+    notAvailableNotice: string;
+    failedNotice: string;
+  }) => {
+    const resolvedUrl = resolveBackendAssetUrl(options.remoteUrl);
+    if (!resolvedUrl) {
+      showTransientNotice(options.notAvailableNotice);
+      return;
+    }
+
+    hapticSelection();
+    try {
+      const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+      const extension = extensionMatch?.[1]?.toLowerCase() || options.defaultExtension;
+      const fileName = `cafa-ai-${options.filePrefix}-${options.mediaId ?? Date.now()}.${extension}`;
+      const target = new File(Paths.cache, fileName);
+      if (target.exists) {
+        target.delete();
+      }
+
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      const Sharing = await getSharingModule();
+      if (Sharing && await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(downloaded.uri, {
+          mimeType: options.mimeType,
+          dialogTitle: 'Share media',
+        });
+      } else {
+        await Share.share({
+          message: fileName,
+          url: downloaded.uri,
+        });
+      }
+      hapticSuccess();
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown media share failure';
+      console.log(`[chat-media-share:error] endpoint=${resolvedUrl} message="${messageText}"`);
+      showTransientNotice(options.failedNotice);
+      hapticError();
+    }
+  };
+
+  const shareImageMessage = async (message: UiMessage) => {
+    await shareGeneratedMediaMessage({
+      remoteUrl: message.imageUrl,
+      mediaId: message.imageId,
+      defaultExtension: 'jpg',
+      filePrefix: 'image',
+      mimeType: 'image/jpeg',
+      notAvailableNotice: t('chat.imageDownloadFailed'),
+      failedNotice: t('chat.shareFailed'),
+    });
+  };
+
+  const shareVideoMessage = async (message: UiMessage) => {
+    await shareGeneratedMediaMessage({
+      remoteUrl: message.videoUrl,
+      mediaId: message.videoId,
+      defaultExtension: 'mp4',
+      filePrefix: 'video',
+      mimeType: 'video/mp4',
+      notAvailableNotice: t('chat.videoDownloadFailed'),
+      failedNotice: t('chat.shareFailed'),
+    });
+  };
+
   const downloadGeneratedFileAttachment = async (attachment: UiMessageAttachment, messageId: string) => {
     const rawUrl = attachment.url;
     const resolvedUrl = resolveBackendAssetUrl(rawUrl);
@@ -2179,7 +2273,7 @@ export default function ChatScreen() {
         showDownloadToast(`Saved to ${persisted.readableFilePath}`);
       } else {
         const Sharing = await getSharingModule();
-        if (await Sharing.isAvailableAsync()) {
+        if (Sharing && await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(downloaded.uri, {
             mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/pdf'),
             dialogTitle: 'Save or share file',
@@ -2480,6 +2574,7 @@ export default function ChatScreen() {
         if (!conversations.length) {
           setAuthConversationId(null);
           setMessages([createWelcomeMessage()]);
+          rotateStarterPrompts();
           return;
         }
 
@@ -2492,6 +2587,7 @@ export default function ChatScreen() {
         const detail = await getAuthenticatedConversation(latest.id);
         if (!detail.messages.length) {
           setMessages([createWelcomeMessage()]);
+          rotateStarterPrompts();
           setMessageReactions({});
           return;
         }
@@ -2514,6 +2610,7 @@ export default function ChatScreen() {
       } catch (error) {
         showTransientNotice(getFriendlyErrorMessage(error, 'chat'));
         setMessages([createWelcomeMessage()]);
+        rotateStarterPrompts();
       } finally {
         setIsHydratingAuthChat(false);
       }
@@ -2521,7 +2618,7 @@ export default function ChatScreen() {
 
     setIsHydratingAuthChat(true);
     void loadAuthenticatedState();
-  }, [createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage]);
+  }, [createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage, rotateStarterPrompts]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -2541,6 +2638,7 @@ export default function ChatScreen() {
       inputValueRef.current = '';
       setAttachedAssets([]);
       setMessages([createWelcomeMessage()]);
+      rotateStarterPrompts();
       router.setParams({ newChat: undefined, conversationId: undefined });
       return;
     }
@@ -2553,6 +2651,7 @@ export default function ChatScreen() {
           setAuthConversationId(targetConversationId);
           if (!detail.messages.length) {
             setMessages([createWelcomeMessage()]);
+            rotateStarterPrompts();
             setMessageReactions({});
             return;
           }
@@ -2577,6 +2676,7 @@ export default function ChatScreen() {
         setGuestConversationId(targetConversationId);
         if (!detail.messages.length) {
           setMessages([createWelcomeMessage()]);
+          rotateStarterPrompts();
           return;
         }
         setMessages(
@@ -2593,7 +2693,7 @@ export default function ChatScreen() {
     };
 
     void hydrateTarget();
-  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat]);
+  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat, rotateStarterPrompts]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -2624,11 +2724,13 @@ export default function ChatScreen() {
         );
       } catch {
         setMessages([createWelcomeMessage()]);
+        rotateStarterPrompts();
       }
     };
     setMessages([createWelcomeMessage()]);
+    rotateStarterPrompts();
     void loadGuestState();
-  }, [createWelcomeMessage, isAuthenticated]);
+  }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -3027,11 +3129,10 @@ export default function ChatScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{ paddingHorizontal: 2, gap: 8 }}
                 >
-                  {starterPromptKeys.map((key) => {
-                    const prompt = t(key);
+                  {starterPrompts.map((prompt) => {
                     return (
                       <Pressable
-                        key={key}
+                        key={prompt}
                         onPress={() => insertStarterPrompt(prompt)}
                         accessibilityRole="button"
                         accessibilityLabel={t('chat.quickPrompt.insert', { prompt })}
@@ -3319,6 +3420,9 @@ export default function ChatScreen() {
                           onDownload={() => {
                             void downloadImageMessage(item);
                           }}
+                          onShare={() => {
+                            void shareImageMessage(item);
+                          }}
                           onTooltip={showTooltip}
                           labels={{
                             copy: t('chat.tooltip.copyPrompt'),
@@ -3329,6 +3433,8 @@ export default function ChatScreen() {
                             unlikeHint: t('chat.tooltip.unlike'),
                             download: t('chat.tooltip.downloadImage'),
                             downloadHint: t('chat.tooltip.downloadImage'),
+                            share: t('chat.tooltip.share'),
+                            shareHint: t('chat.tooltip.share'),
                           }}
                         />
                       ) : null}
@@ -3351,6 +3457,9 @@ export default function ChatScreen() {
                           onDownload={() => {
                             void downloadVideoMessage(item);
                           }}
+                          onShare={() => {
+                            void shareVideoMessage(item);
+                          }}
                           onTooltip={showTooltip}
                           labels={{
                             copy: t('chat.tooltip.copyPrompt'),
@@ -3361,6 +3470,8 @@ export default function ChatScreen() {
                             unlikeHint: t('chat.tooltip.unlike'),
                             download: t('chat.tooltip.downloadVideo'),
                             downloadHint: t('chat.tooltip.downloadVideo'),
+                            share: t('chat.tooltip.share'),
+                            shareHint: t('chat.tooltip.share'),
                           }}
                         />
                       ) : null}

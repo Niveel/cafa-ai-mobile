@@ -10,6 +10,7 @@ type ImageMessageActionsRowProps = {
   onLike: () => void;
   onUnlike: () => void;
   onDownload: () => void;
+  onShare: () => void;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
   labels: {
     copy: string;
@@ -20,6 +21,8 @@ type ImageMessageActionsRowProps = {
     unlikeHint: string;
     download: string;
     downloadHint: string;
+    share: string;
+    shareHint: string;
   };
 };
 
@@ -32,6 +35,7 @@ export function ImageMessageActionsRow({
   onLike,
   onUnlike,
   onDownload,
+  onShare,
   onTooltip,
   labels,
 }: ImageMessageActionsRowProps) {
@@ -97,6 +101,19 @@ export function ImageMessageActionsRow({
         style={{ borderColor }}
       >
         <Ionicons name="download-outline" size={13} color={iconColor} />
+      </Pressable>
+
+      <Pressable
+        onPress={onShare}
+        delayLongPress={180}
+        onLongPress={(event) => onTooltip(labels.share, event)}
+        accessibilityRole="button"
+        accessibilityLabel={labels.share}
+        accessibilityHint={labels.shareHint}
+        className="h-7 w-7 items-center justify-center rounded-full border"
+        style={{ borderColor }}
+      >
+        <Ionicons name="share-social-outline" size={13} color={iconColor} />
       </Pressable>
     </View>
   );

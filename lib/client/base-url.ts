@@ -12,7 +12,7 @@ function getExpoHost() {
 }
 
 const detectedHost = getExpoHost();
-const FALLBACK_DEV_HOST = '172.31.48.1';
+const FALLBACK_DEV_HOST = '10.233.113.23';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const EXPO_TUNNEL_HOST_SUFFIXES = ['.exp.direct', '.exp.host', '.expo.dev'];
 

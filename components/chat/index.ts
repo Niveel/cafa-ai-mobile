@@ -7,3 +7,4 @@ export * from './ChatVideoCard';
 export * from './MessageActionsRow';
 export * from './ImageMessageActionsRow';
 export * from './UserPromptActionsRow';
+export * from './starter-prompts';
