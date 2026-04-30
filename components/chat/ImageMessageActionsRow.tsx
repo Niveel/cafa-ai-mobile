@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { GestureResponderEvent, Pressable, View } from 'react-native';
+import { ActivityIndicator, GestureResponderEvent, Pressable, View } from 'react-native';
 
 type ImageMessageActionsRowProps = {
   reaction?: 'like' | 'dislike';
@@ -11,6 +11,8 @@ type ImageMessageActionsRowProps = {
   onUnlike: () => void;
   onDownload: () => void;
   onShare: () => void;
+  onReference: () => void;
+  isShareBusy?: boolean;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
   labels: {
     copy: string;
@@ -23,6 +25,8 @@ type ImageMessageActionsRowProps = {
     downloadHint: string;
     share: string;
     shareHint: string;
+    reference: string;
+    referenceHint: string;
   };
 };
 
@@ -36,6 +40,8 @@ export function ImageMessageActionsRow({
   onUnlike,
   onDownload,
   onShare,
+  onReference,
+  isShareBusy = false,
   onTooltip,
   labels,
 }: ImageMessageActionsRowProps) {
@@ -104,16 +110,35 @@ export function ImageMessageActionsRow({
       </Pressable>
 
       <Pressable
+        onPress={onReference}
+        delayLongPress={180}
+        onLongPress={(event) => onTooltip(labels.reference, event)}
+        accessibilityRole="button"
+        accessibilityLabel={labels.reference}
+        accessibilityHint={labels.referenceHint}
+        className="h-7 w-7 items-center justify-center rounded-full border"
+        style={{ borderColor }}
+      >
+        <Ionicons name="link-outline" size={13} color={iconColor} />
+      </Pressable>
+
+      <Pressable
         onPress={onShare}
+        disabled={isShareBusy}
         delayLongPress={180}
         onLongPress={(event) => onTooltip(labels.share, event)}
         accessibilityRole="button"
         accessibilityLabel={labels.share}
         accessibilityHint={labels.shareHint}
+        accessibilityState={{ busy: isShareBusy, disabled: isShareBusy }}
         className="h-7 w-7 items-center justify-center rounded-full border"
-        style={{ borderColor }}
+        style={{ borderColor, opacity: isShareBusy ? 0.7 : 1 }}
       >
-        <Ionicons name="share-social-outline" size={13} color={iconColor} />
+        {isShareBusy ? (
+          <ActivityIndicator size="small" color={iconColor} />
+        ) : (
+          <Ionicons name="share-social-outline" size={13} color={iconColor} />
+        )}
       </Pressable>
     </View>
   );

@@ -35,6 +35,11 @@ type AuthConversationDetailDto = {
       url?: string;
       thumbnailUrl?: string;
     }[];
+    reference?: {
+      kind?: 'image' | 'video';
+      url?: string;
+      id?: string;
+    } | null;
   }[];
   createdAt: string;
   updatedAt: string;
@@ -74,6 +79,11 @@ export type AuthConversationDetail = {
     videoUrl?: string;
     videoPrompt?: string;
     videoId?: string;
+    reference?: {
+      kind: 'image' | 'video';
+      url: string;
+      id?: string;
+    };
   }[];
 };
 
@@ -113,6 +123,19 @@ type AuthRefreshResponse = {
 type AuthSendError = Error & { status?: number; code?: string };
 type ChatCacheOptions = { force?: boolean };
 type AuthStreamTransportError = Error & { code?: string };
+type AuthNonStreamChatResponse = ApiResponse<{
+  id?: string;
+  prompt?: string;
+  model?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  durationSeconds?: number;
+  resolution?: string;
+  width?: number;
+  height?: number;
+  createdAt?: string;
+}>;
+const AUTH_NON_STREAM_FOLLOWUP_TIMEOUT_MS = 5 * 60 * 1000;
 
 let authRefreshPromise: Promise<string> | null = null;
 const AUTH_STREAM_DEBUG = false;
@@ -181,6 +204,13 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
         videoUrl: firstVideoAttachment?.url,
         videoPrompt: firstVideoAttachment ? message.content : undefined,
         videoId: firstVideoAttachment?._id ?? undefined,
+        reference: message.reference?.kind && message.reference?.url
+          ? {
+              kind: message.reference.kind,
+              url: message.reference.url,
+              id: message.reference.id,
+            }
+          : undefined,
       };
     }),
   };
@@ -927,4 +957,59 @@ export async function sendAuthenticatedMessageStream(
 
   await streamViaFetch('fetch-web');
   onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'fetch-web' });
+}
+
+export async function sendAuthenticatedMessageNonStream(
+  conversationId: string,
+  message: string,
+  selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
+  reference?: {
+    kind: 'image' | 'video';
+    url: string;
+    id?: string;
+  },
+) {
+  invalidateAuthenticatedChatCache(conversationId);
+  authListCache = null;
+
+  const selectedModelId =
+    selectedModel === 'ultra' ? 'cafa_ultra' : selectedModel === 'smart' ? 'cafa_smart' : 'cafa_swift';
+
+  const formData = new FormData();
+  formData.append('message', message);
+  formData.append('content', message);
+  formData.append('stream', 'false');
+  formData.append('selectedModel', selectedModelId);
+  formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
+  if (reference?.url) {
+    const normalizedReference = {
+      kind: reference.kind,
+      url: reference.url,
+      id: reference.id,
+    };
+    // Send multiple shapes for backend compatibility across parsers/middleware.
+    formData.append('reference', JSON.stringify(normalizedReference));
+    formData.append('reference[kind]', reference.kind);
+    formData.append('reference[url]', reference.url);
+    if (reference.id) {
+      formData.append('reference[id]', reference.id);
+    }
+  }
+
+  try {
+    const response = await apiClient.post<AuthNonStreamChatResponse>(
+      apiEndpoints.chat.messages(conversationId),
+      formData,
+      {
+        timeout: AUTH_NON_STREAM_FOLLOWUP_TIMEOUT_MS,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data;
+  } catch (error) {
+    throw mapApiError(error);
+  }
 }

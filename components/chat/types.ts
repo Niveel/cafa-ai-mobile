@@ -3,6 +3,11 @@ export type UiMessage = {
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
+  referencedMedia?: {
+    kind: 'image' | 'video';
+    id?: string;
+    url: string;
+  };
   tokens?: number;
   attachments?: UiMessageAttachment[];
   imageUrl?: string;
