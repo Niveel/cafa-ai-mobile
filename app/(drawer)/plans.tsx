@@ -53,6 +53,12 @@ function formatLimit(limit?: number | null) {
   return `${limit}`;
 }
 
+function cleanPlanTitle(title: string | undefined, tier: SubscriptionTier) {
+  const raw = (title ?? '').trim();
+  if (!raw) return tierLabel(tier);
+  return raw.replace(/\s+monthly\s*$/i, '').trim();
+}
+
 function isBillingSuccessUrl(url: string, appScheme: string) {
   return (
     url.startsWith(`${appScheme}://billing/success`) ||
@@ -453,6 +459,7 @@ export default function PlansScreen() {
 
   const displayPlans = useMemo(() => {
     if (Platform.OS === 'ios') {
+      const backendPlanByTier = new Map(plans.map((plan) => [plan.tier, plan] as const));
       if (!offering) {
         // Keep plan details visible for App Review, but disable purchasing until RC products load.
         return plans.map((plan) => ({ ...plan, isActive: false }));
@@ -465,11 +472,14 @@ export default function PlansScreen() {
           if (pkg.identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
           else if (pkg.identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
           else if (pkg.identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
+          const backendPlan = backendPlanByTier.get(tier);
 
           return {
             tier,
-            name: pkg.product.title,
-            description: pkg.product.description,
+            name: cleanPlanTitle(pkg.product.title, tier),
+            // Keep Android/backend copy parity for richer plan details.
+            description: backendPlan?.description ?? pkg.product.description,
+            benefits: backendPlan?.benefits ?? [],
             isActive: true,
             price: {
               amount: Number(pkg.product.price.toFixed(2)),
