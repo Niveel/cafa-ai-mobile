@@ -131,6 +131,26 @@ export function extractImagePrompt(prompt: string) {
   return null;
 }
 
+export function isLikelyImageGenerationIntent(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+
+  const hasImageNoun =
+    /\b(image|picture|photo|illustration|artwork|render|rendering|visual|wallpaper|poster|chart|graph|diagram|infographic)\b/.test(normalized);
+  const hasQuestionLead = /^(what|why|how|when|where|who|which|can you|could you|would you|is|are|do|does|did)\b/.test(normalized);
+  const startsLikeCreativePrompt =
+    /^(a|an|the)\s+/.test(normalized)
+    || /^(bar|line|pie|area|scatter)\s+chart\b/.test(normalized)
+    || /^(graph|diagram|infographic)\b/.test(normalized);
+
+  if (hasQuestionLead) return false;
+  return hasImageNoun && startsLikeCreativePrompt;
+}
+
 export function extractVideoPrompt(prompt: string) {
   const normalized = prompt.trim();
   if (!normalized) return null;

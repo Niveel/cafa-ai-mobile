@@ -107,3 +107,13 @@ export function isLikelyImageFollowUpPrompt(value: string) {
   if (!normalized) return false;
   return IMAGE_FOLLOW_UP_PHRASES.some((phrase) => matchesFuzzyPhrase(normalized, phrase));
 }
+
+export function isLikelyReferencedMediaQuestionPrompt(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const normalized = normalizeText(trimmed);
+  if (!normalized) return false;
+
+  if (trimmed.includes('?')) return true;
+  return /^(what|why|how|when|where|who|which|is|are|can|could|would|does|do|did)\b/.test(normalized);
+}

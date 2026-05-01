@@ -60,6 +60,7 @@ import {
   AppScreen,
   AppLogo,
   ChatVideoCard,
+  ImageLightbox,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
   ImageGenerationPlaceholder,
@@ -74,7 +75,9 @@ import {
   createStarterPromptCycler,
   createIdempotencyKey,
   getPromptTitle,
+  isLikelyImageGenerationIntent,
   isLikelyImageFollowUpPrompt,
+  isLikelyReferencedMediaQuestionPrompt,
   isLikelyVideoGenerationIntent,
   isLikelyVideoFollowUpPrompt,
   isMediaGenerationPrompt,
@@ -315,6 +318,7 @@ export default function ChatScreen() {
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
+  const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const [starterPrompts, setStarterPrompts] = useState<string[]>([]);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
@@ -1733,6 +1737,10 @@ export default function ChatScreen() {
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         const extractedImagePrompt = extractImagePrompt(trimmed);
+        const inferredImagePrompt = !extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
+          ? trimmed
+          : null;
+        const effectiveImagePrompt = extractedImagePrompt ?? inferredImagePrompt;
         const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
           (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
         );
@@ -1742,16 +1750,23 @@ export default function ChatScreen() {
             : null;
         const effectiveVideoPrompt = extractedVideoPrompt ?? inferredVideoFromImagePrompt;
         const referencedKind = composerMediaReference?.kind;
+        const isReferencedMediaQuestion = Boolean(composerMediaReference)
+          && isLikelyReferencedMediaQuestionPrompt(trimmed);
         const shouldUseVideoFollowUp =
-          referencedKind === 'video' && isLikelyVideoFollowUpPrompt(trimmed);
+          referencedKind === 'video' && !isReferencedMediaQuestion && isLikelyVideoFollowUpPrompt(trimmed);
         const shouldUseImageFollowUp =
-          referencedKind === 'image' && isLikelyImageFollowUpPrompt(trimmed);
+          referencedKind === 'image' && !isReferencedMediaQuestion && isLikelyImageFollowUpPrompt(trimmed);
         const shouldUseReferencedNonStreamChat =
           Boolean(composerMediaReference)
-          && !shouldUseVideoFollowUp
-          && !shouldUseImageFollowUp
-          && !effectiveVideoPrompt
-          && !extractedImagePrompt;
+          && (
+            isReferencedMediaQuestion
+            || (
+              !shouldUseVideoFollowUp
+              && !shouldUseImageFollowUp
+              && !effectiveVideoPrompt
+              && !effectiveImagePrompt
+            )
+          );
 
         if (shouldUseVideoFollowUp || shouldUseImageFollowUp || shouldUseReferencedNonStreamChat) {
           requestKind = shouldUseVideoFollowUp ? 'video' : shouldUseImageFollowUp ? 'image' : 'chat';
@@ -1934,7 +1949,7 @@ export default function ChatScreen() {
           return;
         }
 
-        if (extractedImagePrompt) {
+        if (effectiveImagePrompt) {
           const fullImagePrompt = trimmed;
           requestKind = 'image';
           setMessages((prev) =>
@@ -3659,42 +3674,50 @@ export default function ChatScreen() {
                       ) : null}
 
                       {!isImageGenerating && !isVideoGenerating && isImageMessage ? (
-                        <View
-                          className="overflow-hidden rounded-2xl border"
-                          style={{
-                            width: 236,
-                            height: 248,
-                            borderColor: colors.border,
-                            backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                        <Pressable
+                          onPress={() => {
+                            if (item.imageUrl) setImageLightboxUri(item.imageUrl);
                           }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('chat.generatedImageAlt')}
                         >
-                          {(() => {
-                            const source = resolveImageSource(item.imageUrl);
-                            if (!source) {
-                              return <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 112 }} />;
-                            }
-                            return (
-                              <ExpoImage
-                                source={source}
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  transform: [{ scale: 1.06 }],
-                                }}
-                                contentFit="cover"
-                                contentPosition="center"
-                                transition={0}
-                                accessible
-                                accessibilityLabel={item.imagePrompt?.trim()
-                                  ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
-                                  : t('chat.generatedImageAlt')}
-                              />
-                            );
-                          })()}
-                        </View>
+                          <View
+                            className="overflow-hidden rounded-2xl border"
+                            style={{
+                              width: 236,
+                              height: 248,
+                              borderColor: colors.border,
+                              backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                            }}
+                          >
+                            {(() => {
+                              const source = resolveImageSource(item.imageUrl);
+                              if (!source) {
+                                return <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 112 }} />;
+                              }
+                              return (
+                                <ExpoImage
+                                  source={source}
+                                  style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    transform: [{ scale: 1.06 }],
+                                  }}
+                                  contentFit="cover"
+                                  contentPosition="center"
+                                  transition={0}
+                                  accessible
+                                  accessibilityLabel={item.imagePrompt?.trim()
+                                    ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
+                                    : t('chat.generatedImageAlt')}
+                                />
+                              );
+                            })()}
+                          </View>
+                        </Pressable>
                       ) : null}
 
                       {!isImageGenerating && !isVideoGenerating && isVideoMessage ? (
@@ -3997,6 +4020,12 @@ export default function ChatScreen() {
                   </Animated.View>
                 );
               }}
+            />
+            <ImageLightbox
+              visible={Boolean(imageLightboxUri)}
+              uri={imageLightboxUri}
+              onClose={() => setImageLightboxUri(null)}
+              accessibilityLabel={t('chat.generatedImageAlt')}
             />
 
             {showScrollToBottom ? (

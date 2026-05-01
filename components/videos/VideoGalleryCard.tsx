@@ -51,6 +51,7 @@ function VideoGalleryCardImpl({ item, videoUrl, width, onDownload, onDelete }: V
         }}
       >
         <VideoView
+          key={videoUrl}
           style={StyleSheet.absoluteFillObject}
           player={player}
           nativeControls

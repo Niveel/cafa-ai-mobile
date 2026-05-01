@@ -29,6 +29,7 @@ export function ChatVideoCard({
       style={{ width, height, borderColor, backgroundColor }}
     >
       <VideoView
+        key={uri}
         style={StyleSheet.absoluteFillObject}
         player={player}
         nativeControls
