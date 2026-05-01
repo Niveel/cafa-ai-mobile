@@ -141,12 +141,13 @@ export function extractVideoPrompt(prompt: string) {
 
   const videoNouns = '(?:video|clip|animation|movie|footage|reel|short)';
   const generationVerbs = '(?:generate|create|make|produce|craft|render)';
+  const descriptorWords = '(?:(?:[a-z0-9-]+\\s+){0,3})';
   const politePrefix = '(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you\\s+)?';
 
   const patterns = [
-    new RegExp(`^${politePrefix}${generationVerbs}\\s+(?:(?:me|us)\\s+)?(?:(?:an?|the)\\s+)?${videoNouns}\\s*(?:of|for|showing|that\\s+shows)?\\s+(.+)$`, 'i'),
-    new RegExp(`^${politePrefix}(?:give\\s+me|show\\s+me|i\\s+want|i\\s+need|can\\s+i\\s+get|could\\s+i\\s+get)\\s+(?:(?:an?|the)\\s+)?${videoNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
-    new RegExp(`^(?:(?:an?|the)\\s+)?${videoNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
+    new RegExp(`^${politePrefix}${generationVerbs}\\s+(?:(?:me|us)\\s+)?(?:(?:an?|the)\\s+)?${descriptorWords}${videoNouns}\\s*(?:of|for|showing|that\\s+shows|from)?\\s+(.+)$`, 'i'),
+    new RegExp(`^${politePrefix}(?:give\\s+me|show\\s+me|i\\s+want|i\\s+need|can\\s+i\\s+get|could\\s+i\\s+get)\\s+(?:(?:an?|the)\\s+)?${descriptorWords}${videoNouns}\\s*(?:of|for|showing|from)?\\s+(.+)$`, 'i'),
+    new RegExp(`^(?:(?:an?|the)\\s+)?${descriptorWords}${videoNouns}\\s*(?:of|for|showing|from)?\\s+(.+)$`, 'i'),
     new RegExp(`^${politePrefix}(?:animate|turn|convert|make)\\s+(?:this|that|it)\\s+(?:into|as)\\s+(?:(?:a|the)\\s+)?${videoNouns}\\s*:?\\s+(.+)$`, 'i'),
   ];
 
@@ -161,6 +162,18 @@ export function extractVideoPrompt(prompt: string) {
   }
 
   return null;
+}
+
+export function isLikelyVideoGenerationIntent(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+  const hasVideoNoun = /\b(video|clip|animation|movie|footage|reel|short)\b/.test(normalized);
+  const hasGenerationVerb = /\b(generate|create|make|produce|craft|render|animate)\b/.test(normalized);
+  return hasVideoNoun && hasGenerationVerb;
 }
 
 export function isMediaGenerationPrompt(value: string) {

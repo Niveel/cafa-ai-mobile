@@ -38,6 +38,7 @@ export const apiEndpoints = {
 
   videos: {
     generate: `${API_BASE_PATH}/videos/generate`,
+    fromImage: `${API_BASE_PATH}/videos/from-image`,
     job: (jobId: string) => `${API_BASE_PATH}/videos/generate/${jobId}`,
     history: `${API_BASE_PATH}/videos/history`,
     remove: (videoId: string) => `${API_BASE_PATH}/videos/${videoId}`,

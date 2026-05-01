@@ -62,7 +62,8 @@ export async function restorePurchases(): Promise<RCCustomerInfo | null> {
 export async function syncPurchases(): Promise<RCCustomerInfo | null> {
   if (!isRCEnabled) return null;
   try {
-    return await Purchases.syncPurchases();
+    await Purchases.syncPurchases();
+    return await Purchases.getCustomerInfo();
   } catch {
     return null;
   }

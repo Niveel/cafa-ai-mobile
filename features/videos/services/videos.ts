@@ -25,6 +25,51 @@ export async function startVideoGeneration(request: GenerateVideoRequest) {
   }
 }
 
+export async function startVideoGenerationFromImage(request: {
+  conversationId?: string;
+  prompt: string;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
+  durationSeconds?: number;
+  image: {
+    uri: string;
+    fileName?: string;
+    mimeType?: string;
+  };
+}) {
+  const formData = new FormData();
+  formData.append('prompt', request.prompt);
+  if (request.conversationId) formData.append('conversationId', request.conversationId);
+  if (request.aspectRatio) formData.append('aspectRatio', request.aspectRatio);
+  if (typeof request.durationSeconds === 'number') formData.append('durationSeconds', String(request.durationSeconds));
+
+  const imageUri = request.image.uri;
+  const normalizedName = request.image.fileName ?? `image-${Date.now()}.jpg`;
+  const normalizedType = request.image.mimeType ?? 'image/jpeg';
+  const imageFile = {
+    uri: imageUri,
+    name: normalizedName,
+    type: normalizedType,
+  } as unknown as { uri: string; name: string; type: string };
+  formData.append('image', imageFile as never);
+
+  try {
+    const response: AxiosResponse<{ data: VideoGenerationJob }> = await apiClient.post(
+      apiEndpoints.videos.fromImage,
+      formData,
+      {
+        timeout: 120_000,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+    return response.data.data;
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
 export async function pollVideoJob(jobId: string) {
   try {
     const response: AxiosResponse<{ data: VideoGenerationJob }> = await apiClient.get(apiEndpoints.videos.job(jobId));

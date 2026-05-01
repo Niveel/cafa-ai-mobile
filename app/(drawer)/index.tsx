@@ -75,6 +75,7 @@ import {
   createIdempotencyKey,
   getPromptTitle,
   isLikelyImageFollowUpPrompt,
+  isLikelyVideoGenerationIntent,
   isLikelyVideoFollowUpPrompt,
   isMediaGenerationPrompt,
   type AttachedAsset,
@@ -100,6 +101,7 @@ import {
   sendAuthenticatedMessageNonStream,
   sendGuestMessageStream,
   startVideoGeneration,
+  startVideoGenerationFromImage,
   synthesizeVoice,
   toggleAuthenticatedMessageReaction,
 } from '@/features';
@@ -351,6 +353,7 @@ export default function ChatScreen() {
   const referencedUserMessageByServerIdRef = useRef<Record<string, ComposerMediaReference>>({});
   const voiceNameByIdRef = useRef<Record<string, string>>({});
   const videoGenerationInFlightRef = useRef(false);
+  const videoFromImageInFlightRef = useRef(false);
   const videoAutoSyncInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
   const isSendRunInFlightRef = useRef(false);
@@ -409,6 +412,7 @@ export default function ChatScreen() {
   };
 
   const logSendPayload = useCallback((payload: Record<string, unknown>) => {
+    if (!__DEV__) return;
     try {
       console.log('[chat-send:payload]', JSON.stringify(payload));
     } catch {
@@ -1729,6 +1733,14 @@ export default function ChatScreen() {
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         const extractedImagePrompt = extractImagePrompt(trimmed);
+        const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
+          (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
+        );
+        const inferredVideoFromImagePrompt =
+          !extractedVideoPrompt && imageAttachmentForVideoIntent && isLikelyVideoGenerationIntent(trimmed)
+            ? trimmed
+            : null;
+        const effectiveVideoPrompt = extractedVideoPrompt ?? inferredVideoFromImagePrompt;
         const referencedKind = composerMediaReference?.kind;
         const shouldUseVideoFollowUp =
           referencedKind === 'video' && isLikelyVideoFollowUpPrompt(trimmed);
@@ -1738,7 +1750,7 @@ export default function ChatScreen() {
           Boolean(composerMediaReference)
           && !shouldUseVideoFollowUp
           && !shouldUseImageFollowUp
-          && !extractedVideoPrompt
+          && !effectiveVideoPrompt
           && !extractedImagePrompt;
 
         if (shouldUseVideoFollowUp || shouldUseImageFollowUp || shouldUseReferencedNonStreamChat) {
@@ -1779,10 +1791,27 @@ export default function ChatScreen() {
           return;
         }
 
-        if (extractedVideoPrompt) {
+        if (effectiveVideoPrompt) {
           const fullVideoPrompt = trimmed;
+          const imageAttachmentForVideo = imageAttachmentForVideoIntent;
           requestKind = 'video';
           if (videoGenerationInFlightRef.current) {
+            const inProgressMessage = t('chat.videoGenerationInProgress');
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: inProgressMessage,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+            showTransientNotice(inProgressMessage, 5000);
+            return;
+          }
+          if (imageAttachmentForVideo && videoFromImageInFlightRef.current) {
             const inProgressMessage = t('chat.videoGenerationInProgress');
             setMessages((prev) =>
               prev.map((item) =>
@@ -1818,6 +1847,9 @@ export default function ChatScreen() {
             return;
           }
           videoGenerationInFlightRef.current = true;
+          if (imageAttachmentForVideo) {
+            videoFromImageInFlightRef.current = true;
+          }
           requestedVideoPrompt = fullVideoPrompt;
           requestedVideoConversationId = conversationId;
           requestedVideoStartedAt = Date.now();
@@ -1834,21 +1866,45 @@ export default function ChatScreen() {
                 : item,
             ),
           );
-          lastEndpoint = `${API_BASE_URL}/videos/generate`;
+          lastEndpoint = imageAttachmentForVideo
+            ? `${API_BASE_URL}/videos/from-image`
+            : `${API_BASE_URL}/videos/generate`;
           logSendPayload({
             endpoint: lastEndpoint,
-            mode: 'auth-direct-video-generate',
+            mode: imageAttachmentForVideo ? 'auth-direct-video-from-image' : 'auth-direct-video-generate',
             conversationId,
             prompt: fullVideoPrompt,
             aspectRatio: '16:9',
             model: activeModel,
             reference: composerMediaReference ?? null,
+            attachments: imageAttachmentForVideo
+              ? [
+                  {
+                    id: imageAttachmentForVideo.id,
+                    label: imageAttachmentForVideo.label,
+                    fileName: imageAttachmentForVideo.fileName,
+                    mimeType: imageAttachmentForVideo.mimeType,
+                    uri: imageAttachmentForVideo.uri,
+                  },
+                ]
+              : [],
           });
-          const job = await startVideoGeneration({
-            conversationId,
-            prompt: fullVideoPrompt,
-            aspectRatio: '16:9',
-          });
+          const job = imageAttachmentForVideo
+            ? await startVideoGenerationFromImage({
+                conversationId,
+                prompt: fullVideoPrompt,
+                aspectRatio: '16:9',
+                image: {
+                  uri: imageAttachmentForVideo.uri,
+                  fileName: imageAttachmentForVideo.fileName ?? imageAttachmentForVideo.label,
+                  mimeType: imageAttachmentForVideo.mimeType ?? 'image/jpeg',
+                },
+              })
+            : await startVideoGeneration({
+                conversationId,
+                prompt: fullVideoPrompt,
+                aspectRatio: '16:9',
+              });
 
           const resolvedVideo = await waitForVideoGeneration(job.jobId);
 
@@ -1873,6 +1929,7 @@ export default function ChatScreen() {
           }
           hapticSuccess();
           videoGenerationInFlightRef.current = false;
+          videoFromImageInFlightRef.current = false;
           didMutateChats = true;
           return;
         }
@@ -2017,11 +2074,16 @@ export default function ChatScreen() {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         const friendlyMessage = getFriendlyErrorMessage(error, requestKind);
         const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
+        const status = (error as { status?: number } | undefined)?.status;
         const rawErrorMessage = (error as { message?: string } | undefined)?.message ?? '';
         const normalizedErrorMessage = rawErrorMessage.toLowerCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
         const isAuthStreamTransportError = code.startsWith('AUTH_STREAM_');
+        const isIdempotencyInProgress =
+          code === 'IDEMPOTENCY_IN_PROGRESS'
+          || normalizedErrorMessage.includes('idempotency key is already in use')
+          || normalizedErrorMessage.includes('idempotency_in_progress');
         const isLikelyTimeoutOrDisconnect =
           normalizedErrorMessage.includes('timeout')
           || normalizedErrorMessage.includes('network request failed')
@@ -2034,11 +2096,40 @@ export default function ChatScreen() {
             || message.toLowerCase().includes('too many video generation requests')
             || message.toLowerCase().includes('too many requests')
           );
+        try {
+          console.log(
+            '[chat-send:error]',
+            JSON.stringify({
+              endpoint: lastEndpoint,
+              requestKind,
+              isAuthenticated,
+              conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+              idempotencyKey: lastIdempotencyKey || null,
+              code: code || null,
+              status: status ?? null,
+              message,
+              rawErrorMessage,
+            }),
+          );
+        } catch {
+          console.log('[chat-send:error]', {
+            endpoint: lastEndpoint,
+            requestKind,
+            isAuthenticated,
+            conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+            idempotencyKey: lastIdempotencyKey || null,
+            code: code || null,
+            status: status ?? null,
+            message,
+            rawErrorMessage,
+          });
+        }
         if (isAuthenticated && attachmentsForSend.length) {
           setAttachedAssets(attachmentsForSend);
         }
         if (requestKind === 'video') {
           videoGenerationInFlightRef.current = false;
+          videoFromImageInFlightRef.current = false;
         }
         if (usedVideoReferenceFollowUp && isLikelyTimeoutOrDisconnect && activeAuthConversationId) {
           for (let recoveryAttempt = 1; recoveryAttempt <= 24; recoveryAttempt += 1) {
@@ -2063,12 +2154,36 @@ export default function ChatScreen() {
             }
           }
         }
-        if (isAuthenticated && isAuthStreamTransportError) {
+        if (
+          isAuthenticated
+          && requestKind === 'chat'
+          && code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR'
+          && attachmentsForSend.length > 0
+          && activeAuthConversationId
+        ) {
+          try {
+            await sendAuthenticatedMessageNonStream(
+              activeAuthConversationId,
+              trimmed,
+              activeModel,
+              composerMediaReference ?? undefined,
+              attachmentsForSend,
+            );
+            const detail = await getAuthenticatedConversation(activeAuthConversationId, { force: true });
+            applyAuthConversationDetail(detail);
+            hapticSuccess();
+            didMutateChats = true;
+            return;
+          } catch {
+            // Fall through to normal error handling.
+          }
+        }
+        if (isAuthenticated && (isAuthStreamTransportError || isIdempotencyInProgress)) {
           const recoveryConversationId = activeAuthConversationId ?? authConversationId;
           if (recoveryConversationId) {
-            for (let recoveryAttempt = 1; recoveryAttempt <= 3; recoveryAttempt += 1) {
+            for (let recoveryAttempt = 1; recoveryAttempt <= 8; recoveryAttempt += 1) {
               try {
-                await new Promise((resolve) => setTimeout(resolve, 260 * recoveryAttempt));
+                await new Promise((resolve) => setTimeout(resolve, 280 * recoveryAttempt));
                 const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
                 const hasAssistantReply = detail.messages
                   .slice()

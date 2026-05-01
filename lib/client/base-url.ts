@@ -27,6 +27,14 @@ const shouldIgnoreDetectedHost =
 
 const resolvedHost = shouldIgnoreDetectedHost ? '' : detectedHost;
 
-export const DEV_BASE_URL = `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
+function normalizeConfiguredDevBaseUrl(value: string | undefined) {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/\/+$/, '');
+}
+
+const configuredDevBaseUrl = normalizeConfiguredDevBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
+
+export const DEV_BASE_URL = configuredDevBaseUrl || `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
 
 export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : PROD_BASE_URL;

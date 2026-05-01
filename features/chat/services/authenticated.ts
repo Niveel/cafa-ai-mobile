@@ -518,10 +518,14 @@ export async function sendAuthenticatedMessageStream(
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
   const initialToken = await getAccessToken();
-  if (!initialToken) {
-    throw new Error('Missing access token for authenticated chat.');
-  }
   let accessToken = initialToken;
+  if (!accessToken) {
+    try {
+      accessToken = await refreshAccessTokenForStreamSend();
+    } catch {
+      throw new Error('Missing access token for authenticated chat.');
+    }
+  }
 
   const endpoint = `${API_BASE_URL}${apiEndpoints.chat.messages(conversationId)}`;
   const selectedModelId =
@@ -937,6 +941,21 @@ export async function sendAuthenticatedMessageStream(
       onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'xhr' });
       return;
     } catch (error) {
+      const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
+      const shouldAvoidReplayPost =
+        code === 'AUTH_STREAM_DROPPED_AFTER_START'
+        || code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';
+      if (shouldAvoidReplayPost) {
+        authStreamLog('native:xhr-failed-no-replay-post');
+        onDebug?.({
+          stage: 'error',
+          endpoint,
+          idempotencyKey,
+          message: error instanceof Error ? error.message : 'Authenticated stream dropped after start.',
+          transport: 'xhr',
+        });
+        throw error;
+      }
       authStreamLog('native:xhr-failed-fallback-json');
       try {
         await runJsonReplayFallback();
@@ -968,6 +987,11 @@ export async function sendAuthenticatedMessageNonStream(
     url: string;
     id?: string;
   },
+  attachments: {
+    uri: string;
+    fileName?: string;
+    mimeType?: string;
+  }[] = [],
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -994,6 +1018,15 @@ export async function sendAuthenticatedMessageNonStream(
     if (reference.id) {
       formData.append('reference[id]', reference.id);
     }
+  }
+  for (const file of attachments) {
+    if (!file?.uri) continue;
+    const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
+    formData.append('files', {
+      uri: file.uri,
+      name: normalizedName,
+      type: file.mimeType ?? inferMimeType(normalizedName),
+    } as unknown as Blob);
   }
 
   try {
