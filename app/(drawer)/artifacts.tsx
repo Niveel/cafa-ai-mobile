@@ -64,6 +64,35 @@ function fileIconForMime(mimeType?: string) {
   return 'document-outline';
 }
 
+function isDocumentArtifact(item: ArtifactItem) {
+  const mime = (item.mimeType ?? '').toLowerCase().trim();
+  const probe = `${item.fileName ?? ''} ${item.url ?? ''} ${item.downloadUrl ?? ''}`.toLowerCase();
+
+  const mediaExtension = /\.(png|jpe?g|gif|webp|bmp|heic|heif|svg|mp4|mov|m4v|avi|mkv|webm)(\?|$)/.test(probe);
+  if (mime.startsWith('image/') || mime.startsWith('video/') || mediaExtension) return false;
+
+  const docExtension = /\.(pdf|doc|docx|txt|md|markdown|csv|tsv|json|xml|rtf|xlsx|xls|ppt|pptx|zip)(\?|$)/.test(probe);
+  if (docExtension) return true;
+
+  if (mime.startsWith('text/')) return true;
+  if (
+    mime.includes('application/pdf')
+    || mime.includes('msword')
+    || mime.includes('officedocument')
+    || mime.includes('application/json')
+    || mime.includes('application/xml')
+    || mime.includes('text/csv')
+    || mime.includes('application/rtf')
+    || mime.includes('application/zip')
+    || mime.includes('markdown')
+    || mime.includes('plain')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 async function getSharingModule() {
   try {
     const loaded = await import('expo-sharing');
@@ -138,8 +167,9 @@ export default function ArtifactsScreen() {
         kind: kindFilter === 'all' ? undefined : kindFilter,
         mimeType: mimeTypeFilter.trim() || undefined,
       });
+      const nonMediaArtifacts = payload.artifacts.filter((item) => isDocumentArtifact(item));
       setArtifacts((prev) => {
-        const source = mode === 'replace' ? payload.artifacts : [...prev, ...payload.artifacts];
+        const source = mode === 'replace' ? nonMediaArtifacts : [...prev, ...nonMediaArtifacts];
         const deduped = new Map<string, ArtifactItem>();
         source.forEach((item) => deduped.set(item.artifactId, item));
         return Array.from(deduped.values());

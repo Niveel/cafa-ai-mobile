@@ -1676,10 +1676,17 @@ export default function ChatScreen() {
     const normalized = value.trim().toLowerCase();
     if (!normalized) return false;
     const asksForGeneration =
-      /\b(generate|create|make|build|export|produce|draft)\b/.test(normalized);
+      /\b(generate|create|make|build|export|produce|draft|write|prepare|compose)\b/.test(normalized)
+      || /\b(give me|provide|send me|share|return|output)\b/.test(normalized)
+      || /\b(i need|i want|can i get|could you|please)\b/.test(normalized);
     const asksForFile =
       /\b(file|artifact|document|docx|pdf|csv|xlsx|sheet|markdown|md|txt|json)\b/.test(normalized);
-    return asksForGeneration && asksForFile;
+    const asksForFormatStyle =
+      /\b(in|as)\s+(a\s+)?(docx|pdf|csv|xlsx|markdown|md|txt|json)\b/.test(normalized)
+      || /\.(docx|pdf|csv|xlsx|md|txt|json)\b/.test(normalized);
+    const likelyRequestQuestion =
+      /\?$/.test(normalized) && /\b(can|could|would|will)\b/.test(normalized);
+    return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
   }, []);
 
   const handleSend = () => {
