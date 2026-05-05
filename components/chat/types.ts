@@ -18,6 +18,7 @@ export type UiMessage = {
   videoPrompt?: string;
   videoId?: string;
   isVideoGenerating?: boolean;
+  isArtifactGenerating?: boolean;
 };
 
 export type UiMessageAttachment = {

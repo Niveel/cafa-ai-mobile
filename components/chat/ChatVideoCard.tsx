@@ -33,6 +33,8 @@ export function ChatVideoCard({
         style={StyleSheet.absoluteFillObject}
         player={player}
         nativeControls
+        fullscreenOptions={{ enable: true }}
+        allowsPictureInPicture
         contentFit="cover"
         accessibilityLabel={accessibilityLabel}
       />

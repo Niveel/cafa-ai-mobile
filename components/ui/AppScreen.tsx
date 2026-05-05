@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '@/hooks';
@@ -32,6 +32,7 @@ export function AppScreen({
   const { isAuthenticated } = useAppContext();
   const insets = useSafeAreaInsets();
   const horizontalPadding = 10;
+  const topChromeGap = Platform.OS === 'ios' ? 4 : 12;
   const floatingTop = insets.top + 4 + topChromeOffset;
   const contentTop = showTopChrome
     ? insets.top + 70 + topChromeOffset + contentTopOffset
@@ -46,7 +47,7 @@ export function AppScreen({
           style={{ top: floatingTop, left: horizontalPadding, right: horizontalPadding }}
         >
           {isAuthenticated ? <FloatingDrawerButton /> : null}
-          <View style={{ marginLeft: isAuthenticated ? 12 : 0, flex: 1, alignItems: 'flex-end' }}>
+          <View style={{ marginLeft: isAuthenticated ? topChromeGap : 0, flex: 1, alignItems: 'flex-end' }}>
             <TopAuthNav authenticatedRightContent={topAuthRightContent} />
           </View>
         </View>

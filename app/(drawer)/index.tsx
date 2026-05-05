@@ -60,6 +60,7 @@ import {
   AppScreen,
   AppLogo,
   ChatVideoCard,
+  FileGenerationPlaceholder,
   ImageLightbox,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
@@ -498,9 +499,84 @@ export default function ChatScreen() {
     return mime.includes('text/markdown') || name.endsWith('.md') || name.endsWith('.markdown');
   }, []);
 
+  const isVideoAttachment = useCallback((attachment: UiMessageAttachment) => {
+    const mime = (attachment.mimeType ?? '').toLowerCase();
+    const type = (attachment.fileType ?? '').toLowerCase();
+    const name = (attachment.originalName ?? '').toLowerCase();
+    return type === 'video' || mime.startsWith('video/') || name.endsWith('.mp4') || name.endsWith('.mov');
+  }, []);
+
   const isGeneratedDownloadableFileAttachment = useCallback((attachment: UiMessageAttachment) => (
-    Boolean(attachment.url) && (isPdfAttachment(attachment) || isMarkdownAttachment(attachment))
-  ), [isMarkdownAttachment, isPdfAttachment]);
+    Boolean(attachment.url) && !isImageAttachment(attachment) && !isVideoAttachment(attachment)
+  ), [isImageAttachment, isVideoAttachment]);
+
+  const inferFileExtensionFromMime = useCallback((mimeType?: string, fileName?: string) => {
+    const name = (fileName ?? '').toLowerCase();
+    const nameMatch = name.match(/\.([a-z0-9]+)$/i);
+    if (nameMatch?.[1]) return nameMatch[1];
+    const mime = (mimeType ?? '').toLowerCase();
+    if (mime.includes('wordprocessingml') || mime.includes('msword')) return 'docx';
+    if (mime.includes('pdf')) return 'pdf';
+    if (mime.includes('markdown')) return 'md';
+    if (mime.includes('csv')) return 'csv';
+    if (mime.includes('json')) return 'json';
+    if (mime.includes('plain')) return 'txt';
+    return 'bin';
+  }, []);
+
+  const isGenericGeneratedFileName = useCallback((fileName?: string) => {
+    const value = (fileName ?? '').trim().toLowerCase();
+    if (!value) return true;
+    return (
+      /^generated[-_ ]?(document|file|artifact)/.test(value)
+      || /^document[-_ ]?\d/.test(value)
+      || /^file[-_ ]?\d/.test(value)
+      || /^artifact[-_ ]?\d/.test(value)
+      || /^untitled/.test(value)
+    );
+  }, []);
+
+  const toReadableFileBaseFromPrompt = useCallback((prompt: string) => {
+    const normalized = prompt
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return 'generated-file';
+
+    const withoutCommand = normalized
+      .replace(/^(generate|create|make|build|draft|write|produce|export)\s+/i, '')
+      .replace(/^(a|an|the)\s+/i, '');
+
+    let candidate = withoutCommand;
+    const forMatch = /\bfor\s+(.+?)(?:\s+with|\s+including|\s+that|\s+in|\s*$)/i.exec(withoutCommand);
+    if (forMatch?.[1]) {
+      candidate = `${forMatch[1]} proposal`;
+    }
+
+    const words = candidate
+      .split(' ')
+      .filter((word) => ![
+        'docx', 'pdf', 'csv', 'json', 'txt', 'markdown', 'file', 'document', 'artifact', 'sections', 'section',
+      ].includes(word))
+      .slice(0, 7);
+
+    const base = words.join('-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    return base || 'generated-file';
+  }, []);
+
+  const suggestDescriptiveFileName = useCallback((options: {
+    originalName?: string;
+    mimeType?: string;
+    fallbackText?: string;
+  }) => {
+    const extension = inferFileExtensionFromMime(options.mimeType, options.originalName);
+    if (!isGenericGeneratedFileName(options.originalName)) {
+      return options.originalName?.trim() || `generated-file.${extension}`;
+    }
+    const base = toReadableFileBaseFromPrompt(options.fallbackText ?? '');
+    return `${base}.${extension}`.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+  }, [inferFileExtensionFromMime, isGenericGeneratedFileName, toReadableFileBaseFromPrompt]);
 
   const assetUrlRequiresAuth = useCallback((uri?: string | null) => {
     if (!uri) return false;
@@ -609,6 +685,29 @@ export default function ChatScreen() {
     };
   }, [resolveBackendAssetUrl]);
 
+  const applyDescriptiveAttachmentNames = useCallback((uiMessages: UiMessage[]) => {
+    return uiMessages.map((message, index) => {
+      if (!message.attachments?.length) return message;
+      if (message.role !== 'assistant') return message;
+
+      const previousUser = [...uiMessages.slice(0, index)]
+        .reverse()
+        .find((candidate) => candidate.role === 'user' && candidate.content.trim().length > 0);
+      const fallbackText = message.content.trim() || previousUser?.content?.trim() || '';
+
+      const nextAttachments = message.attachments.map((attachment) => ({
+        ...attachment,
+        originalName: suggestDescriptiveFileName({
+          originalName: attachment.originalName,
+          mimeType: attachment.mimeType,
+          fallbackText,
+        }),
+      }));
+
+      return { ...message, attachments: nextAttachments };
+    });
+  }, [suggestDescriptiveFileName]);
+
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
       messagesListRef.current?.scrollToEnd({ animated });
@@ -616,11 +715,25 @@ export default function ChatScreen() {
   };
 
   const waitForVideoGeneration = useCallback(async (jobId: string) => {
+    let lastKnownStatus: string | undefined;
+    let lastKnownMessage: string | undefined;
+    let lastKnownCode: string | undefined;
     for (let attempt = 0; attempt < VIDEO_JOB_POLL_ATTEMPTS; attempt += 1) {
       try {
         const status = await pollVideoJob(jobId);
+        lastKnownStatus = status.status;
+        lastKnownMessage = status.error || status.message || lastKnownMessage;
+        lastKnownCode = (status as unknown as { code?: string; errorCode?: string })?.code
+          || (status as unknown as { code?: string; errorCode?: string })?.errorCode
+          || lastKnownCode;
         if (status.status === 'completed') {
           const resolvedVideoUrl = resolveBackendAssetUrl(status.result?.videoUrl ?? status.videoUrl);
+          if (!resolvedVideoUrl) {
+            const noUrlError = new Error('Video generation completed, but no video URL was returned.') as Error & { code?: string; status?: number };
+            noUrlError.code = 'VIDEO_GENERATION_MISSING_URL';
+            noUrlError.status = 200;
+            throw noUrlError;
+          }
           return {
             videoId: status.result?.id,
             videoPrompt: status.result?.prompt,
@@ -628,7 +741,13 @@ export default function ChatScreen() {
           };
         }
         if (status.status === 'failed') {
-          throw new Error(status.error || status.message || 'Video generation failed.');
+          const failedError = new Error(status.error || status.message || 'Video generation failed.') as Error & {
+            code?: string;
+            status?: number;
+          };
+          failedError.code = lastKnownCode || 'VIDEO_GENERATION_FAILED';
+          failedError.status = 200;
+          throw failedError;
         }
         await new Promise((resolve) => setTimeout(resolve, VIDEO_JOB_POLL_INTERVAL_MS));
       } catch (error) {
@@ -649,13 +768,21 @@ export default function ChatScreen() {
       }
     }
 
-    const pendingError = new Error('Video generation is still processing.');
-    (pendingError as Error & { code?: string }).code = 'VIDEO_GENERATION_PENDING';
-    throw pendingError;
+    const timeoutError = new Error(
+      lastKnownStatus === 'failed'
+        ? (lastKnownMessage || 'Video generation failed.')
+        : 'Video generation timed out. Please try again.',
+    ) as Error & { code?: string; status?: number };
+    timeoutError.code = lastKnownStatus === 'failed'
+      ? (lastKnownCode || 'VIDEO_GENERATION_FAILED')
+      : 'VIDEO_GENERATION_TIMEOUT';
+    timeoutError.status = 200;
+    throw timeoutError;
   }, [resolveBackendAssetUrl]);
 
   const applyAuthConversationDetail = useCallback((detail: Awaited<ReturnType<typeof getAuthenticatedConversation>>) => {
-    setMessages(detail.messages.map(mapAuthMessageToUiMessage));
+    const mapped = detail.messages.map(mapAuthMessageToUiMessage);
+    setMessages(applyDescriptiveAttachmentNames(mapped));
     setMessageReactions(() =>
       detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
         if (message.role !== 'assistant') return acc;
@@ -667,7 +794,7 @@ export default function ChatScreen() {
         return acc;
       }, {}),
     );
-  }, [mapAuthMessageToUiMessage]);
+  }, [applyDescriptiveAttachmentNames, mapAuthMessageToUiMessage]);
 
   const syncAssistantMessageAfterStream = useCallback(async (
     conversationId: string,
@@ -684,17 +811,34 @@ export default function ChatScreen() {
         if (serverMessage) {
           const mapped = mapAuthMessageToUiMessage(serverMessage);
           setMessages((prev) => {
+            const previousUser = [...prev]
+              .reverse()
+              .find((candidate) => candidate.role === 'user' && candidate.content.trim().length > 0);
+            const fallbackText = mapped.content.trim() || previousUser?.content?.trim() || '';
+            const enhancedMapped = mapped.attachments?.length
+              ? {
+                  ...mapped,
+                  attachments: mapped.attachments.map((attachment) => ({
+                    ...attachment,
+                    originalName: suggestDescriptiveFileName({
+                      originalName: attachment.originalName,
+                      mimeType: attachment.mimeType,
+                      fallbackText,
+                    }),
+                  })),
+                }
+              : mapped;
             const byServerId = prev.findIndex((item) => item.id === assistantMessageId);
             if (byServerId >= 0) {
               const next = [...prev];
-              next[byServerId] = mapped;
+              next[byServerId] = enhancedMapped;
               return next;
             }
 
             const byFallbackId = prev.findIndex((item) => item.id === localFallbackId);
             if (byFallbackId >= 0) {
               const next = [...prev];
-              next[byFallbackId] = mapped;
+              next[byFallbackId] = enhancedMapped;
               return next;
             }
 
@@ -710,7 +854,7 @@ export default function ChatScreen() {
 
       await new Promise((resolve) => setTimeout(resolve, 220));
     }
-  }, [mapAuthMessageToUiMessage]);
+  }, [mapAuthMessageToUiMessage, suggestDescriptiveFileName]);
 
   const reconcileAuthConversationAfterSend = useCallback(async (conversationId: string) => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -894,6 +1038,15 @@ export default function ChatScreen() {
     }
     if (typed?.status === 401 || code === 'TOKEN_EXPIRED' || code === 'UNAUTHORIZED') {
       return 'Your session expired. Please sign in again.';
+    }
+    if (code === 'VIDEO_FROM_IMAGE_FILE_MISSING' || code === 'VIDEO_FROM_IMAGE_FILE_UNREADABLE') {
+      return 'The selected image is no longer available. Please reselect the image and try again.';
+    }
+    if (code === 'VIDEO_FROM_IMAGE_INVALID_URI') {
+      return 'Could not read the selected image. Please choose the image again and retry.';
+    }
+    if (code === 'VIDEO_FROM_IMAGE_NETWORK_ERROR' || code === 'NETWORK_ERROR') {
+      return 'Upload failed before reaching the server. Check connection and try again.';
     }
     if (typed?.status === 403 || code === 'FORBIDDEN' || code === 'UPGRADE_REQUIRED' || message === 'forbidden') {
       return 'You do not have permission for this action on your current plan.';
@@ -1515,7 +1668,18 @@ export default function ChatScreen() {
   const getMessageItemType = useCallback((item: UiMessage) => {
     if (item.imageUrl || item.isImageGenerating) return 'image';
     if (item.videoUrl || item.isVideoGenerating) return 'video';
+    if (item.isArtifactGenerating) return 'artifact';
     return item.role;
+  }, []);
+
+  const isLikelyArtifactGenerationIntent = useCallback((value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    const asksForGeneration =
+      /\b(generate|create|make|build|export|produce|draft)\b/.test(normalized);
+    const asksForFile =
+      /\b(file|artifact|document|docx|pdf|csv|xlsx|sheet|markdown|md|txt|json)\b/.test(normalized);
+    return asksForGeneration && asksForFile;
   }, []);
 
   const handleSend = () => {
@@ -1585,6 +1749,9 @@ export default function ChatScreen() {
 
       const assistantId = `assistant-${Date.now()}`;
       let activeAssistantId = assistantId;
+      const suppressStreamingTextForArtifact = isAuthenticated
+        && !attachmentsForSend.length
+        && isLikelyArtifactGenerationIntent(trimmed);
 
       hapticImpact();
       assistantFirstDeltaRef.current = false;
@@ -1616,6 +1783,7 @@ export default function ChatScreen() {
             role: 'assistant',
             content: '',
             createdAt: Date.now(),
+            isArtifactGenerating: suppressStreamingTextForArtifact,
           },
         ];
       });
@@ -1682,10 +1850,14 @@ export default function ChatScreen() {
                   hapticSelection();
                 }
                 assistantResponseBuffer += event.content;
-                queueAssistantDelta(assistantId, event.content);
+                if (!suppressStreamingTextForArtifact) {
+                  queueAssistantDelta(assistantId, event.content);
+                }
               }
               if (event.type === 'done') {
-                flushPendingAssistantDelta();
+                if (!suppressStreamingTextForArtifact) {
+                  flushPendingAssistantDelta();
+                }
                 hapticSuccess();
                 setStreamingModelLabel(null);
                 logParsedResponseForAttempt(assistantResponseBuffer);
@@ -2052,12 +2224,16 @@ export default function ChatScreen() {
                 hapticSelection();
               }
               assistantResponseBuffer += event.content;
-              queueAssistantDelta(activeAssistantId, event.content);
+              if (!suppressStreamingTextForArtifact) {
+                queueAssistantDelta(activeAssistantId, event.content);
+              }
               return;
             }
 
             if (event.type === 'done') {
-              flushPendingAssistantDelta();
+              if (!suppressStreamingTextForArtifact) {
+                flushPendingAssistantDelta();
+              }
               hapticSuccess();
               setStreamingModelLabel(null);
               logParsedResponseForAttempt(assistantResponseBuffer);
@@ -2108,6 +2284,7 @@ export default function ChatScreen() {
           requestKind === 'video'
           && (
             code === 'VIDEO_GENERATION_PENDING'
+            || code === 'VIDEO_GENERATION_TIMEOUT'
             || message.toLowerCase().includes('too many video generation requests')
             || message.toLowerCase().includes('too many requests')
           );
@@ -2234,16 +2411,30 @@ export default function ChatScreen() {
             );
           }
           setMessages((prev) =>
-            prev.map((item) =>
-              item.id === assistantId
-                ? {
-                    ...item,
-                    content: delayedMessage,
-                    videoPrompt: requestedVideoPrompt || item.videoPrompt,
-                    isVideoGenerating: true,
-                  }
-                : item,
-            ),
+            {
+              let matched = false;
+              const next = prev.map((item) => {
+                if (item.id !== assistantId) return item;
+                matched = true;
+                return {
+                  ...item,
+                  content: delayedMessage,
+                  videoPrompt: requestedVideoPrompt || item.videoPrompt,
+                  isVideoGenerating: true,
+                };
+              });
+              if (!matched) {
+                next.push({
+                  id: `video-delayed-${Date.now()}`,
+                  role: 'assistant',
+                  content: delayedMessage,
+                  createdAt: Date.now(),
+                  videoPrompt: requestedVideoPrompt || trimmed,
+                  isVideoGenerating: true,
+                });
+              }
+              return next;
+            },
           );
           showTransientNotice(delayedMessage, 7000);
           didMutateChats = true;
@@ -2259,16 +2450,32 @@ export default function ChatScreen() {
           showTransientNotice(friendlyMessage, isRateLimited ? 5000 : 3200);
         }
         setMessages((prev) =>
-          prev.map((item) =>
-            item.id === assistantId
-              ? {
+          {
+            let matched = false;
+            const next = prev.map((item) => {
+              if (item.id !== assistantId) return item;
+              matched = true;
+                return {
                   ...item,
                   isImageGenerating: false,
                   isVideoGenerating: false,
+                  isArtifactGenerating: false,
                   content: isLimitError ? getLimitNoticeMessage(requestKind) : friendlyMessage,
-                }
-              : item,
-          ),
+                };
+            });
+            if (!matched) {
+              next.push({
+                id: `send-error-${Date.now()}`,
+                role: 'assistant',
+                content: isLimitError ? getLimitNoticeMessage(requestKind) : friendlyMessage,
+                createdAt: Date.now(),
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+              });
+            }
+            return next;
+          },
         );
       } finally {
         flushPendingAssistantDelta();
@@ -2687,14 +2894,25 @@ export default function ChatScreen() {
     showTransientNotice('Downloading file...');
 
     try {
-      const lowerName = (attachment.originalName ?? '').toLowerCase();
       const isMarkdown = isMarkdownAttachment(attachment);
-      const fallbackExtension = isMarkdown ? 'md' : 'pdf';
-      const suggestedName = (attachment.originalName?.trim() || `cafa-ai-file-${Date.now()}.${fallbackExtension}`)
+      const inferredExtension = (() => {
+        const lowerName = (attachment.originalName ?? '').toLowerCase();
+        const nameMatch = lowerName.match(/\.([a-z0-9]+)$/i);
+        if (nameMatch?.[1]) return nameMatch[1];
+        const mime = (attachment.mimeType ?? '').toLowerCase();
+        if (mime.includes('pdf')) return 'pdf';
+        if (mime.includes('markdown')) return 'md';
+        if (mime.includes('wordprocessingml') || mime.includes('msword')) return 'docx';
+        if (mime.includes('json')) return 'json';
+        if (mime.includes('csv')) return 'csv';
+        if (mime.includes('plain')) return 'txt';
+        return 'bin';
+      })();
+      const suggestedName = (attachment.originalName?.trim() || `cafa-ai-file-${Date.now()}.${inferredExtension}`)
         .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
       const finalName = /\.[a-z0-9]+$/i.test(suggestedName)
         ? suggestedName
-        : `${suggestedName}.${lowerName.endsWith('.md') ? 'md' : fallbackExtension}`;
+        : `${suggestedName}.${inferredExtension}`;
       const target = new File(Paths.cache, finalName);
       if (target.exists) {
         target.delete();
@@ -2710,14 +2928,14 @@ export default function ChatScreen() {
         const persisted = await saveFileToDownloadsCafaFolder({
           localFileUri: downloaded.uri,
           fileName: finalName,
-          mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/pdf'),
+          mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/octet-stream'),
         });
         showDownloadToast(`Saved to ${persisted.readableFilePath}`);
       } else {
         const Sharing = await getSharingModule();
         if (Sharing && await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(downloaded.uri, {
-            mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/pdf'),
+            mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/octet-stream'),
             dialogTitle: 'Save or share file',
           });
           showDownloadToast('File ready to save or share.');
@@ -3036,7 +3254,7 @@ export default function ChatScreen() {
         }
 
         setMessages(
-          detail.messages.map(mapAuthMessageToUiMessage),
+          applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage)),
         );
 
         setMessageReactions(() =>
@@ -3061,7 +3279,7 @@ export default function ChatScreen() {
 
     setIsHydratingAuthChat(true);
     void loadAuthenticatedState();
-  }, [createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage, rotateStarterPrompts]);
+  }, [applyDescriptiveAttachmentNames, createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage, rotateStarterPrompts]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -3100,7 +3318,7 @@ export default function ChatScreen() {
             return;
           }
           setMessages(
-            detail.messages.map(mapAuthMessageToUiMessage),
+            applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage)),
           );
           setMessageReactions(() =>
             detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
@@ -3137,7 +3355,7 @@ export default function ChatScreen() {
     };
 
     void hydrateTarget();
-  }, [createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat, rotateStarterPrompts]);
+  }, [applyDescriptiveAttachmentNames, createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat, rotateStarterPrompts]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -3649,6 +3867,7 @@ export default function ChatScreen() {
                 const fileAttachments = messageAttachments.filter((attachment) => !isImageAttachment(attachment));
                 const isImageGenerating = !isUser && item.isImageGenerating && !item.imageUrl;
                 const isVideoGenerating = !isUser && item.isVideoGenerating && !item.videoUrl;
+                const isArtifactGenerating = !isUser && item.isArtifactGenerating && !item.videoUrl && !item.imageUrl;
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
                 const hasAttachmentPreviews = imageAttachments.length > 0 || fileAttachments.length > 0;
@@ -3673,7 +3892,16 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && isImageMessage ? (
+                      {isArtifactGenerating ? (
+                        <FileGenerationPlaceholder
+                          width={236}
+                          height={116}
+                          isDark={isDark}
+                          accentColor={colors.primary}
+                        />
+                      ) : null}
+
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
                         <Pressable
                           onPress={() => {
                             if (item.imageUrl) setImageLightboxUri(item.imageUrl);
@@ -3720,7 +3948,7 @@ export default function ChatScreen() {
                         </Pressable>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && isVideoMessage ? (
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
                         <ChatVideoCard
                           uri={item.videoUrl!}
                           width={236}
@@ -3733,7 +3961,7 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage && hasAttachmentPreviews ? (
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && !isImageMessage && !isVideoMessage && hasAttachmentPreviews ? (
                         <View className="mb-2 gap-1.5">
                           {imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
@@ -3841,7 +4069,7 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isImageMessage && !isVideoMessage && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && !isImageMessage && !isVideoMessage && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable

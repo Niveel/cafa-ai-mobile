@@ -1,4 +1,5 @@
-import { AxiosResponse } from 'axios';
+import { AxiosError, AxiosResponse } from 'axios';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { GenerateVideoRequest, VideoGenerationJob, VideoHistoryItem, VideoHistoryPage, VideoHistoryQuery } from '@/types';
@@ -16,10 +17,92 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type ApiMappedError = Error & {
+  code?: string;
+  status?: number;
+};
+
+type VideoJobResponseShape = {
+  data?: unknown;
+  job?: unknown;
+  jobId?: string;
+  status?: string;
+  message?: string;
+  error?: string;
+  videoUrl?: string;
+  result?: unknown;
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeVideoJobPayload(payload: unknown): VideoGenerationJob | null {
+  if (!isObject(payload)) return null;
+  if (isObject(payload.data)) return normalizeVideoJobPayload(payload.data);
+  if (isObject(payload.job)) return normalizeVideoJobPayload(payload.job);
+
+  const candidate = payload as VideoJobResponseShape;
+  if (!candidate.jobId && !candidate.status && !candidate.videoUrl && !candidate.result && !candidate.error) {
+    return null;
+  }
+  return candidate as unknown as VideoGenerationJob;
+}
+
+function createVideoPayloadError(message: string): ApiMappedError {
+  const error = new Error(message) as ApiMappedError;
+  error.code = 'VIDEO_JOB_INVALID_RESPONSE';
+  error.status = 200;
+  return error;
+}
+
+function createVideoTransportError(message: string, code: string, status?: number): ApiMappedError {
+  const error = new Error(message) as ApiMappedError;
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+async function assertReadableUploadUri(uri: string) {
+  if (!uri?.trim()) {
+    throw createVideoTransportError('Image upload URI is missing.', 'VIDEO_FROM_IMAGE_INVALID_URI', 0);
+  }
+  if (!uri.startsWith('file://')) return;
+
+  try {
+    const info = await LegacyFileSystem.getInfoAsync(uri);
+    if (!info.exists) {
+      throw createVideoTransportError('Selected image is no longer available on device storage.', 'VIDEO_FROM_IMAGE_FILE_MISSING', 0);
+    }
+  } catch (error) {
+    if ((error as ApiMappedError)?.code) throw error;
+    throw createVideoTransportError('Could not read selected image from local storage.', 'VIDEO_FROM_IMAGE_FILE_UNREADABLE', 0);
+  }
+}
+
+function isLikelyTransportNetworkError(error: unknown) {
+  if (!(error instanceof AxiosError)) return false;
+  if (error.response) return false;
+  const message = (error.message ?? '').toLowerCase();
+  const code = (error.code ?? '').toLowerCase();
+  return (
+    message.includes('network error')
+    || message.includes('socket')
+    || message.includes('timeout')
+    || code.includes('network')
+    || code.includes('timeout')
+    || code.includes('conn')
+  );
+}
+
 export async function startVideoGeneration(request: GenerateVideoRequest) {
   try {
-    const response: AxiosResponse<{ data: VideoGenerationJob }> = await apiClient.post(apiEndpoints.videos.generate, request);
-    return response.data.data;
+    const response: AxiosResponse<VideoJobResponseShape> = await apiClient.post(apiEndpoints.videos.generate, request);
+    const normalized = normalizeVideoJobPayload(response.data);
+    if (!normalized?.jobId) {
+      throw createVideoPayloadError('Video generation started, but no job ID was returned.');
+    }
+    return normalized;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -36,6 +119,8 @@ export async function startVideoGenerationFromImage(request: {
     mimeType?: string;
   };
 }) {
+  await assertReadableUploadUri(request.image.uri);
+
   const formData = new FormData();
   formData.append('prompt', request.prompt);
   if (request.conversationId) formData.append('conversationId', request.conversationId);
@@ -51,29 +136,47 @@ export async function startVideoGenerationFromImage(request: {
     type: normalizedType,
   } as unknown as { uri: string; name: string; type: string };
   formData.append('image', imageFile as never);
+  formData.append('files', imageFile as never);
 
-  try {
-    const response: AxiosResponse<{ data: VideoGenerationJob }> = await apiClient.post(
-      apiEndpoints.videos.fromImage,
-      formData,
-      {
-        timeout: 120_000,
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'multipart/form-data',
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response: AxiosResponse<VideoJobResponseShape> = await apiClient.post(
+        apiEndpoints.videos.fromImage,
+        formData,
+        {
+          timeout: 120_000,
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'multipart/form-data',
+          },
         },
-      },
-    );
-    return response.data.data;
-  } catch (error) {
-    throw mapApiError(error);
+      );
+      const normalized = normalizeVideoJobPayload(response.data);
+      if (!normalized?.jobId) {
+        throw createVideoPayloadError('Image-to-video started, but no job ID was returned.');
+      }
+      return normalized;
+    } catch (error) {
+      if (attempt < maxAttempts && isLikelyTransportNetworkError(error)) {
+        await sleep(900);
+        continue;
+      }
+      throw mapApiError(error);
+    }
   }
+
+  throw createVideoTransportError('Could not start image-to-video upload due to network transport failure.', 'VIDEO_FROM_IMAGE_NETWORK_ERROR', 0);
 }
 
 export async function pollVideoJob(jobId: string) {
   try {
-    const response: AxiosResponse<{ data: VideoGenerationJob }> = await apiClient.get(apiEndpoints.videos.job(jobId));
-    return response.data.data;
+    const response: AxiosResponse<VideoJobResponseShape> = await apiClient.get(apiEndpoints.videos.job(jobId));
+    const normalized = normalizeVideoJobPayload(response.data);
+    if (!normalized) {
+      throw createVideoPayloadError('Video job poll returned an unexpected response shape.');
+    }
+    return normalized;
   } catch (error) {
     throw mapApiError(error);
   }

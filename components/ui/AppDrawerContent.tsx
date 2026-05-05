@@ -549,7 +549,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [chats, customTitles, pinnedIds, searchQuery]);
 
   const openRoute = useCallback(
-    (routeName: 'index' | 'images' | 'videos' | 'voice' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
+    (routeName: 'index' | 'images' | 'videos' | 'artifacts' | 'voice' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
     },
@@ -806,6 +806,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
           <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
           <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
+          <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
         </View>
 
         <View

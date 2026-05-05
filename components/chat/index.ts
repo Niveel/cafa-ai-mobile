@@ -3,6 +3,7 @@ export * from './constants';
 export * from './RecordingWaves';
 export * from './ImageGenerationPlaceholder';
 export * from './VideoGenerationPlaceholder';
+export * from './FileGenerationPlaceholder';
 export * from './ChatVideoCard';
 export * from './MessageActionsRow';
 export * from './ImageMessageActionsRow';

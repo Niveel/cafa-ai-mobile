@@ -9,6 +9,7 @@ const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'chatbubble-ellipses-outline',
   images: 'images-outline',
   videos: 'videocam-outline',
+  artifacts: 'document-attach-outline',
   voice: 'mic-outline',
   plans: 'card-outline',
   help: 'help-circle-outline',
@@ -60,6 +61,7 @@ export default function DrawerLayout() {
       <Drawer.Screen name="index" options={{ title: t('drawer.newChat') }} />
       <Drawer.Screen name="images" options={{ title: t('drawer.images') }} />
       <Drawer.Screen name="videos" options={{ title: t('drawer.videos') }} />
+      <Drawer.Screen name="artifacts" options={{ title: t('drawer.artifacts') }} />
       <Drawer.Screen name="voice" options={{ title: t('drawer.voice') }} />
       <Drawer.Screen name="plans" options={{ title: t('drawer.userMenu.upgrade') }} />
       <Drawer.Screen

@@ -1,5 +1,6 @@
 export * from './api.common';
 export * from './app';
+export * from './artifact.types';
 export * from './auth.types';
 export * from './billing.types';
 export * from './chat.types';
