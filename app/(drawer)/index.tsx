@@ -800,6 +800,7 @@ export default function ChatScreen() {
     conversationId: string,
     assistantMessageId: string,
     localFallbackId: string,
+    fallbackAttachments: UiMessageAttachment[] = [],
   ) => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
@@ -810,15 +811,18 @@ export default function ChatScreen() {
 
         if (serverMessage) {
           const mapped = mapAuthMessageToUiMessage(serverMessage);
+          const mergedMapped = (mapped.attachments?.length ?? 0) > 0
+            ? mapped
+            : { ...mapped, attachments: fallbackAttachments };
           setMessages((prev) => {
             const previousUser = [...prev]
               .reverse()
               .find((candidate) => candidate.role === 'user' && candidate.content.trim().length > 0);
-            const fallbackText = mapped.content.trim() || previousUser?.content?.trim() || '';
-            const enhancedMapped = mapped.attachments?.length
+            const fallbackText = mergedMapped.content.trim() || previousUser?.content?.trim() || '';
+            const enhancedMapped = mergedMapped.attachments?.length
               ? {
-                  ...mapped,
-                  attachments: mapped.attachments.map((attachment) => ({
+                  ...mergedMapped,
+                  attachments: mergedMapped.attachments.map((attachment) => ({
                     ...attachment,
                     originalName: suggestDescriptiveFileName({
                       originalName: attachment.originalName,
@@ -845,7 +849,11 @@ export default function ChatScreen() {
             return prev;
           });
 
-          const hasVisualOrFileState = Boolean(mapped.imageUrl || mapped.videoUrl || (mapped.attachments?.length ?? 0) > 0);
+          const hasVisualOrFileState = Boolean(
+            mergedMapped.imageUrl
+            || mergedMapped.videoUrl
+            || (mergedMapped.attachments?.length ?? 0) > 0,
+          );
           if (hasVisualOrFileState) return;
         }
       } catch {
@@ -2244,20 +2252,45 @@ export default function ChatScreen() {
               hapticSuccess();
               setStreamingModelLabel(null);
               logParsedResponseForAttempt(assistantResponseBuffer);
+              const streamedAttachments = event.attachments ?? [];
               if (event.messageId) {
                 const previousAssistantId = activeAssistantId;
                 activeAssistantId = event.messageId;
                 setMessages((prev) =>
                   prev.map((message) =>
                     message.id === previousAssistantId
-                      ? { ...message, id: event.messageId!, tokens: event.tokens }
+                      ? {
+                        ...message,
+                        id: event.messageId!,
+                        tokens: event.tokens,
+                        attachments: streamedAttachments.length ? streamedAttachments : message.attachments,
+                      }
                       : message,
                   ),
                 );
-                void syncAssistantMessageAfterStream(conversationId, event.messageId, previousAssistantId);
+                void syncAssistantMessageAfterStream(
+                  conversationId,
+                  event.messageId,
+                  previousAssistantId,
+                  streamedAttachments,
+                );
                 return;
               }
-              void syncAssistantMessageAfterStream(conversationId, activeAssistantId, assistantId);
+              if (streamedAttachments.length) {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, attachments: streamedAttachments }
+                      : message,
+                  ),
+                );
+              }
+              void syncAssistantMessageAfterStream(
+                conversationId,
+                activeAssistantId,
+                assistantId,
+                streamedAttachments,
+              );
             }
           },
           language,
@@ -2384,12 +2417,6 @@ export default function ChatScreen() {
               try {
                 await new Promise((resolve) => setTimeout(resolve, 280 * recoveryAttempt));
                 const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
-                const hasAssistantReply = detail.messages
-                  .slice()
-                  .reverse()
-                  .some((item) => item.role === 'assistant' && item.content.trim().length > 0);
-                if (!hasAssistantReply) continue;
-                applyAuthConversationDetail(detail);
                 const recoveredAssistant = [...detail.messages]
                   .reverse()
                   .find((item) => (
@@ -2397,9 +2424,9 @@ export default function ChatScreen() {
                     && item.content.trim().length > 0
                     && new Date(item.createdAt).getTime() >= sendStartedAt - 2000
                   ));
-                if (recoveredAssistant) {
-                  logParsedResponseForAttempt(recoveredAssistant.content);
-                }
+                if (!recoveredAssistant) continue;
+                applyAuthConversationDetail(detail);
+                logParsedResponseForAttempt(recoveredAssistant.content);
                 didMutateChats = true;
                 return;
               } catch {
@@ -2408,6 +2435,7 @@ export default function ChatScreen() {
             }
           }
         }
+        const idempotencyVisibleMessage = 'Your previous request is still processing. Please wait a moment and try again.';
         if (delayedVideoError) {
           const delayedMessage = t('chat.videoGenerationDelayed');
           if (requestedVideoConversationId) {
@@ -2453,8 +2481,12 @@ export default function ChatScreen() {
         hapticError();
         setStreamingModelLabel(null);
 
+        const visibleErrorMessage = isIdempotencyInProgress
+          ? idempotencyVisibleMessage
+          : friendlyMessage;
+
         if (!isLimitError) {
-          showTransientNotice(friendlyMessage, isRateLimited ? 5000 : 3200);
+          showTransientNotice(visibleErrorMessage, isRateLimited ? 5000 : 3200);
         }
         setMessages((prev) =>
           {
@@ -2467,14 +2499,14 @@ export default function ChatScreen() {
                   isImageGenerating: false,
                   isVideoGenerating: false,
                   isArtifactGenerating: false,
-                  content: isLimitError ? getLimitNoticeMessage(requestKind) : friendlyMessage,
+                  content: isLimitError ? getLimitNoticeMessage(requestKind) : visibleErrorMessage,
                 };
             });
             if (!matched) {
               next.push({
                 id: `send-error-${Date.now()}`,
                 role: 'assistant',
-                content: isLimitError ? getLimitNoticeMessage(requestKind) : friendlyMessage,
+                content: isLimitError ? getLimitNoticeMessage(requestKind) : visibleErrorMessage,
                 createdAt: Date.now(),
                 isImageGenerating: false,
                 isVideoGenerating: false,

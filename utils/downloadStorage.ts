@@ -95,9 +95,9 @@ export async function saveFileToDownloadsCafaFolder(options: {
 
   const { StorageAccessFramework, EncodingType } = LegacyFileSystem;
   const folderUri = await resolveCafaDownloadsFolderUri();
-  const { baseName, extension } = splitNameAndExtension(options.fileName);
+  const safeFileName = sanitizeFileName(options.fileName);
   const mime = options.mimeType || 'application/octet-stream';
-  const createdFileUri = await StorageAccessFramework.createFileAsync(folderUri, baseName, mime);
+  const createdFileUri = await StorageAccessFramework.createFileAsync(folderUri, safeFileName, mime);
   const base64 = await LegacyFileSystem.readAsStringAsync(options.localFileUri, {
     encoding: EncodingType.Base64,
   });
@@ -105,12 +105,11 @@ export async function saveFileToDownloadsCafaFolder(options: {
     encoding: EncodingType.Base64,
   });
 
-  const fileName = extension ? `${baseName}.${extension}` : baseName;
   return {
     safFileUri: createdFileUri,
     folderUri,
     readableFolderPath: '/Internal storage/Download/Cafa AI',
-    readableFilePath: `/Internal storage/Download/Cafa AI/${fileName}`,
+    readableFilePath: `/Internal storage/Download/Cafa AI/${safeFileName}`,
   };
 }
 

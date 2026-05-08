@@ -82,6 +82,15 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function logDevRawGuestResponse(scope: string, payload: unknown, meta?: { status?: number; contentType?: string | null }) {
+  if (!__DEV__) return;
+  try {
+    console.log(`[chat:raw:${scope}]`, JSON.stringify({ meta, payload }, null, 2));
+  } catch {
+    console.log(`[chat:raw:${scope}]`, payload);
+  }
+}
+
 function isLikelyExpired(expiresAt: string) {
   return new Date(expiresAt).getTime() - Date.now() < 45_000;
 }
@@ -495,6 +504,10 @@ export async function sendGuestMessageStream(
         content?: string;
       };
     }> | null;
+    logDevRawGuestResponse('guest-non-stream', payload, {
+      status: nonStreamResponse.status,
+      contentType: nonStreamResponse.headers.get('content-type'),
+    });
     await emitReplayPayload(payload);
   };
 

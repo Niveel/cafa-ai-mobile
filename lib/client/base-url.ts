@@ -12,7 +12,7 @@ function getExpoHost() {
 }
 
 const detectedHost = getExpoHost();
-const FALLBACK_DEV_HOST = '10.233.113.23';
+const FALLBACK_DEV_HOST = '10.248.78.23';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const EXPO_TUNNEL_HOST_SUFFIXES = ['.exp.direct', '.exp.host', '.expo.dev'];
 
@@ -33,8 +33,11 @@ function normalizeConfiguredDevBaseUrl(value: string | undefined) {
   return trimmed.replace(/\/+$/, '');
 }
 
+const HARDCODED_DEV_BASE_URL = 'http://10.248.78.23:5000/api/v1';
 const configuredDevBaseUrl = normalizeConfiguredDevBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
 
-export const DEV_BASE_URL = configuredDevBaseUrl || `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
+// Intentionally pinned for local development to avoid stale env/host autodetection drift.
+export const DEV_BASE_URL = HARDCODED_DEV_BASE_URL || configuredDevBaseUrl || `http://${resolvedHost || FALLBACK_DEV_HOST}:5000/api/v1`;
 
-export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : PROD_BASE_URL;
+// export const API_BASE_URL = __DEV__ ? DEV_BASE_URL : PROD_BASE_URL;
+export const API_BASE_URL = __DEV__ ? PROD_BASE_URL : PROD_BASE_URL;

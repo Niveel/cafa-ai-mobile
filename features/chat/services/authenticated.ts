@@ -90,7 +90,21 @@ export type AuthConversationDetail = {
 export type AuthChatStreamEvent =
   | { type: 'meta'; model?: string; messageId?: string; requestId?: string; timestamp?: string }
   | { type: 'delta'; content: string; requestId?: string; timestamp?: string }
-  | { type: 'done'; tokens?: number; messageId?: string; requestId?: string; timestamp?: string }
+  | {
+    type: 'done';
+    tokens?: number;
+    messageId?: string;
+    requestId?: string;
+    timestamp?: string;
+    attachments?: {
+      id?: string;
+      fileType?: string;
+      mimeType?: string;
+      originalName?: string;
+      url?: string;
+      thumbnailUrl?: string;
+    }[];
+  }
   | { type: 'error'; code?: string; message: string; requestId?: string; timestamp?: string };
 type AuthSendDebugEvent =
   | { stage: 'start'; endpoint: string; idempotencyKey: string; platform: string; transport: 'xhr' | 'fetch-web' }
@@ -102,6 +116,14 @@ type AuthReplayResponse = ApiResponse<{
   replayed?: boolean;
   messageId?: string;
   requestId?: string;
+  artifacts?: {
+    type?: string;
+    title?: string;
+    mimeType?: string;
+    url?: string;
+    fileName?: string;
+    size_bytes?: number;
+  }[];
   message?: {
     _id?: string;
     content?: string;
@@ -153,6 +175,29 @@ function authStreamLog(stage: string, details?: string) {
     return;
   }
   console.log(`[auth-stream] ${stage}`);
+}
+
+function logDevRawChatResponse(scope: string, payload: unknown, meta?: { status?: number; contentType?: string | null }) {
+  if (!__DEV__) return;
+  try {
+    console.log(`[chat:raw:${scope}]`, JSON.stringify({ meta, payload }, null, 2));
+  } catch {
+    console.log(`[chat:raw:${scope}]`, payload);
+  }
+}
+
+function logDevRawStreamEvent(
+  scope: string,
+  event: AuthChatStreamEvent,
+  meta?: { transport?: string; status?: number; contentType?: string | null },
+) {
+  if (!__DEV__) return;
+  if (event.type !== 'done') return;
+  try {
+    console.log(`[chat:raw:${scope}]`, JSON.stringify({ meta, event }, null, 2));
+  } catch {
+    console.log(`[chat:raw:${scope}]`, event);
+  }
 }
 
 function mapSummary(dto: AuthConversationSummaryDto): AuthConversationSummary {
@@ -300,6 +345,33 @@ function createAuthStreamTransportError(message: string, code: string): AuthStre
   const error = new Error(message) as AuthStreamTransportError;
   error.code = code;
   return error;
+}
+
+function mapReplayArtifactsToAttachments(
+  artifacts: Array<{
+    type?: string;
+    title?: string;
+    mimeType?: string;
+    url?: string;
+    fileName?: string;
+    size_bytes?: number;
+  }> | undefined,
+) {
+  const list = Array.isArray(artifacts) ? artifacts : [];
+  return list
+    .filter((artifact) => Boolean(artifact?.url))
+    .map((artifact, index) => {
+      const fileType = (artifact?.type ?? '').toLowerCase();
+      const isImage = fileType === 'image' || (artifact?.mimeType ?? '').toLowerCase().startsWith('image/');
+      return {
+        id: artifact?.url ?? `artifact-${index}`,
+        fileType: fileType || undefined,
+        mimeType: artifact?.mimeType,
+        originalName: artifact?.fileName ?? artifact?.title,
+        url: artifact?.url,
+        thumbnailUrl: isImage ? artifact?.url : undefined,
+      };
+    });
 }
 
 async function refreshAccessTokenForStreamSend() {
@@ -528,6 +600,7 @@ export async function sendAuthenticatedMessageStream(
   }
 
   const endpoint = `${API_BASE_URL}${apiEndpoints.chat.messages(conversationId)}`;
+  let devStreamResponseText = '';
   const selectedModelId =
     selectedModel === 'ultra' ? 'cafa_ultra' : selectedModel === 'smart' ? 'cafa_smart' : 'cafa_swift';
   const idempotencyKey = createIdempotencyKey();
@@ -563,23 +636,52 @@ export async function sendAuthenticatedMessageStream(
     return formData;
   };
 
+  const emitStreamEvent = (
+    event: AuthChatStreamEvent,
+    transport: 'xhr' | 'fetch-web' | 'fallback-json',
+  ) => {
+    if (event.type === 'delta') {
+      devStreamResponseText += event.content;
+    }
+    if (event.type === 'done') {
+      logDevRawChatResponse('auth-stream-final', {
+        responseText: devStreamResponseText,
+        done: event,
+      }, {
+        contentType: 'text/event-stream',
+      });
+      devStreamResponseText = '';
+    }
+    onEvent(event);
+    if (event.type === 'done') {
+      logDevRawStreamEvent('auth-stream-event', event, { transport });
+    }
+  };
+
   const emitFromReplay = async (payload: AuthReplayResponse['data']) => {
     const replayedMessageId = payload?.message?._id ?? payload?.messageId;
     const directContent = payload?.message?.content?.trim() ?? '';
     const resolvedModel = payload?.message?.aiModel;
     const requestId = payload?.requestId;
+    const artifactAttachments = mapReplayArtifactsToAttachments(payload?.artifacts);
     authStreamLog(
       'emit-replay',
       `messageId=${replayedMessageId ?? 'none'} requestId=${requestId ?? 'none'} contentLen=${directContent.length}`,
     );
 
     if (resolvedModel) {
-      onEvent({ type: 'meta', model: resolvedModel, messageId: replayedMessageId, requestId });
+      emitStreamEvent({ type: 'meta', model: resolvedModel, messageId: replayedMessageId, requestId }, 'fallback-json');
     }
 
     if (directContent) {
-      onEvent({ type: 'delta', content: directContent, requestId });
-      onEvent({ type: 'done', messageId: replayedMessageId, requestId, tokens: payload?.message?.tokens });
+      emitStreamEvent({ type: 'delta', content: directContent, requestId }, 'fallback-json');
+      emitStreamEvent({
+        type: 'done',
+        messageId: replayedMessageId,
+        requestId,
+        tokens: payload?.message?.tokens,
+        attachments: artifactAttachments,
+      }, 'fallback-json');
       return;
     }
 
@@ -591,8 +693,14 @@ export async function sendAuthenticatedMessageStream(
         : [...detail.messages].reverse().find((item) => item.role === 'assistant');
 
       if (target?.content?.trim()) {
-        onEvent({ type: 'delta', content: target.content, requestId });
-        onEvent({ type: 'done', messageId: target.id, requestId, tokens: target.tokens });
+        emitStreamEvent({ type: 'delta', content: target.content, requestId }, 'fallback-json');
+        emitStreamEvent({
+          type: 'done',
+          messageId: target.id,
+          requestId,
+          tokens: target.tokens,
+          attachments: artifactAttachments,
+        }, 'fallback-json');
         return;
       }
 
@@ -645,6 +753,10 @@ export async function sendAuthenticatedMessageStream(
     }
 
     const payload = (await replayResponse.json().catch(() => null)) as AuthReplayResponse | null;
+    logDevRawChatResponse('auth-fallback-json', payload, {
+      status: replayResponse.status,
+      contentType: replayResponse.headers.get('content-type'),
+    });
     if (!payload?.success) {
       throw new Error(payload?.message ?? 'Could not process fallback chat response.');
     }
@@ -707,7 +819,7 @@ export async function sendAuthenticatedMessageStream(
               'xhr:event',
               `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
             );
-            onEvent(event);
+            emitStreamEvent(event, 'xhr');
             if (event.type === 'error') {
               rejectOnce(
                 createAuthStreamTransportError(
@@ -788,6 +900,10 @@ export async function sendAuthenticatedMessageStream(
           authStreamLog('xhr:non-sse-response');
           try {
             const payload = JSON.parse(xhr.responseText) as AuthReplayResponse;
+            logDevRawChatResponse('auth-xhr-non-sse', payload, {
+              status: xhr.status,
+              contentType,
+            });
             if (!payload?.success) {
               rejectOnce(new Error(payload?.message ?? 'Missing response stream from authenticated chat.'));
               return;
@@ -811,7 +927,7 @@ export async function sendAuthenticatedMessageStream(
                 'xhr:trailing-event',
                 `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0}`,
               );
-              onEvent(event);
+              emitStreamEvent(event, 'xhr');
               if (event.type === 'error') {
                 rejectOnce(
                   createAuthStreamTransportError(
@@ -877,6 +993,10 @@ export async function sendAuthenticatedMessageStream(
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.includes('text/event-stream')) {
       const payload = (await response.json().catch(() => null)) as AuthReplayResponse | null;
+      logDevRawChatResponse('auth-fetch-non-sse', payload, {
+        status: response.status,
+        contentType,
+      });
       if (!payload?.success) {
         throw new Error(payload?.message ?? 'Missing response stream from authenticated chat.');
       }
@@ -911,7 +1031,7 @@ export async function sendAuthenticatedMessageStream(
           `${transportLabel}:event`,
           `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
         );
-        onEvent(event);
+        emitStreamEvent(event, transportLabel);
         if (event.type === 'error') {
           throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
         }
@@ -924,7 +1044,7 @@ export async function sendAuthenticatedMessageStream(
         for (const trailingChunk of trailingChunks) {
           const event = parseSseChunk(trailingChunk);
           if (!event) continue;
-          onEvent(event);
+          emitStreamEvent(event, transportLabel);
           if (event.type === 'error') {
             throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
           }
@@ -1041,6 +1161,7 @@ export async function sendAuthenticatedMessageNonStream(
         },
       },
     );
+    logDevRawChatResponse('auth-non-stream', response.data);
     return response.data;
   } catch (error) {
     throw mapApiError(error);

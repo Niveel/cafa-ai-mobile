@@ -22,16 +22,16 @@ export function SecondaryNav({ title, onBackPress, topOffset = 0 }: SecondaryNav
       return;
     }
 
-    if (router.canGoBack()) {
-      router.back();
+    const typedNavigation = navigation as unknown as { canGoBack?: () => boolean; goBack?: () => void; openDrawer?: () => void };
+    if (typeof typedNavigation.canGoBack === 'function' && typedNavigation.canGoBack() && typeof typedNavigation.goBack === 'function') {
+      typedNavigation.goBack();
       return;
     }
 
     // On drawer leaf screens (help/privacy/terms/plans/images/videos/voice), there may be no
     // stack history. In that case, return to sidebar context by reopening the drawer.
-    const maybeDrawerNavigation = navigation as unknown as { openDrawer?: () => void };
-    if (typeof maybeDrawerNavigation.openDrawer === 'function') {
-      maybeDrawerNavigation.openDrawer();
+    if (typeof typedNavigation.openDrawer === 'function') {
+      typedNavigation.openDrawer();
       return;
     }
 

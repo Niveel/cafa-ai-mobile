@@ -147,7 +147,15 @@
       "expo-video",
       "expo-audio",
       "expo-localization",
-      "expo-asset"
+      "expo-asset",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "nivee-llc",
+          "project": "cafa-ai"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Stack, usePathname, useSegments } from 'expo-router';
+import { Stack, useNavigationContainerRef, usePathname, useSegments } from 'expo-router';
+import { isRunningInExpoGo } from 'expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { Animated, AppState, Easing, Image, Linking, useColorScheme, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
+import * as Sentry from '@sentry/react-native';
 
 import '../global.css';
 import { AppPromptModal } from '@/components';
@@ -17,8 +19,32 @@ const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTic
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 const SESSION_REPLAY_SAMPLE_RATE = Number(process.env.EXPO_PUBLIC_POSTHOG_SESSION_REPLAY_SAMPLE_RATE ?? '1');
+const FALLBACK_SENTRY_DSN = 'https://e12548e44ab1ad61ccc745d909996c23@o4510828002148352.ingest.us.sentry.io/4511350711451648';
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || FALLBACK_SENTRY_DSN;
 const SPLASH_DARK_BACKGROUND = '#10264D';
 const SPLASH_LIGHT_BACKGROUND = '#ffffff';
+const IS_EXPO_GO = isRunningInExpoGo();
+const IS_DEV_RUNTIME = __DEV__;
+
+const sentryNavigationIntegration = Sentry.reactNavigationIntegration({
+  enableTimeToInitialDisplay: !IS_EXPO_GO,
+});
+
+Sentry.init({
+  dsn: SENTRY_DSN,
+  sendDefaultPii: true,
+  tracesSampleRate: IS_DEV_RUNTIME ? 1.0 : 0.2,
+  profilesSampleRate: (IS_EXPO_GO || IS_DEV_RUNTIME) ? 0 : 1.0,
+  replaysOnErrorSampleRate: (IS_EXPO_GO || IS_DEV_RUNTIME) ? 0 : 1.0,
+  replaysSessionSampleRate: (IS_EXPO_GO || IS_DEV_RUNTIME) ? 0 : 0.1,
+  enableLogs: true,
+  integrations: [
+    sentryNavigationIntegration,
+    ...((IS_EXPO_GO || IS_DEV_RUNTIME) ? [] : [Sentry.mobileReplayIntegration()]),
+  ],
+  enableNativeFramesTracking: !IS_EXPO_GO,
+  environment: __DEV__ ? 'development' : 'production',
+});
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // No-op: splash may already be controlled by native startup flow.
@@ -276,8 +302,16 @@ function AnimatedIntro({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [showAnimatedIntro, setShowAnimatedIntro] = useState(true);
+  const navigationRef = useNavigationContainerRef();
+
+  useEffect(() => {
+    if (navigationRef) {
+      sentryNavigationIntegration.registerNavigationContainer(navigationRef);
+    }
+  }, [navigationRef]);
+
   const appTree = (
     <AppProvider>
       <RevenueCatProvider>
@@ -316,3 +350,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default Sentry.wrap(RootLayout);
