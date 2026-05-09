@@ -28,6 +28,7 @@ export type ArtifactQuery = {
   limit?: number;
   mimeType?: string;
   kind?: ArtifactKind;
+  q?: string;
 };
 
 export type ArtifactListPage = {

@@ -101,6 +101,7 @@ import {
   listGuestConversations,
   getVoiceCatalog,
   pollVideoJob,
+  getArtifactsPage,
   sendAuthenticatedMessageStream,
   sendAuthenticatedMessageNonStream,
   sendGuestMessageStream,
@@ -284,7 +285,7 @@ export default function ChatScreen() {
     }),
     [t],
   );
-  const params = useLocalSearchParams<{ conversationId?: string; newChat?: string }>();
+  const params = useLocalSearchParams<{ conversationId?: string; newChat?: string; messageId?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -323,6 +324,9 @@ export default function ChatScreen() {
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const [starterPrompts, setStarterPrompts] = useState<string[]>([]);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
+  const lastJumpedMessageKeyRef = useRef<string>('');
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
   const autoScrollEnabledRef = useRef(true);
@@ -780,9 +784,101 @@ export default function ChatScreen() {
     throw timeoutError;
   }, [resolveBackendAssetUrl]);
 
+  const artifactHydrationInFlightRef = useRef<Set<string>>(new Set());
+  const hydrateAssistantAttachmentsFromArtifacts = useCallback(async (conversationId: string) => {
+    if (!conversationId || artifactHydrationInFlightRef.current.has(conversationId)) return;
+    artifactHydrationInFlightRef.current.add(conversationId);
+
+    try {
+      const collected: Awaited<ReturnType<typeof getArtifactsPage>>['artifacts'] = [];
+      let page = 1;
+      let pages = 1;
+      do {
+        const payload = await getArtifactsPage({ page, limit: 100 });
+        collected.push(...payload.artifacts);
+        pages = payload.pagination.pages;
+        page += 1;
+      } while (page <= pages && page <= 10);
+
+      const byMessageId = new Map<string, UiMessageAttachment[]>();
+      for (const artifact of collected) {
+        if (artifact.conversationId !== conversationId) continue;
+        if (!artifact.messageId) continue;
+        const artifactUrl = artifact.url ?? artifact.downloadUrl;
+        if (!artifactUrl) continue;
+
+        const mimeType = artifact.mimeType;
+        const normalizedUrl = resolveBackendAssetUrl(artifactUrl) ?? artifactUrl;
+        const fileType = (mimeType ?? '').startsWith('image/')
+          ? 'image'
+          : (mimeType ?? '').startsWith('video/')
+            ? 'video'
+            : (artifact.kind || 'file');
+        const attachment: UiMessageAttachment = {
+          id: artifact.artifactId || artifact.url,
+          fileType,
+          mimeType,
+          originalName: artifact.fileName,
+          url: normalizedUrl,
+          thumbnailUrl: (mimeType ?? '').startsWith('image/') ? normalizedUrl : undefined,
+        };
+        const existing = byMessageId.get(artifact.messageId) ?? [];
+        existing.push(attachment);
+        byMessageId.set(artifact.messageId, existing);
+      }
+
+      if (!byMessageId.size) return;
+
+      setMessages((prev) => {
+        let changed = false;
+        const next = prev.map((message) => {
+          if (message.role !== 'assistant') return message;
+          if ((message.attachments?.length ?? 0) > 0) return message;
+          const attachments = byMessageId.get(message.id);
+          if (!attachments?.length) return message;
+          changed = true;
+          const firstImage = attachments.find((item) => (item.mimeType ?? '').startsWith('image/'));
+          const firstVideo = attachments.find((item) => (item.mimeType ?? '').startsWith('video/'));
+          return {
+            ...message,
+            attachments,
+            imageUrl: message.imageUrl ?? firstImage?.thumbnailUrl ?? firstImage?.url,
+            videoUrl: message.videoUrl ?? firstVideo?.url,
+          };
+        });
+        return changed ? applyDescriptiveAttachmentNames(next) : prev;
+      });
+    } catch {
+      // Best-effort hydration from artifacts endpoint.
+    } finally {
+      artifactHydrationInFlightRef.current.delete(conversationId);
+    }
+  }, [applyDescriptiveAttachmentNames, resolveBackendAssetUrl]);
+
   const applyAuthConversationDetail = useCallback((detail: Awaited<ReturnType<typeof getAuthenticatedConversation>>) => {
     const mapped = detail.messages.map(mapAuthMessageToUiMessage);
-    setMessages(applyDescriptiveAttachmentNames(mapped));
+    setMessages((prev) => {
+      const previousById = new Map(prev.map((message) => [message.id, message] as const));
+      const merged = mapped.map((message) => {
+        if (message.role !== 'assistant') return message;
+        if ((message.attachments?.length ?? 0) > 0) return message;
+
+        const prior = previousById.get(message.id);
+        if (!prior || (prior.attachments?.length ?? 0) === 0) return message;
+
+        return {
+          ...message,
+          attachments: prior.attachments,
+          imageUrl: message.imageUrl ?? prior.imageUrl,
+          imagePrompt: message.imagePrompt ?? prior.imagePrompt,
+          imageId: message.imageId ?? prior.imageId,
+          videoUrl: message.videoUrl ?? prior.videoUrl,
+          videoPrompt: message.videoPrompt ?? prior.videoPrompt,
+          videoId: message.videoId ?? prior.videoId,
+        };
+      });
+      return applyDescriptiveAttachmentNames(merged);
+    });
     setMessageReactions(() =>
       detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
         if (message.role !== 'assistant') return acc;
@@ -794,7 +890,8 @@ export default function ChatScreen() {
         return acc;
       }, {}),
     );
-  }, [applyDescriptiveAttachmentNames, mapAuthMessageToUiMessage]);
+    void hydrateAssistantAttachmentsFromArtifacts(detail.id);
+  }, [applyDescriptiveAttachmentNames, hydrateAssistantAttachmentsFromArtifacts, mapAuthMessageToUiMessage]);
 
   const syncAssistantMessageAfterStream = useCallback(async (
     conversationId: string,
@@ -895,6 +992,48 @@ export default function ChatScreen() {
       cancelled = true;
     };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
+    const targetMessageId = typeof params.messageId === 'string' ? params.messageId : '';
+    if (!targetConversationId || !targetMessageId) return;
+
+    const inActiveConversation =
+      (isAuthenticated && authConversationId === targetConversationId)
+      || (!isAuthenticated && guestConversationId === targetConversationId);
+    if (!inActiveConversation) return;
+
+    const messageIndex = messages.findIndex((message) => message.id === targetMessageId);
+    if (messageIndex < 0) return;
+
+    const jumpKey = `${targetConversationId}:${targetMessageId}`;
+    if (lastJumpedMessageKeyRef.current === jumpKey) return;
+    lastJumpedMessageKeyRef.current = jumpKey;
+
+    requestAnimationFrame(() => {
+      try {
+        messagesListRef.current?.scrollToIndex({ index: messageIndex, animated: true, viewPosition: 0.45 });
+      } catch {
+        messagesListRef.current?.scrollToOffset({ offset: Math.max(0, messageIndex * 120), animated: true });
+      }
+      setHighlightedMessageId(targetMessageId);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedMessageId((current) => (current === targetMessageId ? null : current));
+        highlightTimeoutRef.current = null;
+      }, 2200);
+      router.setParams({ messageId: undefined });
+    });
+  }, [authConversationId, guestConversationId, isAuthenticated, messages, params.conversationId, params.messageId]);
 
   const scheduleVideoAutoSync = useCallback((conversationId: string, expectedPrompt: string, startedAt: number) => {
     if (videoAutoSyncInFlightRef.current) return;
@@ -3910,9 +4049,26 @@ export default function ChatScreen() {
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
                 const hasAttachmentPreviews = imageAttachments.length > 0 || fileAttachments.length > 0;
+                const shouldRenderMixedAttachmentMessage =
+                  !isUser
+                  && hasAttachmentPreviews
+                  && (
+                    fileAttachments.length > 0
+                    || (!isImageMessage && !isVideoMessage)
+                  );
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    <View className="max-w-[88%]">
+                    <View
+                      className="max-w-[88%] rounded-2xl"
+                      style={highlightedMessageId === item.id
+                        ? {
+                            borderWidth: 1,
+                            borderColor: `${colors.primary}88`,
+                            backgroundColor: isDark ? 'rgba(95,127,184,0.14)' : 'rgba(32,64,121,0.08)',
+                            padding: 4,
+                          }
+                        : undefined}
+                    >
                       {isImageGenerating ? (
                         <ImageGenerationPlaceholder
                           width={236}
@@ -4000,9 +4156,9 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && !isImageMessage && !isVideoMessage && hasAttachmentPreviews ? (
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
                         <View className="mb-2 gap-1.5">
-                          {imageAttachments.map((attachment, index) => {
+                          {!isImageMessage && !isVideoMessage ? imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
                             if (!imageUri) return null;
                             const previewSource = resolveImageSource(imageUri);
@@ -4038,7 +4194,7 @@ export default function ChatScreen() {
                                 )}
                               </View>
                             );
-                          })}
+                          }) : null}
 
                           {fileAttachments.map((attachment, index) => {
                             const fileName = attachment.originalName ?? 'Attachment';
@@ -4108,7 +4264,7 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && !isImageMessage && !isVideoMessage && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable

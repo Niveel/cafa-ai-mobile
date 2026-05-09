@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { File, Paths } from 'expo-file-system';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
@@ -64,35 +65,6 @@ function fileIconForMime(mimeType?: string) {
   return 'document-outline';
 }
 
-function isDocumentArtifact(item: ArtifactItem) {
-  const mime = (item.mimeType ?? '').toLowerCase().trim();
-  const probe = `${item.fileName ?? ''} ${item.url ?? ''} ${item.downloadUrl ?? ''}`.toLowerCase();
-
-  const mediaExtension = /\.(png|jpe?g|gif|webp|bmp|heic|heif|svg|mp4|mov|m4v|avi|mkv|webm)(\?|$)/.test(probe);
-  if (mime.startsWith('image/') || mime.startsWith('video/') || mediaExtension) return false;
-
-  const docExtension = /\.(pdf|doc|docx|txt|md|markdown|csv|tsv|json|xml|rtf|xlsx|xls|ppt|pptx|zip)(\?|$)/.test(probe);
-  if (docExtension) return true;
-
-  if (mime.startsWith('text/')) return true;
-  if (
-    mime.includes('application/pdf')
-    || mime.includes('msword')
-    || mime.includes('officedocument')
-    || mime.includes('application/json')
-    || mime.includes('application/xml')
-    || mime.includes('text/csv')
-    || mime.includes('application/rtf')
-    || mime.includes('application/zip')
-    || mime.includes('markdown')
-    || mime.includes('plain')
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 async function getSharingModule() {
   try {
     const loaded = await import('expo-sharing');
@@ -121,8 +93,8 @@ export default function ArtifactsScreen() {
   const [hasNextPage, setHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [statusNotice, setStatusNotice] = useState('');
-  const [kindFilter, setKindFilter] = useState<'all' | 'attachment' | 'generated'>('all');
-  const [mimeTypeFilter, setMimeTypeFilter] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
   const [activeDownloadArtifact, setActiveDownloadArtifact] = useState<ArtifactItem | null>(null);
   const hasBootstrappedRef = useRef(false);
@@ -164,12 +136,10 @@ export default function ArtifactsScreen() {
       const payload = await getArtifactsPage({
         page,
         limit: PAGE_SIZE,
-        kind: kindFilter === 'all' ? undefined : kindFilter,
-        mimeType: mimeTypeFilter.trim() || undefined,
+        q: debouncedSearchText || undefined,
       });
-      const nonMediaArtifacts = payload.artifacts.filter((item) => isDocumentArtifact(item));
       setArtifacts((prev) => {
-        const source = mode === 'replace' ? nonMediaArtifacts : [...prev, ...nonMediaArtifacts];
+        const source = mode === 'replace' ? payload.artifacts : [...prev, ...payload.artifacts];
         const deduped = new Map<string, ArtifactItem>();
         source.forEach((item) => deduped.set(item.artifactId, item));
         return Array.from(deduped.values());
@@ -186,7 +156,7 @@ export default function ArtifactsScreen() {
       setIsLoadingMore(false);
       setIsRefreshing(false);
     }
-  }, [kindFilter, mimeTypeFilter, showNotice, t]);
+  }, [debouncedSearchText, showNotice, t]);
 
   useEffect(() => {
     if (hasBootstrappedRef.current) return;
@@ -195,18 +165,22 @@ export default function ArtifactsScreen() {
   }, [loadPage]);
 
   useEffect(() => {
+    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+    filterDebounceRef.current = setTimeout(() => {
+      setDebouncedSearchText(searchText.trim().toLowerCase());
+      filterDebounceRef.current = null;
+    }, 260);
+  }, [searchText]);
+
+  useEffect(() => {
     if (skipFirstFilterRunRef.current) {
       skipFirstFilterRunRef.current = false;
       return;
     }
-    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
-    filterDebounceRef.current = setTimeout(() => {
-      setHasNextPage(true);
-      setCurrentPage(0);
-      void loadPage(1, 'replace');
-      filterDebounceRef.current = null;
-    }, 320);
-  }, [kindFilter, mimeTypeFilter, loadPage]);
+    setHasNextPage(true);
+    setCurrentPage(0);
+    void loadPage(1, 'replace');
+  }, [debouncedSearchText, loadPage]);
 
   const onRefresh = useCallback(() => {
     setIsRefreshing(true);
@@ -214,19 +188,12 @@ export default function ArtifactsScreen() {
     void loadPage(1, 'replace');
   }, [loadPage]);
 
-  const applyFilters = useCallback(() => {
-    hapticSelection();
-    setHasNextPage(true);
-    setCurrentPage(0);
-    void loadPage(1, 'replace');
-  }, [loadPage]);
-
-  const hasActiveFilters = kindFilter !== 'all' || mimeTypeFilter.trim().length > 0;
+  const hasActiveFilters = searchText.trim().length > 0;
 
   const clearFilters = useCallback(() => {
     hapticSelection();
-    setKindFilter('all');
-    setMimeTypeFilter('');
+    setSearchText('');
+    setDebouncedSearchText('');
     setHasNextPage(true);
     setCurrentPage(0);
     void loadPage(1, 'replace');
@@ -312,58 +279,25 @@ export default function ArtifactsScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.artifactsSubtitle')}
           </Text>
-          <View accessibilityRole="tablist" className="mt-2 flex-row items-center">
-            {(['all', 'attachment', 'generated'] as const).map((kind) => (
-              <Pressable
-                key={kind}
-                onPress={() => setKindFilter(kind)}
-                accessibilityRole="tab"
-                accessibilityLabel={`Filter artifacts by ${kind}`}
-                accessibilityHint="Updates the artifacts list"
-                accessibilityState={{ selected: kindFilter === kind }}
-                className="mr-2 rounded-full px-3 py-1.5"
-                style={{
-                  borderWidth: 1,
-                  borderColor: kindFilter === kind ? colors.primary : colors.border,
-                  backgroundColor: kindFilter === kind ? (isDark ? 'rgba(95,127,184,0.18)' : 'rgba(32,64,121,0.1)') : 'transparent',
-                }}
-              >
-                <Text style={{ color: kindFilter === kind ? colors.primary : colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
-                  {kind === 'all' ? 'All' : kind === 'attachment' ? 'Attachment' : 'Generated'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
           <View className="mt-2 flex-row items-center">
             <View
-              className="mr-2 flex-1 rounded-full border px-3"
+              className="flex-1 rounded-full border px-3"
               style={{ borderColor: colors.border, height: 38, justifyContent: 'center' }}
             >
               <TextInput
-                value={mimeTypeFilter}
-                onChangeText={setMimeTypeFilter}
-                placeholder="mimeType (optional)"
+                value={searchText}
+                onChangeText={setSearchText}
+                placeholder="Search artifacts"
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="search"
-                onSubmitEditing={applyFilters}
-                accessibilityLabel="Filter by MIME type"
-                accessibilityHint="Type a MIME type like application/pdf to filter artifacts"
+                accessibilityLabel="Search artifacts"
+                accessibilityHint="Searches artifacts from backend by filename, MIME type, or URL"
                 clearButtonMode="while-editing"
                 style={{ color: colors.textPrimary, fontSize: 12 }}
               />
             </View>
-            <Pressable
-              onPress={applyFilters}
-              accessibilityRole="button"
-              accessibilityLabel="Apply artifact filters"
-              accessibilityHint="Reloads artifacts using selected filters"
-              className="rounded-full px-3 py-2"
-              style={{ backgroundColor: colors.primary }}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Apply</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -380,6 +314,7 @@ export default function ArtifactsScreen() {
             const isDownloading = downloadingArtifactId === item.artifactId;
             const iconName = fileIconForMime(item.mimeType);
             const title = item.fileName || item.artifactId;
+            const isImageArtifact = (item.mimeType ?? '').toLowerCase().startsWith('image/');
             return (
               <View
                 accessible
@@ -400,11 +335,32 @@ export default function ArtifactsScreen() {
                     {title}
                   </Text>
                 </View>
+                {isImageArtifact && item.url ? (
+                  <View
+                    className="mt-2 overflow-hidden rounded-xl border"
+                    style={{
+                      width: '100%',
+                      height: 188,
+                      borderColor: isDark ? 'rgba(95,127,184,0.28)' : 'rgba(32,64,121,0.22)',
+                      backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                    }}
+                  >
+                    <ExpoImage
+                      source={{ uri: item.url }}
+                      style={{ width: '100%', height: '100%' }}
+                      contentFit="cover"
+                      contentPosition="center"
+                      transition={120}
+                      accessible
+                      accessibilityLabel={title}
+                    />
+                  </View>
+                ) : null}
                 <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
-                  {(item.kind || 'artifact').toUpperCase()} {item.mimeType ? `• ${item.mimeType}` : ''}
+                  {(item.kind || 'artifact').toUpperCase()} {item.mimeType ? `- ${item.mimeType}` : ''}
                 </Text>
                 <Text style={{ marginTop: 4, color: colors.textSecondary, fontSize: 11 }}>
-                  {formatDate(item.createdAt)} {item.size ? `• ${formatSize(item.size)}` : ''}
+                  {formatDate(item.createdAt)} {item.size ? `- ${formatSize(item.size)}` : ''}
                 </Text>
 
                 <View className="mt-3 flex-row items-center">
@@ -431,7 +387,7 @@ export default function ArtifactsScreen() {
                       hapticSelection();
                       router.push({
                         pathname: '/(drawer)',
-                        params: { conversationId: item.conversationId },
+                        params: { conversationId: item.conversationId, messageId: item.messageId },
                       } as never);
                     }}
                     accessibilityRole="button"
@@ -466,7 +422,7 @@ export default function ArtifactsScreen() {
                       onPress={clearFilters}
                       accessibilityRole="button"
                       accessibilityLabel="Clear artifact filters"
-                      accessibilityHint="Resets kind and MIME type filters, then reloads artifacts"
+                      accessibilityHint="Clears search and reloads artifacts"
                       className="mt-3 rounded-full px-3 py-2"
                       style={{
                         borderWidth: 1,
