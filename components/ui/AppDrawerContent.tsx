@@ -338,6 +338,17 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [avatarAccessToken, setAvatarAccessToken] = useState<string | null>(null);
   const menuTouchRef = useRef(false);
   const userMenuChevronRotation = useRef(new Animated.Value(0)).current;
+  const chatsRef = useRef<DrawerChatItem[]>([]);
+  const activeChatIdRef = useRef('');
+  const hasInitializedRef = useRef(false);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
 
   useEffect(() => {
     Animated.timing(userMenuChevronRotation, {
@@ -469,6 +480,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const loadChats = useCallback(async () => {
     setLoadingChats(true);
+    let mappedChats: DrawerChatItem[] = [];
+    let success = false;
     try {
       if (isAuthenticated) {
         const [conversationList, prefs] = await Promise.all([listAuthenticatedConversations(), getChatPreferences()]);
@@ -480,7 +493,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         if (staleArchived.length) {
           await Promise.all(staleArchived.map((chatId) => removeArchivedChatSnapshot(chatId)));
         }
-        const mappedChats = conversationList.map((item) => {
+        mappedChats = conversationList.map((item) => {
             const preview = item.preview || t('drawer.openChatHint');
             const rawTitle = (item.title || '').trim();
             const isUntitled = !rawTitle || rawTitle.toLowerCase() === 'new chat';
@@ -491,11 +504,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
               updatedAt: item.updatedAt,
             };
           });
-        setChats(mappedChats);
-        setActiveChatId((prev) => (mappedChats.some((chat) => chat.id === prev) ? prev : mappedChats[0]?.id || ''));
+        success = true;
       } else {
         const conversationList = await listGuestConversations();
-        const mappedChats = conversationList.map((item) => {
+        mappedChats = conversationList.map((item) => {
             const preview = item.lastMessagePreview || t('drawer.newChat');
             const rawTitle = (item.title || '').trim();
             const isUntitled = !rawTitle || rawTitle.toLowerCase() === 'new chat';
@@ -506,15 +518,62 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
               updatedAt: item.updatedAt,
             };
           });
-        setChats(mappedChats);
-        setActiveChatId((prev) => (mappedChats.some((chat) => chat.id === prev) ? prev : mappedChats[0]?.id || ''));
+        success = true;
       }
     } catch {
       // Keep UI resilient; errors are non-fatal for drawer rendering.
     } finally {
       setLoadingChats(false);
     }
-  }, [isAuthenticated, t]);
+
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      const tempId = `temp-new-chat-${Date.now()}`;
+      const tempChat: DrawerChatItem = {
+        id: tempId,
+        title: t('drawer.newChat'),
+        preview: t('drawer.openChatHint'),
+        updatedAt: new Date().toISOString(),
+      };
+      setChats([tempChat, ...mappedChats]);
+      setActiveChatId(tempId);
+      (navigation as any).navigate('index', { newChat: `${Date.now()}`, conversationId: undefined });
+      return mappedChats;
+    }
+
+    if (!success) {
+      return mappedChats;
+    }
+
+    const currentChats = chatsRef.current;
+    const currentActiveId = activeChatIdRef.current;
+
+    if (mappedChats.length > 0) {
+      const nextActiveId = mappedChats.some((chat) => chat.id === currentActiveId)
+        ? currentActiveId
+        : mappedChats[0].id;
+      setChats(mappedChats);
+      setActiveChatId(nextActiveId);
+    } else {
+      const existingTemp = currentChats.find((chat) => chat.id.startsWith('temp-new-chat-'));
+      if (existingTemp) {
+        setChats(currentChats);
+        setActiveChatId(existingTemp.id);
+      } else {
+        const tempId = `temp-new-chat-${Date.now()}`;
+        const tempChat: DrawerChatItem = {
+          id: tempId,
+          title: t('drawer.newChat'),
+          preview: t('drawer.openChatHint'),
+          updatedAt: new Date().toISOString(),
+        };
+        setChats([tempChat]);
+        setActiveChatId(tempId);
+      }
+    }
+
+    return mappedChats;
+  }, [isAuthenticated, t, navigation]);
 
   useEffect(() => {
     void loadChats();
@@ -662,19 +721,45 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       setShowDeletePrompt(false);
       return;
     }
+    const wasActive = deleteChatId === activeChatId;
     try {
       if (isAuthenticated) {
         await deleteAuthenticatedConversation(deleteChatId);
       }
       await removeArchivedChatSnapshot(deleteChatId);
-      setChats((prev) => prev.filter((chat) => chat.id !== deleteChatId));
+      let nextChats: DrawerChatItem[] = [];
+      setChats((prev) => {
+        nextChats = prev.filter((chat) => chat.id !== deleteChatId);
+        return nextChats;
+      });
+      if (wasActive) {
+        if (nextChats.length > 0) {
+          const sorted = [...nextChats].sort(
+            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+          );
+          setActiveChatId(sorted[0].id);
+          (navigation as any).navigate('index', { conversationId: sorted[0].id, newChat: undefined });
+        } else {
+          const tempId = `temp-new-chat-${Date.now()}`;
+          const nowIso = new Date().toISOString();
+          const tempChat: DrawerChatItem = {
+            id: tempId,
+            title: t('drawer.newChat'),
+            preview: t('drawer.openChatHint'),
+            updatedAt: nowIso,
+          };
+          setChats([tempChat]);
+          setActiveChatId(tempId);
+          (navigation as any).navigate('index', { newChat: `${Date.now()}`, conversationId: undefined });
+        }
+      }
     } catch {
       // Keep experience resilient.
     } finally {
       setShowDeletePrompt(false);
       setDeleteChatId(null);
     }
-  }, [deleteChatId, isAuthenticated]);
+  }, [deleteChatId, isAuthenticated, activeChatId, navigation, t]);
 
   const renderChatItem = useCallback(
     ({ item }: { item: DrawerChatItem }) => (
@@ -796,8 +881,11 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       <SettingsModal
         visible={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
-        onChatsMutated={() => {
-          void loadChats();
+        onChatsMutated={async () => {
+          const result = await loadChats();
+          if (!result.length) {
+            (navigation as any).navigate('index', { newChat: `${Date.now()}`, conversationId: undefined });
+          }
         }}
       />
 
