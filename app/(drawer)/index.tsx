@@ -97,8 +97,6 @@ import {
   getSubscriptionOverview,
   getAuthenticatedConversation,
   getGuestConversation,
-  listAuthenticatedConversations,
-  listGuestConversations,
   getVoiceCatalog,
   pollVideoJob,
   getArtifactsPage,
@@ -3407,57 +3405,14 @@ export default function ChatScreen() {
     setComposerMediaReference(null);
     setGuestConversationId(null);
 
-    const loadAuthenticatedState = async () => {
-      try {
-        const conversations = await listAuthenticatedConversations();
-        if (!conversations.length) {
-          setAuthConversationId(null);
-          setMessages([createWelcomeMessage()]);
-          rotateStarterPrompts();
-          return;
-        }
-
-        const latest = [...conversations].sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )[0];
-        setAuthConversationId(latest.id);
-        router.setParams({ conversationId: latest.id, newChat: undefined });
-
-        const detail = await getAuthenticatedConversation(latest.id);
-        if (!detail.messages.length) {
-          setMessages([createWelcomeMessage()]);
-          rotateStarterPrompts();
-          setMessageReactions({});
-          return;
-        }
-
-        setMessages(
-          applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage)),
-        );
-
-        setMessageReactions(() =>
-          detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
-            if (message.role !== 'assistant') return acc;
-            acc[message.id] = message.reactions?.liked
-              ? 'like'
-              : message.reactions?.disliked
-                ? 'dislike'
-                : undefined;
-            return acc;
-          }, {}),
-        );
-      } catch (error) {
-        showTransientNotice(getFriendlyErrorMessage(error, 'chat'));
-        setMessages([createWelcomeMessage()]);
-        rotateStarterPrompts();
-      } finally {
-        setIsHydratingAuthChat(false);
-      }
-    };
-
     setIsHydratingAuthChat(true);
-    void loadAuthenticatedState();
-  }, [applyDescriptiveAttachmentNames, createWelcomeMessage, getFriendlyErrorMessage, isAuthenticated, mapAuthMessageToUiMessage, rotateStarterPrompts]);
+    setAuthConversationId(null);
+    setMessages([createWelcomeMessage()]);
+    setMessageReactions({});
+    rotateStarterPrompts();
+    router.setParams({ conversationId: undefined, newChat: undefined });
+    setIsHydratingAuthChat(false);
+  }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts, router]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -3542,35 +3497,9 @@ export default function ChatScreen() {
     setAttachedAssets([]);
     setComposerMediaReference(null);
     setAuthConversationId(null);
-    const loadGuestState = async () => {
-      try {
-        await ensureGuestSession();
-        const conversations = await listGuestConversations();
-        if (!conversations.length) return;
-
-        const latest = [...conversations].sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        )[0];
-
-        setGuestConversationId(latest._id);
-        const detail = await getGuestConversation(latest._id);
-        if (!detail.messages?.length) return;
-        setMessages(
-          detail.messages.map((message) => ({
-            id: message._id,
-            role: message.role === 'assistant' ? 'assistant' : 'user',
-            content: message.content,
-            createdAt: new Date(message.createdAt).getTime(),
-          })),
-        );
-      } catch {
-        setMessages([createWelcomeMessage()]);
-        rotateStarterPrompts();
-      }
-    };
+    setGuestConversationId(null);
     setMessages([createWelcomeMessage()]);
     rotateStarterPrompts();
-    void loadGuestState();
   }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts]);
 
   useEffect(() => {
