@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
@@ -44,6 +44,7 @@ const TIER_RANK: Record<SubscriptionTier, number> = {
   cafa_pro: 2,
   cafa_max: 3,
 };
+const LIVE_REFRESH_INTERVAL_MS = 15_000;
 
 function formatLimit(limit?: number | null) {
   if (typeof limit !== 'number' || limit < 0) return '\u221e';
@@ -147,6 +148,7 @@ function normalizeUsageAndLimits(
 }
 
 export default function PlansScreen() {
+  const isFocused = useIsFocused();
   const { authUser, setAuthSubscriptionTier, refreshAuthUser } = useAppContext();
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
@@ -167,6 +169,7 @@ export default function PlansScreen() {
   const [isRefreshingOfferings, setIsRefreshingOfferings] = useState(false);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
   const lastForegroundRefreshAtRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
   const lastSyncAtRef = useRef(0);
   const syncInFlightRef = useRef<Promise<Awaited<ReturnType<typeof syncSubscriptionState>> | null> | null>(null);
   const portalFlowActiveRef = useRef(false);
@@ -436,6 +439,7 @@ export default function PlansScreen() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
+      appStateRef.current = state;
       if (state !== 'active') return;
       if (portalFlowActiveRef.current) {
         void syncSubscriptionAfterPortalReturn();
@@ -450,6 +454,19 @@ export default function PlansScreen() {
     });
     return () => sub.remove();
   }, [loadBillingData, syncSubscriptionAfterPortalReturn, syncSubscriptionAndApplyTier]);
+  useEffect(() => {
+    if (!isFocused) return;
+
+    const intervalId = setInterval(() => {
+      if (appStateRef.current !== 'active') return;
+      void (async () => {
+        await syncSubscriptionAndApplyTier().catch(() => null);
+        await loadBillingData({ force: true });
+      })().catch(() => {});
+    }, LIVE_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [isFocused, loadBillingData, syncSubscriptionAndApplyTier]);
 
   const currentTier = Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free');
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
@@ -1250,3 +1267,6 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
+
+
+
