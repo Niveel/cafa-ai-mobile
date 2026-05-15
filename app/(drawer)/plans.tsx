@@ -47,6 +47,14 @@ function cleanPlanTitle(title: string | undefined | null, fallbackTier: Subscrip
     .trim();
 }
 
+function normalizeBenefits(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 const TIER_RANK: Record<SubscriptionTier, number> = {
   free: 0,
   cafa_smart: 1,
@@ -471,35 +479,41 @@ export default function PlansScreen() {
       const backendPlanByTier = new Map(plans.map((plan) => [plan.tier, plan] as const));
       if (!offering) {
         // Keep plan details visible for App Review, but disable purchasing until RC products load.
-        return plans.map((plan) => ({ ...plan, isActive: false }));
+        return plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits), isActive: false }));
       }
-      return offering.availablePackages
-        .filter((pkg) => pkg.product != null)
+      const packages = Array.isArray(offering.availablePackages) ? offering.availablePackages : [];
+      return packages
+        .filter((pkg) => pkg?.product != null)
         .map((pkg): SubscriptionPlan & { _rcPackage: any } => {
-          const titleWords = pkg.product.title.toLowerCase();
+          const productTitle = typeof pkg.product.title === 'string' ? pkg.product.title : '';
+          const titleWords = productTitle.toLowerCase();
+          const identifier = typeof pkg.identifier === 'string' ? pkg.identifier.toLowerCase() : '';
           let tier: SubscriptionTier = 'free';
-          if (pkg.identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
-          else if (pkg.identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
-          else if (pkg.identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
+          if (identifier.includes('max') || titleWords.includes('max')) tier = 'cafa_max';
+          else if (identifier.includes('pro') || titleWords.includes('pro')) tier = 'cafa_pro';
+          else if (identifier.includes('smart') || titleWords.includes('smart')) tier = 'cafa_smart';
           const backendPlan = backendPlanByTier.get(tier);
+          const normalizedPrice = Number(pkg.product.price);
+          const safeAmount = Number.isFinite(normalizedPrice) ? Number(normalizedPrice.toFixed(2)) : 0;
+          const safeInterval = pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo';
 
           return {
             tier,
-            name: cleanPlanTitle(pkg.product.title, tier),
+            name: cleanPlanTitle(productTitle, tier),
             // Keep Android/backend copy parity for richer plan details.
-            description: backendPlan?.description ?? pkg.product.description,
-            benefits: backendPlan?.benefits ?? [],
+            description: backendPlan?.description ?? (typeof pkg.product.description === 'string' ? pkg.product.description : ''),
+            benefits: normalizeBenefits(backendPlan?.benefits),
             isActive: true,
             price: {
-              amount: Number(pkg.product.price.toFixed(2)),
-              currency: pkg.product.currencyCode,
-              interval: pkg.product.subscriptionPeriod === 'P1Y' ? 'yr' : 'mo',
+              amount: safeAmount,
+              currency: typeof pkg.product.currencyCode === 'string' ? pkg.product.currencyCode : 'USD',
+              interval: safeInterval,
             },
             _rcPackage: pkg,
           };
         }).filter((p) => p.tier !== 'free');
     }
-    return plans;
+    return plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits) }));
   }, [offering, plans]);
 
   const currentPlan = useMemo(
@@ -667,7 +681,7 @@ export default function PlansScreen() {
         return;
       }
 
-      const targetPlan = displayPlans.find(p => p.tier === tier) as any;
+          const targetPlan = displayPlans.find((p) => p.tier === tier) as any;
       if (!targetPlan?._rcPackage) return;
 
       setBusyTier(tier);
@@ -1175,9 +1189,9 @@ export default function PlansScreen() {
                 </Text>
               </View>
 
-              {!!plan.benefits?.length ? (
+              {normalizeBenefits(plan.benefits).length > 0 ? (
                 <View className="mt-3 gap-1.5">
-                  {plan.benefits.map((benefit) => (
+                  {normalizeBenefits(plan.benefits).map((benefit) => (
                     <View key={`${plan.tier}-${benefit}`} className="flex-row items-start">
                       <Ionicons name="checkmark-circle" size={14} color={colors.primary} style={{ marginTop: 1 }} />
                       <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 8, flex: 1 }}>
