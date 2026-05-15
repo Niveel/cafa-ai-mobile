@@ -38,6 +38,15 @@ function tierLabel(tier?: SubscriptionTier) {
   }
 }
 
+function cleanPlanTitle(title: string | undefined | null, fallbackTier: SubscriptionTier) {
+  const raw = (title ?? '').trim();
+  if (!raw) return tierLabel(fallbackTier);
+  return raw
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/\s*subscription\s*$/i, '')
+    .trim();
+}
+
 const TIER_RANK: Record<SubscriptionTier, number> = {
   free: 0,
   cafa_smart: 1,
