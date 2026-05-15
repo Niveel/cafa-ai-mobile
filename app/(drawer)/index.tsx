@@ -425,7 +425,9 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
-    Alert.alert("you've got the new update: 1");
+    if (Platform.OS === 'ios') {
+      Alert.alert("you've got the new update: 1");
+    }
   }, []);
 
   useEffect(() => {
