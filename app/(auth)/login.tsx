@@ -81,12 +81,17 @@ export default function LoginScreen() {
                           password: values.password,
                         });
 
-                        await setAccessToken(session.accessToken);
-                        const refreshToken = (session as { refreshToken?: string }).refreshToken;
+                        const accessToken = resolveTokenValue((session as { accessToken?: unknown }).accessToken ?? session);
+                        if (!accessToken) {
+                          throw new Error('Login response did not include a valid access token.');
+                        }
+
+                        await setAccessToken(accessToken);
+                        const refreshToken = resolveTokenValue((session as { refreshToken?: unknown }).refreshToken);
                         if (refreshToken) {
                           await setRefreshToken(refreshToken);
                         }
-                        await claimGuestUpgradeOnLogin(session.accessToken);
+                        await claimGuestUpgradeOnLogin(accessToken);
                         login();
                         router.replace('/(drawer)');
                       } catch (error) {
@@ -94,9 +99,11 @@ export default function LoginScreen() {
                         const message = mapped?.message ?? t('auth.signinFailed');
                         const code = mapped?.code ?? '';
                         const devOtp = extractDevOtpFromMessage(message);
-                        console.log(
-                          `[login-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.login} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
-                        );
+                        if (__DEV__) {
+                          console.log(
+                            `[login-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.login} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
+                          );
+                        }
 
                         if (code === 'EMAIL_NOT_VERIFIED') {
                           router.push({
@@ -110,7 +117,7 @@ export default function LoginScreen() {
                           return;
                         }
 
-                        setAuthError(message);
+                        setAuthError(getUserFacingLoginError(message, t('auth.signinFailed')));
                       }
                     }}
                   >
@@ -225,4 +232,28 @@ function extractDevOtpFromMessage(message?: string) {
   if (!normalized.includes('devotp') && !normalized.includes('dev otp') && !normalized.includes('verification code')) return '';
   const match = message.match(/\b(\d{6})\b/);
   return match ? match[1] : '';
+}
+
+function resolveTokenValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+
+  const record = value as Record<string, unknown>;
+  const directCandidates = [record.accessToken, record.refreshToken, record.token];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string') return candidate;
+  }
+
+  const nestedCandidates = [record.data, record.tokens, record.session];
+  for (const candidate of nestedCandidates) {
+    const nested = resolveTokenValue(candidate);
+    if (nested) return nested;
+  }
+
+  return '';
+}
+
+function getUserFacingLoginError(message: string, fallback: string) {
+  if (!message.trim()) return fallback;
+  return __DEV__ ? message : fallback;
 }

@@ -317,6 +317,13 @@ function inferMimeType(fileName?: string, fallback = 'application/octet-stream')
   return fallback;
 }
 
+function resolveUploadMimeType(fileName?: string, providedMimeType?: string) {
+  const inferred = inferMimeType(fileName);
+  if (inferred === 'application/pdf') return 'application/pdf';
+  if (providedMimeType && providedMimeType.trim()) return providedMimeType;
+  return inferred;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -345,6 +352,24 @@ function createAuthStreamTransportError(message: string, code: string): AuthStre
   const error = new Error(message) as AuthStreamTransportError;
   error.code = code;
   return error;
+}
+
+function extractSseErrorMessageFromText(raw: string): string | null {
+  if (!raw || !raw.includes('data:')) return null;
+  const chunks = raw.split(/\r?\n\r?\n/);
+  for (const chunk of chunks) {
+    const parsed = chunk.trim();
+    if (!parsed) continue;
+    try {
+      const event = parseSseChunk(parsed);
+      if (event?.type === 'error') {
+        return event.message || 'The AI response failed. Please try again.';
+      }
+    } catch {
+      // Ignore malformed chunks and keep scanning.
+    }
+  }
+  return null;
 }
 
 function mapReplayArtifactsToAttachments(
@@ -627,10 +652,11 @@ export async function sendAuthenticatedMessageStream(
     for (const file of attachments) {
       if (!file?.uri) continue;
       const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
+      const normalizedType = resolveUploadMimeType(normalizedName, file.mimeType);
       formData.append('files', {
         uri: file.uri,
         name: normalizedName,
-        type: file.mimeType ?? inferMimeType(normalizedName),
+        type: normalizedType,
       } as unknown as Blob);
     }
     return formData;
@@ -1142,10 +1168,11 @@ export async function sendAuthenticatedMessageNonStream(
   for (const file of attachments) {
     if (!file?.uri) continue;
     const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
+    const normalizedType = resolveUploadMimeType(normalizedName, file.mimeType);
     formData.append('files', {
       uri: file.uri,
       name: normalizedName,
-      type: file.mimeType ?? inferMimeType(normalizedName),
+      type: normalizedType,
     } as unknown as Blob);
   }
 
@@ -1162,6 +1189,18 @@ export async function sendAuthenticatedMessageNonStream(
       },
     );
     logDevRawChatResponse('auth-non-stream', response.data);
+    if (typeof response.data === 'string') {
+      const sseErrorMessage = extractSseErrorMessageFromText(response.data);
+      if (sseErrorMessage) {
+        throw createAuthStreamTransportError(sseErrorMessage, 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
+      }
+      throw createAuthSendError('The AI response failed. Please try again.');
+    }
+
+    if (!response.data?.success) {
+      throw createAuthSendError(response.data?.message ?? 'The AI response failed. Please try again.');
+    }
+
     return response.data;
   } catch (error) {
     throw mapApiError(error);

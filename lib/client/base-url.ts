@@ -33,7 +33,7 @@ function normalizeConfiguredDevBaseUrl(value: string | undefined) {
   return trimmed.replace(/\/+$/, '');
 }
 
-const HARDCODED_DEV_BASE_URL = 'http://10.170.20.23:5000/api/v1';
+const HARDCODED_DEV_BASE_URL = 'http://10.241.225.23:5000/api/v1';
 const configuredDevBaseUrl = normalizeConfiguredDevBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
 
 // Prefer env override; otherwise resolve from Expo host or fallback LAN host.

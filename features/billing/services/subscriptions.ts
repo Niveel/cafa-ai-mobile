@@ -1,5 +1,6 @@
 import { AxiosError, AxiosResponse } from 'axios';
 
+import { API_BASE_URL } from '@/lib';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import {
   CanonicalSubscriptionTier,
@@ -165,6 +166,13 @@ export async function getSubscriptionPlans(options?: { force?: boolean }) {
       plansCache = { data, fetchedAt: Date.now() };
       return data;
     } catch (error) {
+      const typed = error as AxiosError<{ message?: string; error?: string; code?: string }>;
+      const status = typed.response?.status ?? 'unknown';
+      const code = typed.response?.data?.code ?? typed.response?.data?.error ?? 'unknown';
+      const message = typed.response?.data?.message ?? (typed.message || 'Unknown request error.');
+      console.log(
+        `[plans-fetch:error] endpoint=${API_BASE_URL}${apiEndpoints.subscriptions.plans} status=${status} code=${code} message="${message}" force=${force}`,
+      );
       throw mapApiError(error);
     } finally {
       plansInFlight = null;

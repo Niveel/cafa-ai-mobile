@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Linking, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
@@ -51,10 +51,12 @@ function formatLimit(limit?: number | null) {
   return `${limit}`;
 }
 
-function cleanPlanTitle(title: string | undefined, tier: SubscriptionTier) {
-  const raw = (title ?? '').trim();
-  if (!raw) return tierLabel(tier);
-  return raw.replace(/\s+monthly\s*$/i, '').trim();
+
+function toCafaChatModelLabel(model?: string | null) {
+  const normalized = (model ?? '').trim().toLowerCase();
+  if (normalized === 'gpt-4o') return 'Cafa Ultra';
+  if (normalized === 'gpt-4o-mini') return 'Cafa Smart';
+  return 'Cafa Smart';
 }
 
 function isBillingSuccessUrl(url: string, appScheme: string) {
@@ -144,6 +146,10 @@ function normalizeUsageAndLimits(
     videoUsed: videoUsedFromOverview ?? 0,
     videoLimit: limits?.videoGenerationsPerDay ?? 1,
     maxVideoDurationSeconds: limits?.maxVideoDurationSeconds ?? 3,
+    contextMessages: limits?.contextMessages ?? null,
+    maxTokensPerRequest: limits?.maxTokensPerRequest ?? null,
+    documentsEnabled: typeof limits?.documentsEnabled === 'boolean' ? limits.documentsEnabled : null,
+    chatModelLabel: toCafaChatModelLabel(limits?.chatModel),
   };
 }
 
@@ -416,26 +422,6 @@ export default function PlansScreen() {
       return () => {};
     }, [loadBillingData, syncSubscriptionAndApplyTier]),
   );
-
-  useEffect(() => {
-    const handleUrl = (url: string | null | undefined) => {
-      if (!url) return;
-      if (isBillingSuccessUrl(url, appScheme)) {
-        router.replace('/billing/success');
-      } else if (isBillingCancelUrl(url, appScheme)) {
-        router.replace('/billing/cancel');
-      }
-    };
-
-    void Linking.getInitialURL().then((url) => {
-      if (url) handleUrl(url);
-    });
-
-    const sub = Linking.addEventListener('url', (event) => {
-      handleUrl(event.url);
-    });
-    return () => sub.remove();
-  }, [appScheme]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -962,6 +948,18 @@ export default function PlansScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
             {t('plans.maxVideoLength')}: {stats.maxVideoDurationSeconds ?? 3}s
           </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Chat model: {stats.chatModelLabel}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Context messages: {stats.contextMessages ?? 'N/A'}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Max tokens per request: {stats.maxTokensPerRequest ?? 'N/A'}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Documents: {stats.documentsEnabled === null ? 'N/A' : (stats.documentsEnabled ? 'Enabled' : 'Disabled')}
+          </Text>
 
           {Platform.OS === 'ios' ? (
             <>
@@ -1267,6 +1265,10 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
+
+
+
+
 
 
 

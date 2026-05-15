@@ -172,8 +172,6 @@ type ComposerMediaReference = {
 };
 
 let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
-let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
-let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
 let sharingModulePromise: Promise<unknown> | null = null;
 let webBrowserModulePromise: Promise<ExpoWebBrowserModule> | null = null;
 
@@ -191,27 +189,25 @@ async function getExpoAudioModule() {
 }
 
 async function getImagePickerModule() {
-  if (!imagePickerModulePromise) {
-    imagePickerModulePromise = import('expo-image-picker') as Promise<ImagePickerModule>;
-  }
-
   try {
-    return await imagePickerModulePromise;
+    const moduleCandidate = require('expo-image-picker') as ImagePickerModule;
+    if (!moduleCandidate || typeof moduleCandidate.launchImageLibraryAsync !== 'function') {
+      throw new Error('Image picker module is not available.');
+    }
+    return moduleCandidate;
   } catch {
-    imagePickerModulePromise = null;
     throw new Error('Image picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
 
 async function getDocumentPickerModule() {
-  if (!documentPickerModulePromise) {
-    documentPickerModulePromise = import('expo-document-picker') as Promise<DocumentPickerModule>;
-  }
-
   try {
-    return await documentPickerModulePromise;
+    const moduleCandidate = require('expo-document-picker') as DocumentPickerModule;
+    if (!moduleCandidate || typeof moduleCandidate.getDocumentAsync !== 'function') {
+      throw new Error('Document picker module is not available.');
+    }
+    return moduleCandidate;
   } catch {
-    documentPickerModulePromise = null;
     throw new Error('Document picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
@@ -2122,7 +2118,13 @@ export default function ChatScreen() {
             reference: composerMediaReference ?? null,
             model: activeModel,
           });
-          await sendAuthenticatedMessageNonStream(conversationId, trimmed, activeModel, composerMediaReference ?? undefined);
+          await sendAuthenticatedMessageNonStream(
+            conversationId,
+            trimmed,
+            activeModel,
+            composerMediaReference ?? undefined,
+            attachmentsForSend,
+          );
           const detail = await getAuthenticatedConversation(conversationId, { force: true });
           applyAuthConversationDetail(detail);
           hapticSuccess();
@@ -2788,7 +2790,7 @@ export default function ChatScreen() {
         label: asset.name ?? 'document-attachment',
         uri: asset.uri,
         fileName: asset.name ?? `document-${Date.now()}`,
-        mimeType: asset.mimeType ?? undefined,
+        mimeType: lowerName.endsWith('.pdf') ? 'application/pdf' : (asset.mimeType ?? undefined),
       },
     ]);
   };
@@ -3592,6 +3594,15 @@ export default function ChatScreen() {
     if (!autoScrollEnabledRef.current) return;
     scrollToBottom(false);
   }, [messages]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    announceForA11y(
+      attachmentMenuOpen
+        ? 'Attachment menu opened. Choose image or document.'
+        : 'Attachment menu closed.',
+    );
+  }, [announceForA11y, attachmentMenuOpen, isAuthenticated]);
 
   const topBarModelSwitcher = isAuthenticated ? (
     <View
@@ -4478,6 +4489,9 @@ export default function ChatScreen() {
               {attachedAssets.map((asset) => (
                 <View
                   key={asset.id}
+                  accessible
+                  accessibilityRole="text"
+                  accessibilityLabel={`Attached file: ${asset.label}`}
                   className="flex-row items-center rounded-full border px-2 py-0.5"
                   style={{ borderColor: colors.border }}
                 >
@@ -4487,7 +4501,8 @@ export default function ChatScreen() {
                   <Pressable
                     onPress={() => removeAttachment(asset.id)}
                     accessibilityRole="button"
-                    accessibilityLabel={t('chat.removeAttachment')}
+                    accessibilityLabel={`${t('chat.removeAttachment')}: ${asset.label}`}
+                    accessibilityHint="Removes this file from your message."
                     className="ml-1 rounded-full p-0.5"
                   >
                     <Ionicons name="close" size={12} color={colors.textSecondary} />
@@ -4566,6 +4581,8 @@ export default function ChatScreen() {
                     onLongPress={(event) => showTooltip(t('chat.tooltip.attach'), event)}
                     accessibilityRole="button"
                     accessibilityLabel={t('chat.tooltip.attach')}
+                    accessibilityHint={attachmentMenuOpen ? 'Closes attachment options.' : 'Opens attachment options.'}
+                    accessibilityState={{ expanded: attachmentMenuOpen }}
                     className="h-8 w-8 items-center justify-center rounded-full border"
                     style={{ borderColor: colors.border }}
                   >
@@ -4586,12 +4603,24 @@ export default function ChatScreen() {
                         menuTouchRef.current = true;
                       }}
                     >
-                      <Pressable onPress={pickAttachment} className="flex-row items-center rounded-md px-2 py-2">
+                      <Pressable
+                        onPress={pickAttachment}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('chat.attachImage')}
+                        accessibilityHint="Opens your photo library to select an image."
+                        className="flex-row items-center rounded-md px-2 py-2"
+                      >
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
                         <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachImage')}</Text>
                       </Pressable>
                       {canAttachDocuments ? (
-                        <Pressable onPress={pickDocumentAttachment} className="flex-row items-center rounded-md px-2 py-2">
+                        <Pressable
+                          onPress={pickDocumentAttachment}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('chat.attachDocument')}
+                          accessibilityHint="Opens your files to select a document."
+                          className="flex-row items-center rounded-md px-2 py-2"
+                        >
                           <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
                           <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachDocument')}</Text>
                         </Pressable>
