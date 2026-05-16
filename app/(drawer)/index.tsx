@@ -5,7 +5,6 @@ import {
   type GestureResponderEvent,
   AccessibilityInfo,
   ActivityIndicator,
-  Alert,
   Dimensions,
   Keyboard, 
   KeyboardAvoidingView,
@@ -421,12 +420,6 @@ export default function ChatScreen() {
       console.log('[chat-send:payload]', JSON.stringify(payload));
     } catch {
       console.log('[chat-send:payload]', payload);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (Platform.OS === 'ios') {
-      Alert.alert("you've got the new update: 1");
     }
   }, []);
 
