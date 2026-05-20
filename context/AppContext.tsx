@@ -1,6 +1,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, useColorScheme } from 'react-native';
-import { usePostHog } from 'posthog-react-native';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent, identifyUser, resetAnalyticsUser } from '@/lib/analytics/posthog';
 
 import { AppLanguage, colorsByMode, ThemeColors, ThemeMode, translate } from '@/config';
 import { setupAuthInterceptor } from '@/services';
@@ -56,7 +57,6 @@ type AppProviderProps = {
 };
 
 export function AppProvider({ children }: AppProviderProps) {
-  const posthog = usePostHog();
   const systemColorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
@@ -178,24 +178,23 @@ export function AppProvider({ children }: AppProviderProps) {
   useEffect(() => {
     if (!isReady || !isAuthenticated || !authUser?.id) return;
 
-    posthog.identify(authUser.id, {
+    identifyUser(authUser.id, {
       email: authUser.email,
       name: authUser.name,
       subscriptionTier: authUser.subscriptionTier ?? 'free',
     });
-  }, [authUser?.email, authUser?.id, authUser?.name, authUser?.subscriptionTier, isAuthenticated, isReady, posthog]);
+  }, [authUser?.email, authUser?.id, authUser?.name, authUser?.subscriptionTier, isAuthenticated, isReady]);
 
   useEffect(() => {
     if (!isReady || hasTrackedAppOpenRef.current) return;
     hasTrackedAppOpenRef.current = true;
-    posthog.capture('app_opened', {
+    captureEvent(AnalyticsEvents.appOpened, {
       isAuthenticated,
       hasCompletedOnboarding,
       themeMode,
       language,
     });
-    (posthog as { flush?: () => void }).flush?.();
-  }, [hasCompletedOnboarding, isAuthenticated, isReady, language, posthog, themeMode]);
+  }, [hasCompletedOnboarding, isAuthenticated, isReady, language, themeMode]);
 
   const signOut = useCallback(async () => {
     const refreshToken = await getRefreshToken();
@@ -205,7 +204,7 @@ export function AppProvider({ children }: AppProviderProps) {
     } catch {
       // Intentionally ignore logout transport failures and always clear local session.
     } finally {
-      posthog.reset();
+      resetAnalyticsUser();
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
       await clearSessionTokens();

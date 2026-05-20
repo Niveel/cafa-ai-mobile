@@ -1,6 +1,8 @@
 import { AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { clearGuestSessionStorage, getGuestSessionToken } from '@/services/storage';
 import { AuthSession, AuthUser, LoginRequest, SignupRequest, VerifyOtpRequest } from '@/types';
@@ -8,9 +10,11 @@ import { AuthSession, AuthUser, LoginRequest, SignupRequest, VerifyOtpRequest } 
 export async function login(request: LoginRequest) {
   try {
     const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.login, request);
+    captureEvent(AnalyticsEvents.authLoginSuccess, { hasEmail: Boolean(request.email) });
     return response.data.data;
   } catch (error) {
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
+    captureEvent(AnalyticsEvents.authLoginFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
     console.log(
       `[auth-login:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.login} code=${mapped.code ?? 'unknown'} status=${mapped.status ?? 'unknown'} message="${mapped.message}"`,
     );
@@ -21,15 +25,19 @@ export async function login(request: LoginRequest) {
 export async function signup(request: SignupRequest) {
   try {
     const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.register, request);
+    captureEvent(AnalyticsEvents.authSignupSuccess, { hasReferralCode: Boolean((request as { referralCode?: string }).referralCode) });
     return response.data.data;
   } catch (error) {
-    throw mapApiError(error);
+    const mapped = mapApiError(error) as Error & { code?: string; status?: number };
+    captureEvent(AnalyticsEvents.authSignupFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
+    throw mapped;
   }
 }
 
 export async function verifyOtp(request: VerifyOtpRequest) {
   try {
     const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.verifyOtp, request);
+    captureEvent(AnalyticsEvents.authOtpVerified);
     return response.data.data;
   } catch (error) {
     throw mapApiError(error);
@@ -42,6 +50,7 @@ export async function resendOtp(email: string) {
       apiEndpoints.auth.resendOtp,
       { email },
     );
+    captureEvent(AnalyticsEvents.authOtpResent, { hasEmail: Boolean(email) });
     return {
       message: response.data?.message ?? 'Verification code sent to your email',
       devOtp: response.data?.data?.devOtp,
@@ -57,6 +66,7 @@ export async function forgotPassword(email: string) {
       apiEndpoints.auth.forgotPassword,
       { email },
     );
+    captureEvent(AnalyticsEvents.authForgotPasswordRequested, { hasEmail: Boolean(email) });
     return {
       message: response.data?.message ?? 'If that email is registered, a reset code has been sent',
       devOtp: response.data?.data?.devOtp,
@@ -105,6 +115,11 @@ export async function resetPassword(email: string, otp: string, newPassword: str
       otp,
       newPassword,
     });
+    captureEvent(AnalyticsEvents.authPasswordReset, {
+      hasEmail: Boolean(email),
+      otpLength: otp?.length ?? 0,
+      passwordLength: newPassword?.length ?? 0,
+    });
     return response.data?.message ?? 'Password reset successful';
   } catch (error) {
     throw mapApiError(error);
@@ -138,6 +153,7 @@ export async function fetchCurrentUser() {
 export async function logout(refreshToken?: string) {
   try {
     await apiClient.post(apiEndpoints.auth.logout, refreshToken ? { refreshToken } : {}, { withCredentials: true });
+    captureEvent(AnalyticsEvents.authLogout, { allDevices: false });
   } catch (error) {
     throw mapApiError(error);
   }
@@ -146,6 +162,7 @@ export async function logout(refreshToken?: string) {
 export async function logoutAllDevices() {
   try {
     await apiClient.post(apiEndpoints.auth.logout, { allDevices: true }, { withCredentials: true });
+    captureEvent(AnalyticsEvents.authLogout, { allDevices: true });
   } catch (error) {
     throw mapApiError(error);
   }
@@ -166,6 +183,10 @@ export async function updateCurrentUserProfile(payload: { name?: string; avatar?
     if (payload.avatar !== undefined) body.avatar = payload.avatar;
 
     const response: AxiosResponse<{ data: Record<string, unknown> }> = await apiClient.patch(apiEndpoints.users.me, body);
+    captureEvent(AnalyticsEvents.authProfileUpdated, {
+      nameUpdated: typeof payload.name === 'string',
+      avatarUpdated: payload.avatar !== undefined,
+    });
     return mapAuthUser(response.data.data);
   } catch (error) {
     throw mapApiError(error);
@@ -195,6 +216,7 @@ export async function uploadCurrentUserAvatar(file: {
     const payload = response.data.data ?? {};
     const rawAvatar = payload.avatar ?? payload.avatarUrl ?? payload.url ?? payload.path ?? null;
     const normalizedAvatar = normalizeAvatarUrl(typeof rawAvatar === 'string' ? rawAvatar : null);
+    captureEvent(AnalyticsEvents.authAvatarUploaded, { hasAvatarUrl: Boolean(normalizedAvatar) });
 
     return normalizedAvatar;
   } catch (error) {

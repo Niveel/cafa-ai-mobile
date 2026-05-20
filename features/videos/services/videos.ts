@@ -1,6 +1,8 @@
 import { AxiosError, AxiosResponse } from 'axios';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { GenerateVideoRequest, VideoGenerationJob, VideoHistoryItem, VideoHistoryPage, VideoHistoryQuery } from '@/types';
 
@@ -96,6 +98,9 @@ function isLikelyTransportNetworkError(error: unknown) {
 }
 
 export async function startVideoGeneration(request: GenerateVideoRequest) {
+  captureEvent(AnalyticsEvents.videoGenerationStarted, {
+    hasPrompt: Boolean((request as { prompt?: string }).prompt?.trim()),
+  });
   try {
     const response: AxiosResponse<VideoJobResponseShape> = await apiClient.post(apiEndpoints.videos.generate, request);
     const normalized = normalizeVideoJobPayload(response.data);
@@ -119,6 +124,11 @@ export async function startVideoGenerationFromImage(request: {
     mimeType?: string;
   };
 }) {
+  captureEvent(AnalyticsEvents.videoGenerationFromImageStarted, {
+    hasPrompt: Boolean(request.prompt?.trim()),
+    hasConversationId: Boolean(request.conversationId),
+    aspectRatio: request.aspectRatio ?? null,
+  });
   await assertReadableUploadUri(request.image.uri);
 
   const formData = new FormData();
@@ -156,6 +166,7 @@ export async function startVideoGenerationFromImage(request: {
       if (!normalized?.jobId) {
         throw createVideoPayloadError('Image-to-video started, but no job ID was returned.');
       }
+      captureEvent(AnalyticsEvents.videoGenerationFromImageCompleted, { jobId: normalized.jobId });
       return normalized;
     } catch (error) {
       if (attempt < maxAttempts && isLikelyTransportNetworkError(error)) {
@@ -176,6 +187,7 @@ export async function pollVideoJob(jobId: string) {
     if (!normalized) {
       throw createVideoPayloadError('Video job poll returned an unexpected response shape.');
     }
+    captureEvent(AnalyticsEvents.videoJobPolled, { jobId, status: normalized?.status ?? null });
     return normalized;
   } catch (error) {
     throw mapApiError(error);
@@ -283,6 +295,12 @@ export async function getVideoHistoryPage(
         params: query,
       });
       const normalized = normalizeVideoHistory(response.data, query);
+      captureEvent(AnalyticsEvents.videoHistoryLoaded, {
+        count: normalized.videos.length,
+        page: normalized.pagination.page,
+        hasNextPage: normalized.pagination.hasNextPage,
+        source: 'network',
+      });
       if (isFirstPage) {
         videoHistoryLastSuccess = { value: normalized, at: Date.now() };
       }
@@ -329,6 +347,7 @@ export async function requestDownloadAllVideosZip() {
 export async function deleteVideo(videoId: string) {
   try {
     await apiClient.delete(apiEndpoints.videos.remove(videoId));
+    captureEvent(AnalyticsEvents.videoDeleted, { videoId, bulk: false });
   } catch (error) {
     throw mapApiError(error);
   }
@@ -337,6 +356,7 @@ export async function deleteVideo(videoId: string) {
 export async function deleteVideosBulk(videoIds: string[]) {
   try {
     await apiClient.post(apiEndpoints.videos.deleteBulk, { videoIds });
+    captureEvent(AnalyticsEvents.videoDeleted, { bulk: true, count: videoIds.length });
   } catch (error) {
     throw mapApiError(error);
   }

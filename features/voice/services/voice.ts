@@ -1,6 +1,8 @@
 import { AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { getAccessToken } from '@/services/storage/session';
 import { TranscriptionResult, VoiceDescriptor } from '@/types';
@@ -8,11 +10,13 @@ import { TranscriptionResult, VoiceDescriptor } from '@/types';
 export async function getVoiceCatalog() {
   try {
     const response: AxiosResponse<{ data: VoiceDescriptor[] }> = await apiClient.get(apiEndpoints.voice.voices);
-    return (response.data.data ?? []).filter((voice) => {
+    const voices = (response.data.data ?? []).filter((voice) => {
       const id = (voice.id ?? '').toLowerCase();
       const name = (voice.name ?? '').toLowerCase();
       return !id.includes('heart') && !name.includes('heart');
     });
+    captureEvent(AnalyticsEvents.voiceCatalogLoaded, { count: voices.length });
+    return voices;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -28,6 +32,7 @@ export async function transcribeAudio(file: Blob) {
       formData,
       { headers: { 'Content-Type': 'multipart/form-data' } },
     );
+    captureEvent(AnalyticsEvents.voiceTranscriptionCompleted);
     return response.data.data;
   } catch (error) {
     throw mapApiError(error);
@@ -76,6 +81,11 @@ export async function synthesizeVoice(payload: { text: string; voice?: string; s
     }
 
     const buffer = await response.arrayBuffer();
+    captureEvent(AnalyticsEvents.voiceSynthesisCompleted, {
+      voice: payload.voice ?? null,
+      speed: payload.speed ?? null,
+      bytes: buffer.byteLength,
+    });
     return new Uint8Array(buffer);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {

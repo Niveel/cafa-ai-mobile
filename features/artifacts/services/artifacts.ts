@@ -1,5 +1,7 @@
 import { AxiosResponse } from 'axios';
 
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { ArtifactItem, ArtifactListPage, ArtifactQuery } from '@/types';
 
@@ -23,6 +25,11 @@ export async function getArtifactsPage(query: ArtifactQuery = {}): Promise<Artif
     const limit = response.data?.pagination?.limit ?? query.limit ?? (artifacts.length || 20);
     const total = response.data?.pagination?.total ?? artifacts.length;
     const pages = response.data?.pagination?.pages ?? Math.max(1, Math.ceil(total / Math.max(1, limit)));
+    captureEvent(AnalyticsEvents.artifactsLoaded, {
+      count: artifacts.length,
+      page,
+      pages,
+    });
     return {
       artifacts,
       pagination: {

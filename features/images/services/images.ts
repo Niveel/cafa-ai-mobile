@@ -1,20 +1,29 @@
 import { AxiosResponse } from 'axios';
 
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { GenerateImageRequest, ImageHistoryItem, ImageHistoryPage, ImageHistoryQuery } from '@/types';
 
 export async function generateImage(request: GenerateImageRequest) {
+  captureEvent(AnalyticsEvents.imageGenerationStarted, {
+    hasPrompt: Boolean((request as { prompt?: string }).prompt?.trim()),
+  });
   try {
     const response: AxiosResponse<{ data: ImageHistoryItem }> = await apiClient.post(apiEndpoints.images.generate, request);
+    captureEvent(AnalyticsEvents.imageGenerationCompleted, { imageId: (response.data.data as { id?: string })?.id ?? null });
     return response.data.data;
   } catch (error) {
-    throw mapApiError(error);
+    const mapped = mapApiError(error) as Error & { code?: string; status?: number };
+    captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
+    throw mapped;
   }
 }
 
 export async function getImageHistory() {
   try {
     const response: AxiosResponse<{ data: ImageHistoryItem[] }> = await apiClient.get(apiEndpoints.images.history);
+    captureEvent(AnalyticsEvents.imageHistoryLoaded, { count: response.data.data?.length ?? 0, paged: false });
     return response.data.data;
   } catch (error) {
     throw mapApiError(error);
@@ -68,7 +77,7 @@ export async function getImageHistoryPage(query: ImageHistoryQuery = {}): Promis
     const pages = pagination?.pages ?? Math.max(1, Math.ceil(total / Math.max(1, limit)));
     const hasNextPage = pagination?.hasNextPage ?? page < pages;
 
-    return {
+    const result = {
       images,
       pagination: {
         page,
@@ -79,6 +88,13 @@ export async function getImageHistoryPage(query: ImageHistoryQuery = {}): Promis
         nextCursor: pagination?.nextCursor ?? null,
       },
     };
+    captureEvent(AnalyticsEvents.imageHistoryLoaded, {
+      count: result.images.length,
+      page: result.pagination.page,
+      hasNextPage: result.pagination.hasNextPage,
+      paged: true,
+    });
+    return result;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -107,6 +123,7 @@ export async function requestDownloadAllImagesZip() {
 export async function deleteImage(imageId: string) {
   try {
     await apiClient.delete(apiEndpoints.images.remove(imageId));
+    captureEvent(AnalyticsEvents.imageDeleted, { imageId, bulk: false });
   } catch (error) {
     throw mapApiError(error);
   }
@@ -115,6 +132,7 @@ export async function deleteImage(imageId: string) {
 export async function deleteImagesBulk(imageIds: string[]) {
   try {
     await apiClient.post(apiEndpoints.images.deleteBulk, { imageIds });
+    captureEvent(AnalyticsEvents.imageDeleted, { bulk: true, count: imageIds.length });
   } catch (error) {
     throw mapApiError(error);
   }

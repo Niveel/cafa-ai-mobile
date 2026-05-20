@@ -14,9 +14,9 @@ import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
 import { checkStoreUpdate } from '@/features';
 import { useAppTheme } from '@/hooks';
+import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
 
-const FALLBACK_POSTHOG_API_KEY = 'phc_wLqwjYh7S5KECBfZNzo75UYYTUHdrEvRHTXYPkxTicae';
-const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY || FALLBACK_POSTHOG_API_KEY;
+const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
 const SESSION_REPLAY_SAMPLE_RATE = Number(process.env.EXPO_PUBLIC_POSTHOG_SESSION_REPLAY_SAMPLE_RATE ?? '1');
 const FALLBACK_SENTRY_DSN = 'https://e12548e44ab1ad61ccc745d909996c23@o4510828002148352.ingest.us.sentry.io/4511350711451648';
@@ -51,13 +51,21 @@ void SplashScreen.preventAutoHideAsync().catch(() => {
 });
 
 if (!process.env.EXPO_PUBLIC_POSTHOG_API_KEY) {
-  // Keep this visible in device logs to avoid silent analytics outages in build profiles
-  // where EXPO_PUBLIC env injection is missing.
-  console.warn('[analytics] EXPO_PUBLIC_POSTHOG_API_KEY is missing. Falling back to bundled PostHog key.');
+  console.warn('[analytics] EXPO_PUBLIC_POSTHOG_API_KEY is missing. PostHog is disabled.');
+}
+
+function PostHogBridge() {
+  const posthog = usePostHog();
+
+  useEffect(() => {
+    bindPostHogClient(posthog);
+    return () => bindPostHogClient(null);
+  }, [posthog]);
+
+  return null;
 }
 
 function PostHogScreenTracker() {
-  const posthog = usePostHog();
   const pathname = usePathname();
   const segments = useSegments();
   const lastTrackedRef = useRef('');
@@ -67,11 +75,11 @@ function PostHogScreenTracker() {
     const screenName = pathname === '/' ? 'home' : pathname.replace(/^\//, '');
     if (screenName === lastTrackedRef.current) return;
     lastTrackedRef.current = screenName;
-    posthog.screen(screenName, {
+    screenEvent(screenName, {
       path: pathname,
       segments: segments.join('/'),
     });
-  }, [pathname, posthog, segments]);
+  }, [pathname, segments]);
 
   return null;
 }
@@ -341,6 +349,7 @@ function RootLayout() {
             },
           }}
         >
+          <PostHogBridge />
           {appTree}
         </PostHogProvider>
       ) : (
