@@ -1,6 +1,8 @@
 import { AxiosError, AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import {
   CanonicalSubscriptionTier,
@@ -92,6 +94,11 @@ export async function syncSubscriptionState(options?: { traceId?: string; reason
         : mapSubscriptionTierToInternal(data.scheduled_tier);
 
     invalidateBillingCache();
+    captureEvent(AnalyticsEvents.subscriptionSyncCompleted, {
+      tier,
+      status: data.status ?? 'unknown',
+      reason: options?.reason ?? null,
+    });
 
     return {
       tier,
@@ -163,6 +170,10 @@ export async function getSubscriptionPlans(options?: { force?: boolean }) {
         getNoCacheConfig(force),
       );
       const data = response.data.data;
+      captureEvent(AnalyticsEvents.subscriptionPlansLoaded, {
+        force,
+        plansCount: (data as { plans?: unknown[] })?.plans?.length ?? null,
+      });
       plansCache = { data, fetchedAt: Date.now() };
       return data;
     } catch (error) {
@@ -214,6 +225,10 @@ export async function createCheckoutSession(
   };
 
   try {
+    captureEvent(AnalyticsEvents.subscriptionCheckoutStarted, {
+      tier,
+      platform: options?.platform ?? 'unknown',
+    });
     const payload: CheckoutPayload = {
       tier,
       platform: options?.platform,
@@ -252,6 +267,12 @@ export async function createCheckoutSession(
       throw contractError;
     }
 
+    captureEvent(AnalyticsEvents.subscriptionCheckoutReady, {
+      mode: mode ?? null,
+      requiresCheckout: isCheckoutStartedMode || (!isSubscriptionUpdatedMode && Boolean(resolvedUrl)),
+      hasUrl: Boolean(resolvedUrl),
+      tier,
+    });
     return {
       ...raw,
       mode,
@@ -302,22 +323,58 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         getNoCacheConfig(force),
       );
       const usage = response.data.data?.usage as (DailyUsagePayload['usage'] & Record<string, unknown>) | undefined;
+      const videosUsage = (usage?.videos as Record<string, unknown> | undefined);
       const chatUsed =
         asNumber(usage?.chat?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.chatMessagesThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.chatMessagesToday)
         ?? 0;
       const imageUsed =
         asNumber(usage?.images?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsToday)
+        ?? 0;
+      const videoUsed =
+        asNumber(videosUsage?.used)
+        ??
+        asNumber((usage as Record<string, unknown> | undefined)?.videoGenerationsThisMonth)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.videoGenerationsToday)
         ?? 0;
       const chatLimitRaw = usage?.chat?.limit;
       const imageLimitRaw = usage?.images?.limit;
+      const videoLimitRaw =
+        asNumber((usage as Record<string, unknown> | undefined)?.videoLimit)
+        ?? asNumber(videosUsage?.limit);
       const snapshot: UsageSnapshot = {
+        bucketDate: typeof usage?.bucketDate === 'string' ? usage.bucketDate : null,
         chatUsed,
-        chatLimit: chatLimitRaw === null ? null : asNumber(chatLimitRaw),
+        chatLimit:
+          chatLimitRaw === null
+            ? null
+            : asNumber(chatLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.chatLimit),
         imageUsed,
-        imageLimit: imageLimitRaw === null ? null : asNumber(imageLimitRaw),
+        imageLimit:
+          imageLimitRaw === null
+            ? null
+            : asNumber(imageLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.imageLimit),
+        videoUsed,
+        videoLimit: videoLimitRaw,
+        maxUploadSizeMB: asNumber((usage as Record<string, unknown> | undefined)?.maxUploadSizeMB),
+        maxPdfPages: asNumber((usage as Record<string, unknown> | undefined)?.maxPdfPages),
+        maxDocxPages: asNumber((usage as Record<string, unknown> | undefined)?.maxDocxPages),
+        maxPptxSlides: asNumber((usage as Record<string, unknown> | undefined)?.maxPptxSlides),
+        docAnalysesUsed: asNumber((usage as Record<string, unknown> | undefined)?.docAnalysesUsed) ?? 0,
+        docAnalysesPerMonth: asNumber((usage as Record<string, unknown> | undefined)?.docAnalysesPerMonth),
+        exportsUsed: asNumber((usage as Record<string, unknown> | undefined)?.exportsUsed) ?? 0,
+        exportsPerMonth: asNumber((usage as Record<string, unknown> | undefined)?.exportsPerMonth),
       };
+      captureEvent(AnalyticsEvents.subscriptionUsageLoaded, {
+        force,
+        chatUsed,
+        chatLimit: snapshot.chatLimit,
+        imageUsed,
+        imageLimit: snapshot.imageLimit,
+      });
       usageCache = { data: snapshot, fetchedAt: Date.now() };
       return snapshot;
     } catch (error) {

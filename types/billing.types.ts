@@ -66,10 +66,21 @@ export type SubscriptionPlansPayload = {
 };
 
 export type UsageSnapshot = {
+  bucketDate?: string | null;
   chatUsed: number;
   chatLimit: number | null;
   imageUsed: number;
   imageLimit: number | null;
+  videoUsed?: number;
+  videoLimit?: number | null;
+  maxUploadSizeMB?: number | null;
+  maxPdfPages?: number | null;
+  maxDocxPages?: number | null;
+  maxPptxSlides?: number | null;
+  docAnalysesUsed?: number;
+  docAnalysesPerMonth?: number | null;
+  exportsUsed?: number;
+  exportsPerMonth?: number | null;
 };
 
 export type DailyUsagePayload = {
@@ -79,11 +90,29 @@ export type DailyUsagePayload = {
     renewalDate?: string | null;
   };
   usage?: {
+    bucketDate?: string;
+    chatLimit?: number | null;
+    imageLimit?: number | null;
+    videoLimit?: number | null;
+    maxUploadSizeMB?: number | null;
+    maxPdfPages?: number | null;
+    maxDocxPages?: number | null;
+    maxPptxSlides?: number | null;
+    docAnalysesPerMonth?: number | null;
+    exportsPerMonth?: number | null;
+    docAnalysesUsed?: number;
+    exportsUsed?: number;
+    videoGenerationsToday?: number;
+    videoGenerationsThisMonth?: number;
     chat?: {
       used?: number;
       limit?: number | null;
     };
     images?: {
+      used?: number;
+      limit?: number | null;
+    };
+    videos?: {
       used?: number;
       limit?: number | null;
     };

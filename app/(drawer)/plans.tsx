@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
@@ -48,11 +48,25 @@ function cleanPlanTitle(title: string | undefined | null, fallbackTier: Subscrip
 }
 
 function normalizeBenefits(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  const normalizeLine = (line: string) => line.replace(/^[\s\-*\u2022]+/, '').trim();
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => (typeof item === 'string' ? item.split(/\r?\n/) : []))
+      .map((item) => normalizeLine(item))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/\r?\n|[,;](?=\s*[A-Za-z0-9])/)
+      .map((item) => normalizeLine(item))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeDescription(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim();
 }
 
 const TIER_RANK: Record<SubscriptionTier, number> = {
@@ -64,8 +78,33 @@ const TIER_RANK: Record<SubscriptionTier, number> = {
 const LIVE_REFRESH_INTERVAL_MS = 15_000;
 
 function formatLimit(limit?: number | null) {
-  if (typeof limit !== 'number' || limit < 0) return '\u221e';
+  if (typeof limit !== 'number') return 'N/A';
+  if (limit < 0) return '\u221e';
   return `${limit}`;
+}
+
+function isUnlimitedLimit(limit?: number | null) {
+  return typeof limit === 'number' && limit < 0;
+}
+
+function formatUsageWindow(bucketDate?: string | null) {
+  if (!bucketDate || !/^\d{4}-\d{2}$/.test(bucketDate)) return 'this month';
+  const [year, month] = bucketDate.split('-').map((v) => Number(v));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return 'this month';
+  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function getLimitState(used: number, limit?: number | null) {
+  if (typeof limit !== 'number') return { percent: 0, nearLimit: false, reached: false };
+  if (isUnlimitedLimit(limit)) return { percent: 0, nearLimit: false, reached: false };
+  if (limit <= 0) return { percent: 100, nearLimit: true, reached: true };
+  const ratio = used / limit;
+  const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  return {
+    percent,
+    nearLimit: ratio >= 0.8,
+    reached: ratio >= 1,
+  };
 }
 
 
@@ -131,10 +170,10 @@ function resolveOverviewUsageCount(
   const record = usage as Record<string, unknown>;
   const direct =
     key === 'chat'
-      ? asNumber(record.chatMessagesToday)
+      ? asNumber(record.chatMessagesThisMonth) ?? asNumber(record.chatMessagesToday)
       : key === 'images'
-        ? asNumber(record.imageGenerationsToday)
-        : asNumber(record.videoGenerationsToday);
+        ? asNumber(record.imageGenerationsThisMonth) ?? asNumber(record.imageGenerationsToday)
+        : asNumber(record.videoGenerationsThisMonth) ?? asNumber(record.videoGenerationsToday);
   if (direct != null) return direct;
 
   const nested = key === 'chat' ? record.chat : key === 'images' ? record.images : record.videos;
@@ -146,7 +185,7 @@ function resolveOverviewUsageCount(
 
 function normalizeUsageAndLimits(
   overview: SubscriptionOverview | null,
-  dailyUsage: UsageSnapshot | null,
+  usageSnapshot: UsageSnapshot | null,
   currentPlan?: SubscriptionPlan,
 ) {
   const limits = overview?.limits ?? currentPlan?.limits;
@@ -156,12 +195,21 @@ function normalizeUsageAndLimits(
   const videoUsedFromOverview = resolveOverviewUsageCount(usage, 'videos');
 
   return {
-    chatUsed: chatUsedFromOverview ?? dailyUsage?.chatUsed ?? 0,
-    chatLimit: dailyUsage?.chatLimit ?? limits?.chatMessagesPerDay ?? 500,
-    imageUsed: imageUsedFromOverview ?? dailyUsage?.imageUsed ?? 0,
-    imageLimit: dailyUsage?.imageLimit ?? limits?.imageGenerationsPerDay ?? 5,
-    videoUsed: videoUsedFromOverview ?? 0,
-    videoLimit: limits?.videoGenerationsPerDay ?? 1,
+    usageBucketDate: usageSnapshot?.bucketDate ?? null,
+    chatUsed: chatUsedFromOverview ?? usageSnapshot?.chatUsed ?? 0,
+    chatLimit: usageSnapshot?.chatLimit ?? limits?.chatMessagesPerDay ?? 500,
+    imageUsed: imageUsedFromOverview ?? usageSnapshot?.imageUsed ?? 0,
+    imageLimit: usageSnapshot?.imageLimit ?? limits?.imageGenerationsPerDay ?? 5,
+    videoUsed: videoUsedFromOverview ?? usageSnapshot?.videoUsed ?? 0,
+    videoLimit: usageSnapshot?.videoLimit ?? limits?.videoGenerationsPerDay ?? 1,
+    maxUploadSizeMB: usageSnapshot?.maxUploadSizeMB ?? null,
+    maxPdfPages: usageSnapshot?.maxPdfPages ?? null,
+    maxDocxPages: usageSnapshot?.maxDocxPages ?? null,
+    maxPptxSlides: usageSnapshot?.maxPptxSlides ?? null,
+    docAnalysesUsed: usageSnapshot?.docAnalysesUsed ?? 0,
+    docAnalysesPerMonth: usageSnapshot?.docAnalysesPerMonth ?? null,
+    exportsUsed: usageSnapshot?.exportsUsed ?? 0,
+    exportsPerMonth: usageSnapshot?.exportsPerMonth ?? null,
     maxVideoDurationSeconds: limits?.maxVideoDurationSeconds ?? 3,
     contextMessages: limits?.contextMessages ?? null,
     maxTokensPerRequest: limits?.maxTokensPerRequest ?? null,
@@ -501,7 +549,7 @@ export default function PlansScreen() {
             tier,
             name: cleanPlanTitle(productTitle, tier),
             // Keep Android/backend copy parity for richer plan details.
-            description: backendPlan?.description ?? (typeof pkg.product.description === 'string' ? pkg.product.description : ''),
+            description: normalizeDescription(backendPlan?.description) || normalizeDescription(pkg.product.description),
             benefits: normalizeBenefits(backendPlan?.benefits),
             isActive: true,
             price: {
@@ -513,7 +561,11 @@ export default function PlansScreen() {
           };
         }).filter((p) => p.tier !== 'free');
     }
-    return plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits) }));
+    return plans.map((plan) => ({
+      ...plan,
+      description: normalizeDescription(plan.description),
+      benefits: normalizeBenefits(plan.benefits),
+    }));
   }, [offering, plans]);
 
   const currentPlan = useMemo(
@@ -521,6 +573,12 @@ export default function PlansScreen() {
     [currentTier, displayPlans],
   );
   const stats = normalizeUsageAndLimits(overview, dailyUsage, currentPlan);
+  const usagePeriodLabel = formatUsageWindow(stats.usageBucketDate);
+  const chatLimitState = getLimitState(stats.chatUsed, stats.chatLimit);
+  const imageLimitState = getLimitState(stats.imageUsed, stats.imageLimit);
+  const videoLimitState = getLimitState(stats.videoUsed, stats.videoLimit);
+  const docAnalysesLimitState = getLimitState(stats.docAnalysesUsed, stats.docAnalysesPerMonth);
+  const exportsLimitState = getLimitState(stats.exportsUsed, stats.exportsPerMonth);
   const openCheckoutUrl = async (
     rawUrl: string,
     mode: 'checkout' | 'portal' = 'checkout',
@@ -959,15 +1017,84 @@ export default function PlansScreen() {
               }.`}
             </Text>
           ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>
+            Usage window: {usagePeriodLabel}
+          </Text>
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-            {t('plans.chatUsed')}: {stats.chatUsed} / {formatLimit(stats.chatLimit)}
+            {t('plans.chatUsed')}: {stats.chatUsed} / {formatLimit(stats.chatLimit)} used this month
+          </Text>
+          {!isUnlimitedLimit(stats.chatLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${chatLimitState.percent}%`, backgroundColor: chatLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            {t('plans.imagesUsed')}: {stats.imageUsed} / {formatLimit(stats.imageLimit)} used this month
+          </Text>
+          {!isUnlimitedLimit(stats.imageLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${imageLimitState.percent}%`, backgroundColor: imageLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            {t('plans.videosUsed')}: {stats.videoUsed} / {formatLimit(stats.videoLimit)} used this month
+          </Text>
+          {!isUnlimitedLimit(stats.videoLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${videoLimitState.percent}%`, backgroundColor: videoLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            Doc analyses: {stats.docAnalysesUsed} / {formatLimit(stats.docAnalysesPerMonth)} this month
+          </Text>
+          {!isUnlimitedLimit(stats.docAnalysesPerMonth) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${docAnalysesLimitState.percent}%`, backgroundColor: docAnalysesLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+            File exports: {stats.exportsUsed} / {formatLimit(stats.exportsPerMonth)} this month
+          </Text>
+          {!isUnlimitedLimit(stats.exportsPerMonth) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${exportsLimitState.percent}%`, backgroundColor: exportsLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
+            Max upload: {formatLimit(stats.maxUploadSizeMB)} MB
           </Text>
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            {t('plans.imagesUsed')}: {stats.imageUsed} / {formatLimit(stats.imageLimit)}
+            PDF pages: {formatLimit(stats.maxPdfPages)} | DOCX pages: {formatLimit(stats.maxDocxPages)} | PPTX slides: {formatLimit(stats.maxPptxSlides)}
           </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            {t('plans.videosUsed')}: {stats.videoUsed} / {formatLimit(stats.videoLimit)}
-          </Text>
+          {chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached ? (
+            <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
+              One or more monthly limits reached. Some features are blocked until next month or plan upgrade.
+            </Text>
+          ) : null}
+          {!(
+            chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached
+          ) && (
+            chatLimitState.nearLimit || imageLimitState.nearLimit || videoLimitState.nearLimit || docAnalysesLimitState.nearLimit || exportsLimitState.nearLimit
+          ) ? (
+            <Text style={{ color: '#B45309', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
+              You have used at least 80% of a monthly limit. Upgrade to avoid interruptions.
+            </Text>
+          ) : null}
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
             {t('plans.maxVideoLength')}: {stats.maxVideoDurationSeconds ?? 3}s
           </Text>
@@ -1152,6 +1279,7 @@ export default function PlansScreen() {
           const isFreeIncluded = plan.tier === 'free' && currentTier !== 'free';
           const isPlanActionDisabled = isCurrent || isBusy || plan.isActive === false || isFreeIncluded;
           const subscriptionLength = plan.price?.interval === 'yr' ? 'Yearly' : 'Monthly';
+          const planBenefits = normalizeBenefits(plan.benefits);
           // on iOS, if we mapped a rank, maybe we don't know the exact order from RC. 
           // getHighestTier logic exists to evaluate 'free' vs 'pro', but we can just use simple === checks.
           return (
@@ -1189,10 +1317,10 @@ export default function PlansScreen() {
                 </Text>
               </View>
 
-              {normalizeBenefits(plan.benefits).length > 0 ? (
+              {planBenefits.length > 0 ? (
                 <View className="mt-3 gap-1.5">
-                  {normalizeBenefits(plan.benefits).map((benefit) => (
-                    <View key={`${plan.tier}-${benefit}`} className="flex-row items-start">
+                  {planBenefits.map((benefit, benefitIndex) => (
+                    <View key={`${plan.tier}-${benefitIndex}`} className="flex-row items-start">
                       <Ionicons name="checkmark-circle" size={14} color={colors.primary} style={{ marginTop: 1 }} />
                       <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 8, flex: 1 }}>
                         {benefit}
@@ -1288,6 +1416,7 @@ export default function PlansScreen() {
     </RequireAuthRoute>
   );
 }
+
 
 
 
