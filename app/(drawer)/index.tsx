@@ -304,6 +304,10 @@ export default function ChatScreen() {
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const [sharingMediaMessageId, setSharingMediaMessageId] = useState<string | null>(null);
   const [composerMediaReference, setComposerMediaReference] = useState<ComposerMediaReference | null>(null);
+  const [highlightedReferencedMediaTarget, setHighlightedReferencedMediaTarget] = useState<{
+    messageId: string;
+    kind: 'image' | 'video';
+  } | null>(null);
   const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
@@ -354,6 +358,7 @@ export default function ChatScreen() {
     reference: ComposerMediaReference;
   }[]>([]);
   const referencedUserMessageByServerIdRef = useRef<Record<string, ComposerMediaReference>>({});
+  const referencedMediaHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceNameByIdRef = useRef<Record<string, string>>({});
   const videoGenerationInFlightRef = useRef(false);
   const videoFromImageInFlightRef = useRef(false);
@@ -410,9 +415,26 @@ export default function ChatScreen() {
       animated: true,
       viewPosition: 0.5,
     });
+    const targetMessage = messages[index];
+    setHighlightedReferencedMediaTarget({ messageId: targetMessage.id, kind: reference.kind });
+    if (referencedMediaHighlightTimerRef.current) {
+      clearTimeout(referencedMediaHighlightTimerRef.current);
+    }
+    referencedMediaHighlightTimerRef.current = setTimeout(() => {
+      setHighlightedReferencedMediaTarget((current) => (
+        current?.messageId === targetMessage.id && current.kind === reference.kind ? null : current
+      ));
+    }, 3000);
     hapticSelection();
     showTransientNotice(t('chat.reference.jumpSuccess'));
   };
+
+  useEffect(() => () => {
+    if (referencedMediaHighlightTimerRef.current) {
+      clearTimeout(referencedMediaHighlightTimerRef.current);
+      referencedMediaHighlightTimerRef.current = null;
+    }
+  }, []);
 
   const logSendPayload = useCallback((payload: Record<string, unknown>) => {
     if (!__DEV__) return;
@@ -3988,6 +4010,11 @@ export default function ChatScreen() {
                 const isArtifactGenerating = !isUser && item.isArtifactGenerating && !item.videoUrl && !item.imageUrl;
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
+                const isReferencedMediaHighlighted = highlightedReferencedMediaTarget?.messageId === item.id
+                  && (
+                    (highlightedReferencedMediaTarget.kind === 'image' && isImageMessage)
+                    || (highlightedReferencedMediaTarget.kind === 'video' && isVideoMessage)
+                  );
                 const hasAttachmentPreviews = imageAttachments.length > 0 || fileAttachments.length > 0;
                 const shouldRenderMixedAttachmentMessage =
                   !isUser
@@ -4037,63 +4064,103 @@ export default function ChatScreen() {
                       ) : null}
 
                       {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
-                        <Pressable
-                          onPress={() => {
-                            if (item.imageUrl) setImageLightboxUri(item.imageUrl);
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={t('chat.generatedImageAlt')}
-                        >
-                          <View
-                            className="overflow-hidden rounded-2xl border"
-                            style={{
-                              width: 236,
-                              height: 248,
-                              borderColor: colors.border,
-                              backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                        <View style={{ position: 'relative' }}>
+                          <Pressable
+                            onPress={() => {
+                              if (item.imageUrl) setImageLightboxUri(item.imageUrl);
                             }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('chat.generatedImageAlt')}
                           >
-                            {(() => {
-                              const source = resolveImageSource(item.imageUrl);
-                              if (!source) {
-                                return <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 112 }} />;
-                              }
-                              return (
-                                <ExpoImage
-                                  source={source}
-                                  style={{
-                                    position: 'absolute',
-                                    top: 0,
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    transform: [{ scale: 1.06 }],
-                                  }}
-                                  contentFit="cover"
-                                  contentPosition="center"
-                                  transition={0}
-                                  accessible
-                                  accessibilityLabel={item.imagePrompt?.trim()
-                                    ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
-                                    : t('chat.generatedImageAlt')}
-                                />
-                              );
-                            })()}
-                          </View>
-                        </Pressable>
+                            <View
+                              className="overflow-hidden rounded-2xl border"
+                              style={{
+                                width: 236,
+                                height: 248,
+                                borderColor: colors.border,
+                                backgroundColor: isDark ? '#101010' : '#FFFFFF',
+                              }}
+                            >
+                              {(() => {
+                                const source = resolveImageSource(item.imageUrl);
+                                if (!source) {
+                                  return <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 112 }} />;
+                                }
+                                return (
+                                  <ExpoImage
+                                    source={source}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      bottom: 0,
+                                      left: 0,
+                                      right: 0,
+                                      transform: [{ scale: 1.06 }],
+                                    }}
+                                    contentFit="cover"
+                                    contentPosition="center"
+                                    transition={0}
+                                    accessible
+                                    accessibilityLabel={item.imagePrompt?.trim()
+                                      ? `${t('chat.generatedImageAlt')}: ${item.imagePrompt.trim()}`
+                                      : t('chat.generatedImageAlt')}
+                                  />
+                                );
+                              })()}
+                            </View>
+                          </Pressable>
+                          {isReferencedMediaHighlighted ? (
+                            <Animated.View
+                              entering={FadeInDown.duration(180)}
+                              exiting={FadeOutDown.duration(220)}
+                              pointerEvents="none"
+                              style={{ position: 'absolute', top: 8, right: 8 }}
+                            >
+                              <View
+                                className="flex-row items-center rounded-full px-2 py-1"
+                                style={{ backgroundColor: isDark ? 'rgba(32,64,121,0.94)' : 'rgba(32,64,121,0.9)' }}
+                              >
+                                <Ionicons name="arrow-down-circle" size={13} color="#FFFFFF" />
+                                <Text style={{ marginLeft: 5, color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>
+                                  Referenced
+                                </Text>
+                              </View>
+                            </Animated.View>
+                          ) : null}
+                        </View>
                       ) : null}
 
                       {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
-                        <ChatVideoCard
-                          uri={item.videoUrl!}
-                          width={236}
-                          height={133}
-                          borderColor={colors.border}
-                          backgroundColor={isDark ? '#101010' : '#FFFFFF'}
-                          accessibilityLabel={item.videoPrompt?.trim()
-                            ? `${t('chat.generatedVideoAlt')}: ${item.videoPrompt.trim()}`
-                            : t('chat.generatedVideoAlt')}
-                        />
+                        <View style={{ position: 'relative' }}>
+                          <ChatVideoCard
+                            uri={item.videoUrl!}
+                            width={236}
+                            height={133}
+                            borderColor={colors.border}
+                            backgroundColor={isDark ? '#101010' : '#FFFFFF'}
+                            accessibilityLabel={item.videoPrompt?.trim()
+                              ? `${t('chat.generatedVideoAlt')}: ${item.videoPrompt.trim()}`
+                              : t('chat.generatedVideoAlt')}
+                          />
+                          {isReferencedMediaHighlighted ? (
+                            <Animated.View
+                              entering={FadeInDown.duration(180)}
+                              exiting={FadeOutDown.duration(220)}
+                              pointerEvents="none"
+                              style={{ position: 'absolute', top: 8, right: 8 }}
+                            >
+                              <View
+                                className="flex-row items-center rounded-full px-2 py-1"
+                                style={{ backgroundColor: isDark ? 'rgba(32,64,121,0.94)' : 'rgba(32,64,121,0.9)' }}
+                              >
+                                <Ionicons name="arrow-down-circle" size={13} color="#FFFFFF" />
+                                <Text style={{ marginLeft: 5, color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>
+                                  Referenced
+                                </Text>
+                              </View>
+                            </Animated.View>
+                          ) : null}
+                        </View>
                       ) : null}
 
                       {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
@@ -4515,18 +4582,23 @@ export default function ChatScreen() {
           {isAuthenticated && composerMediaReference ? (
             <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
               <View
-                accessible
-                accessibilityRole="text"
-                accessibilityLabel={t('chat.reference.composerA11yLabel', { kind: composerMediaReference.kind })}
-                accessibilityHint={t('chat.reference.composerA11yHint')}
-                accessibilityLiveRegion="polite"
                 className="flex-row items-center rounded-full border px-2 py-0.5"
                 style={{ borderColor: colors.primary, backgroundColor: isDark ? '#121A2A' : '#EAF2FF' }}
               >
-                <Ionicons name={composerMediaReference.kind === 'image' ? 'image-outline' : 'videocam-outline'} size={12} color={colors.primary} />
-                <Text numberOfLines={1} style={{ maxWidth: 180, color: colors.primary, fontSize: 10, marginLeft: 6 }}>
-                  {t('chat.reference.composerChip', { kind: composerMediaReference.kind })}
-                </Text>
+                <Pressable
+                  onPress={() => jumpToReferencedMedia(composerMediaReference)}
+                  accessible
+                  accessibilityRole="button"
+                  accessibilityLabel={t('chat.reference.composerA11yLabel', { kind: composerMediaReference.kind })}
+                  accessibilityHint={t('chat.reference.jumpA11yHint')}
+                  accessibilityLiveRegion="polite"
+                  className="flex-row items-center"
+                >
+                  <Ionicons name={composerMediaReference.kind === 'image' ? 'image-outline' : 'videocam-outline'} size={12} color={colors.primary} />
+                  <Text numberOfLines={1} style={{ maxWidth: 180, color: colors.primary, fontSize: 10, marginLeft: 6 }}>
+                    {t('chat.reference.composerChip', { kind: composerMediaReference.kind })}
+                  </Text>
+                </Pressable>
                 <Pressable
                   onPress={() => {
                     setComposerMediaReference(null);
