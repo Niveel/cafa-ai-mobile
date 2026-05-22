@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Linking, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Platform, RefreshControl, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
@@ -75,8 +75,6 @@ const TIER_RANK: Record<SubscriptionTier, number> = {
   cafa_pro: 2,
   cafa_max: 3,
 };
-const LIVE_REFRESH_INTERVAL_MS = 15_000;
-
 function formatLimit(limit?: number | null) {
   if (typeof limit !== 'number') return 'N/A';
   if (limit < 0) return '\u221e';
@@ -110,6 +108,7 @@ function getLimitState(used: number, limit?: number | null) {
 
 function toCafaChatModelLabel(model?: string | null) {
   const normalized = (model ?? '').trim().toLowerCase();
+  if (!normalized) return null;
   if (normalized === 'gpt-4o') return 'Cafa Ultra';
   if (normalized === 'gpt-4o-mini') return 'Cafa Smart';
   return 'Cafa Smart';
@@ -219,7 +218,6 @@ function normalizeUsageAndLimits(
 }
 
 export default function PlansScreen() {
-  const isFocused = useIsFocused();
   const { authUser, setAuthSubscriptionTier, refreshAuthUser } = useAppContext();
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
@@ -233,13 +231,13 @@ export default function PlansScreen() {
   const [dailyUsage, setDailyUsage] = useState<UsageSnapshot | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [statusText, setStatusText] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showChangePlanPrompt, setShowChangePlanPrompt] = useState(false);
   const [pendingTier, setPendingTier] = useState<SubscriptionTier | null>(null);
   const [showPlanUpdatedPrompt, setShowPlanUpdatedPrompt] = useState(false);
   const [updatedTier, setUpdatedTier] = useState<SubscriptionTier | null>(null);
   const [isRefreshingOfferings, setIsRefreshingOfferings] = useState(false);
   const appScheme = ((Constants.expoConfig as { scheme?: string } | undefined)?.scheme || 'cafa-ai').replace('://', '');
-  const lastForegroundRefreshAtRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const lastSyncAtRef = useRef(0);
   const syncInFlightRef = useRef<Promise<Awaited<ReturnType<typeof syncSubscriptionState>> | null> | null>(null);
@@ -450,25 +448,6 @@ export default function PlansScreen() {
   }, [loadBillingData, plansDebug, refreshAuthUser, t]);
 
   useEffect(() => {
-    const run = async () => {
-      setLoading(true);
-      setStatusText('');
-      try {
-        await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
-        await loadBillingData({ force: true });
-      } catch (error) {
-        setStatusText(
-          toErrorMessage(error) || t('plans.loadError'),
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void run();
-  }, [loadBillingData, syncSubscriptionAndApplyTier, t]);
-
-  useEffect(() => {
     if (!overview?.subscription.tier) return;
     plansDebug('overview:setAuthTier', {
       tier: overview.subscription.tier,
@@ -479,13 +458,21 @@ export default function PlansScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Drawer screens can stay mounted; refresh usage every time plans is focused.
+      // Drawer screens can stay mounted; refresh only when this screen is visited.
       void (async () => {
-        await syncSubscriptionAndApplyTier().catch(() => null);
-        await loadBillingData({ force: true });
+        setLoading(true);
+        setStatusText('');
+        try {
+          await syncSubscriptionAndApplyTier().catch(() => null);
+          await loadBillingData();
+        } catch (error) {
+          setStatusText(toErrorMessage(error) || t('plans.loadError'));
+        } finally {
+          setLoading(false);
+        }
       })().catch(() => {});
       return () => {};
-    }, [loadBillingData, syncSubscriptionAndApplyTier]),
+    }, [loadBillingData, syncSubscriptionAndApplyTier, t]),
   );
 
   useEffect(() => {
@@ -494,30 +481,23 @@ export default function PlansScreen() {
       if (state !== 'active') return;
       if (portalFlowActiveRef.current) {
         void syncSubscriptionAfterPortalReturn();
-        return;
       }
-      if (Date.now() - lastForegroundRefreshAtRef.current < 12_000) return;
-      lastForegroundRefreshAtRef.current = Date.now();
-      void (async () => {
-        await syncSubscriptionAndApplyTier().catch(() => null);
-        await loadBillingData();
-      })().catch(() => {});
     });
     return () => sub.remove();
-  }, [loadBillingData, syncSubscriptionAfterPortalReturn, syncSubscriptionAndApplyTier]);
-  useEffect(() => {
-    if (!isFocused) return;
+  }, [syncSubscriptionAfterPortalReturn]);
 
-    const intervalId = setInterval(() => {
-      if (appStateRef.current !== 'active') return;
-      void (async () => {
-        await syncSubscriptionAndApplyTier().catch(() => null);
-        await loadBillingData({ force: true });
-      })().catch(() => {});
-    }, LIVE_REFRESH_INTERVAL_MS);
-
-    return () => clearInterval(intervalId);
-  }, [isFocused, loadBillingData, syncSubscriptionAndApplyTier]);
+  const onPullToRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    setStatusText('');
+    try {
+      await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
+      await loadBillingData({ force: true });
+    } catch (error) {
+      setStatusText(toErrorMessage(error) || t('plans.loadError'));
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadBillingData, syncSubscriptionAndApplyTier, t]);
 
   const currentTier = Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free');
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
@@ -530,7 +510,7 @@ export default function PlansScreen() {
         return plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits), isActive: false }));
       }
       const packages = Array.isArray(offering.availablePackages) ? offering.availablePackages : [];
-      return packages
+      const paidPlans = packages
         .filter((pkg) => pkg?.product != null)
         .map((pkg): SubscriptionPlan & { _rcPackage: any } => {
           const productTitle = typeof pkg.product.title === 'string' ? pkg.product.title : '';
@@ -560,6 +540,23 @@ export default function PlansScreen() {
             _rcPackage: pkg,
           };
         }).filter((p) => p.tier !== 'free');
+
+      const freeBackendPlan = backendPlanByTier.get('free');
+      const freePlan: SubscriptionPlan = {
+        tier: 'free',
+        name: cleanPlanTitle(freeBackendPlan?.name, 'free'),
+        description: normalizeDescription(freeBackendPlan?.description),
+        benefits: normalizeBenefits(freeBackendPlan?.benefits),
+        isActive: true,
+        price: {
+          amount: 0,
+          currency: 'USD',
+          interval: 'mo',
+        },
+        limits: freeBackendPlan?.limits,
+      };
+
+      return [freePlan, ...paidPlans];
     }
     return plans.map((plan) => ({
       ...plan,
@@ -988,6 +985,16 @@ export default function PlansScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 36 }}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => {
+                void onPullToRefresh();
+              }}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
         >
         <View
           className="rounded-2xl border p-3"
@@ -1053,10 +1060,12 @@ export default function PlansScreen() {
               />
             </View>
           ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Doc analyses: {stats.docAnalysesUsed} / {formatLimit(stats.docAnalysesPerMonth)} this month
-          </Text>
-          {!isUnlimitedLimit(stats.docAnalysesPerMonth) ? (
+          {typeof stats.docAnalysesPerMonth === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Doc analyses: {stats.docAnalysesUsed} / {formatLimit(stats.docAnalysesPerMonth)} this month
+            </Text>
+          ) : null}
+          {typeof stats.docAnalysesPerMonth === 'number' && !isUnlimitedLimit(stats.docAnalysesPerMonth) ? (
             <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
               <View
                 className="h-full rounded-full"
@@ -1064,10 +1073,12 @@ export default function PlansScreen() {
               />
             </View>
           ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            File exports: {stats.exportsUsed} / {formatLimit(stats.exportsPerMonth)} this month
-          </Text>
-          {!isUnlimitedLimit(stats.exportsPerMonth) ? (
+          {typeof stats.exportsPerMonth === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              File exports: {stats.exportsUsed} / {formatLimit(stats.exportsPerMonth)} this month
+            </Text>
+          ) : null}
+          {typeof stats.exportsPerMonth === 'number' && !isUnlimitedLimit(stats.exportsPerMonth) ? (
             <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
               <View
                 className="h-full rounded-full"
@@ -1075,12 +1086,20 @@ export default function PlansScreen() {
               />
             </View>
           ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-            Max upload: {formatLimit(stats.maxUploadSizeMB)} MB
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            PDF pages: {formatLimit(stats.maxPdfPages)} | DOCX pages: {formatLimit(stats.maxDocxPages)} | PPTX slides: {formatLimit(stats.maxPptxSlides)}
-          </Text>
+          {typeof stats.maxUploadSizeMB === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
+              Max upload: {formatLimit(stats.maxUploadSizeMB)} MB
+            </Text>
+          ) : null}
+          {typeof stats.maxPdfPages === 'number' || typeof stats.maxDocxPages === 'number' || typeof stats.maxPptxSlides === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              {[
+                typeof stats.maxPdfPages === 'number' ? `PDF pages: ${formatLimit(stats.maxPdfPages)}` : null,
+                typeof stats.maxDocxPages === 'number' ? `DOCX pages: ${formatLimit(stats.maxDocxPages)}` : null,
+                typeof stats.maxPptxSlides === 'number' ? `PPTX slides: ${formatLimit(stats.maxPptxSlides)}` : null,
+              ].filter(Boolean).join(' | ')}
+            </Text>
+          ) : null}
           {chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached ? (
             <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
               One or more monthly limits reached. Some features are blocked until next month or plan upgrade.
@@ -1098,18 +1117,26 @@ export default function PlansScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
             {t('plans.maxVideoLength')}: {stats.maxVideoDurationSeconds ?? 3}s
           </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Chat model: {stats.chatModelLabel}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Context messages: {stats.contextMessages ?? 'N/A'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Max tokens per request: {stats.maxTokensPerRequest ?? 'N/A'}
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Documents: {stats.documentsEnabled === null ? 'N/A' : (stats.documentsEnabled ? 'Enabled' : 'Disabled')}
-          </Text>
+          {stats.chatModelLabel ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Chat model: {stats.chatModelLabel}
+            </Text>
+          ) : null}
+          {typeof stats.contextMessages === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Context messages: {stats.contextMessages}
+            </Text>
+          ) : null}
+          {typeof stats.maxTokensPerRequest === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Max tokens per request: {stats.maxTokensPerRequest}
+            </Text>
+          ) : null}
+          {typeof stats.documentsEnabled === 'boolean' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Documents: {stats.documentsEnabled ? 'Enabled' : 'Disabled'}
+            </Text>
+          ) : null}
 
           {Platform.OS === 'ios' ? (
             <>
@@ -1277,6 +1304,7 @@ export default function PlansScreen() {
           const isBusy = busyTier === plan.tier;
           const isDowngrade = TIER_RANK[plan.tier] < TIER_RANK[currentTier];
           const isFreeIncluded = plan.tier === 'free' && currentTier !== 'free';
+          const hidePlanActionButton = Platform.OS === 'ios' && plan.tier === 'free' && currentTier !== 'free';
           const isPlanActionDisabled = isCurrent || isBusy || plan.isActive === false || isFreeIncluded;
           const subscriptionLength = plan.price?.interval === 'yr' ? 'Yearly' : 'Monthly';
           const planBenefits = normalizeBenefits(plan.benefits);
@@ -1330,51 +1358,53 @@ export default function PlansScreen() {
                 </View>
               ) : null}
 
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isCurrent
-                    ? t('plans.currentPlan')
-                    : isFreeIncluded
-                      ? t('plans.included')
-                    : t('plans.upgradeTo', { plan: plan.name || tierLabel(plan.tier) })
-                }
-                disabled={isPlanActionDisabled}
-                onPress={() => {
-                  requestUpgrade(plan.tier);
-                }}
-                className="mt-3 h-10 items-center justify-center rounded-full px-4"
-                style={{
-                  backgroundColor:
-                    isPlanActionDisabled
-                      ? isDark ? '#23232B' : '#ECECF2'
-                      : colors.primary,
-                  opacity: isBusy ? 0.75 : 1,
-                }}
-              >
-                <Text
+              {!hidePlanActionButton ? (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isCurrent
+                      ? t('plans.currentPlan')
+                      : isFreeIncluded
+                        ? t('plans.included')
+                      : t('plans.upgradeTo', { plan: plan.name || tierLabel(plan.tier) })
+                  }
+                  disabled={isPlanActionDisabled}
+                  onPress={() => {
+                    requestUpgrade(plan.tier);
+                  }}
+                  className="mt-3 h-10 items-center justify-center rounded-full px-4"
                   style={{
-                    color:
+                    backgroundColor:
                       isPlanActionDisabled
-                        ? colors.textSecondary
-                        : '#FFFFFF',
-                    fontSize: 13,
-                    fontWeight: '700',
+                        ? isDark ? '#23232B' : '#ECECF2'
+                        : colors.primary,
+                    opacity: isBusy ? 0.75 : 1,
                   }}
                 >
-                  {isCurrent
-                    ? t('plans.currentPlan')
-                    : isFreeIncluded
-                      ? t('plans.included')
-                    : plan.isActive === false
-                      ? t('plans.unavailable')
-                      : isBusy
-                        ? t('plans.redirecting')
-                        : isDowngrade
-                          ? 'Downgrade'
-                          : t('plans.upgrade')}
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={{
+                      color:
+                        isPlanActionDisabled
+                          ? colors.textSecondary
+                          : '#FFFFFF',
+                      fontSize: 13,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {isCurrent
+                      ? t('plans.currentPlan')
+                      : isFreeIncluded
+                        ? t('plans.included')
+                      : plan.isActive === false
+                        ? t('plans.unavailable')
+                        : isBusy
+                          ? t('plans.redirecting')
+                          : isDowngrade
+                            ? 'Downgrade'
+                            : t('plans.upgrade')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           );
         })}

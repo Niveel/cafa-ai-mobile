@@ -24,6 +24,7 @@ import { API_BASE_URL } from '@/lib';
 import { createBillingPortalSession, getSubscriptionStatus } from '@/features/billing/services/subscriptions';
 import { deleteCurrentUserAccount, updateCurrentUserProfile, uploadCurrentUserAvatar } from '@/features/auth/services/auth';
 import { getAccessToken } from '@/services';
+import { clearDownloadsSafUri } from '@/services/storage';
 import { openIosSubscriptionManagement } from '@/services/revenuecat';
 import type { AuthUser } from '@/types';
 import type { SubscriptionLifecycle, SubscriptionStatus } from '@/types/billing.types';
@@ -319,6 +320,15 @@ export function AccountSection({
     }
   };
 
+  const onChangeDownloadFolder = async () => {
+    try {
+      await clearDownloadsSafUri();
+      setStatusText(t('settings.account.downloadFolderResetSuccess'));
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : t('settings.account.downloadFolderResetError'));
+    }
+  };
+
   return (
     <View className="gap-4">
       <View className="rounded-2xl border p-3" style={{ borderColor: colors.border }}>
@@ -443,6 +453,21 @@ export function AccountSection({
           >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{t('settings.account.cancelSubscription')}</Text>
           </TouchableOpacity>
+          {Platform.OS === 'android' ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={t('settings.account.changeDownloadFolder')}
+              onPress={() => {
+                void onChangeDownloadFolder();
+              }}
+              className="h-10 items-center justify-center rounded-full px-3"
+              style={{ borderWidth: 1.2, borderColor: colors.primary }}
+            >
+              <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                {t('settings.account.changeDownloadFolder')}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 6, lineHeight: 13 }}>
@@ -450,6 +475,11 @@ export function AccountSection({
             ? t('settings.account.cancelSubscriptionHintIos')
             : t('settings.account.cancelSubscriptionHint')}
         </Text>
+        {Platform.OS === 'android' ? (
+          <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 6, lineHeight: 13 }}>
+            {t('settings.account.changeDownloadFolderHint')}
+          </Text>
+        ) : null}
       </View>
 
       <View className="rounded-2xl border p-3" style={{ borderColor: '#E11D48', backgroundColor: isDark ? 'rgba(127,29,29,0.18)' : 'rgba(254,226,226,0.95)' }}>

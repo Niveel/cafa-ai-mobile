@@ -32,9 +32,56 @@ function splitNameAndExtension(name: string) {
   return { baseName: match[1], extension: match[2] };
 }
 
+function inferFileNameFromUri(localFileUri: string) {
+  const raw = decodeURIComponent(localFileUri.split('?')[0] || '');
+  const segment = raw.split('/').filter(Boolean).pop() || `cafa-${Date.now()}`;
+  return sanitizeFileName(segment);
+}
+
+function inferMimeTypeFromFileName(fileName: string) {
+  const ext = splitNameAndExtension(fileName).extension?.toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'heic':
+      return 'image/heic';
+    case 'mp4':
+      return 'video/mp4';
+    case 'mov':
+      return 'video/quicktime';
+    case 'm4v':
+      return 'video/x-m4v';
+    case 'webm':
+      return 'video/webm';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
 export async function saveMediaToCafaAlbum(localFileUri: string) {
+  if (Platform.OS === 'android') {
+    const fileName = inferFileNameFromUri(localFileUri);
+    const mimeType = inferMimeTypeFromFileName(fileName);
+    await saveFileToDownloadsCafaFolder({
+      localFileUri,
+      fileName,
+      mimeType,
+    });
+    return;
+  }
+
   const MediaLibrary = await getMediaLibraryModule();
-  const permission = await MediaLibrary.requestPermissionsAsync();
+  let permission = await MediaLibrary.getPermissionsAsync();
+  if (!permission.granted) {
+    permission = await MediaLibrary.requestPermissionsAsync();
+  }
   if (!permission.granted) {
     throw new Error('Please allow photo library access to save media.');
   }

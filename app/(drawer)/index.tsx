@@ -4019,10 +4019,8 @@ export default function ChatScreen() {
                 const shouldRenderMixedAttachmentMessage =
                   !isUser
                   && hasAttachmentPreviews
-                  && (
-                    fileAttachments.length > 0
-                    || (!isImageMessage && !isVideoMessage)
-                  );
+                  && !isImageMessage
+                  && !isVideoMessage;
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View
