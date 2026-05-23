@@ -8,6 +8,8 @@ const CAFA_DOWNLOADS_FOLDER = 'Cafa AI';
 
 let mediaLibraryModulePromise: Promise<typeof import('expo-media-library')> | null = null;
 
+export const IOS_PHOTO_PERMISSION_DENIED_CODE = 'IOS_PHOTO_PERMISSION_DENIED';
+
 async function getMediaLibraryModule() {
   if (!mediaLibraryModulePromise) {
     mediaLibraryModulePromise = import('expo-media-library');
@@ -83,15 +85,22 @@ export async function saveMediaToCafaAlbum(localFileUri: string) {
     permission = await MediaLibrary.requestPermissionsAsync();
   }
   if (!permission.granted) {
-    throw new Error('Please allow photo library access to save media.');
+    const permissionError = new Error('Please allow photo library access to save media from Settings.');
+    (permissionError as Error & { code?: string }).code = IOS_PHOTO_PERMISSION_DENIED_CODE;
+    throw permissionError;
   }
 
   const asset = await MediaLibrary.createAssetAsync(localFileUri);
   const existingAlbum = await MediaLibrary.getAlbumAsync(CAFA_MEDIA_ALBUM);
-  if (existingAlbum) {
-    await MediaLibrary.addAssetsToAlbumAsync([asset], existingAlbum, false);
-  } else {
-    await MediaLibrary.createAlbumAsync(CAFA_MEDIA_ALBUM, asset, false);
+  try {
+    if (existingAlbum) {
+      await MediaLibrary.addAssetsToAlbumAsync([asset], existingAlbum, false);
+    } else {
+      await MediaLibrary.createAlbumAsync(CAFA_MEDIA_ALBUM, asset, false);
+    }
+  } catch {
+    // Asset is already in Photos once createAssetAsync succeeds.
+    // Album assignment can fail on some iOS devices even when the save itself worked.
   }
 }
 

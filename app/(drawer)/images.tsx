@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -29,6 +30,7 @@ import {
   hapticError,
   hapticSelection,
   hapticSuccess,
+  IOS_PHOTO_PERMISSION_DENIED_CODE,
   openDownloadsCafaFolder,
   saveFileToDownloadsCafaFolder,
   saveMediaToCafaAlbum,
@@ -178,9 +180,13 @@ export default function ImagesScreen() {
     return () => loop.stop();
   }, [pulse, zipProgress.phase, zipProgress.visible]);
 
-  const showNotice = useCallback((message: string, durationMs = 3200) => {
+  const showNotice = useCallback((message: string, durationMs: number | null = 3200) => {
     setStatusNotice(message);
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+    if (durationMs === null) {
+      noticeTimeoutRef.current = null;
+      return;
+    }
     noticeTimeoutRef.current = setTimeout(() => {
       setStatusNotice('');
       noticeTimeoutRef.current = null;
@@ -279,7 +285,7 @@ export default function ImagesScreen() {
     }
 
     hapticSelection();
-    showNotice(t('images.downloadOneStarting'));
+    showNotice(t('images.downloadOneStarting'), null);
 
     try {
       const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
@@ -300,6 +306,19 @@ export default function ImagesScreen() {
     } catch (error) {
       const message = error instanceof Error ? error.message : t('images.downloadOneFailed');
       console.log(`[images-download:error] endpoint=${resolvedUrl} message="${message}"`);
+      if (
+        Platform.OS === 'ios'
+        && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
+      ) {
+        Alert.alert(
+          'Photos Permission Needed',
+          'Allow Photos access in Settings to save images and videos.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+          ],
+        );
+      }
       showNotice(t('images.downloadOneFailed'), 5000);
       hapticError();
     }

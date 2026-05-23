@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
+  Alert,
   type GestureResponderEvent,
   AccessibilityInfo,
   ActivityIndicator,
@@ -112,6 +113,7 @@ import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
 import { emitChatMutated, getAccessToken, getDefaultVoicePreference } from '@/services';
 import {
+  IOS_PHOTO_PERMISSION_DENIED_CODE,
   MOTION,
   hapticError,
   hapticImpact,
@@ -383,7 +385,7 @@ export default function ChatScreen() {
   const dividerPill = '#204079';
   const composerPlaceholder = useMemo(() => t('chat.input.placeholder'), [t]);
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
-  const isFreshChatState = messages.length === 1 && isWelcomeMessage(messages[0]);
+  const isFreshChatState = !isSending && messages.length === 1 && isWelcomeMessage(messages[0]);
   const announceForA11y = useCallback((message: string) => {
     AccessibilityInfo.announceForAccessibility?.(message);
   }, []);
@@ -1733,13 +1735,17 @@ export default function ChatScreen() {
     }, 1200);
   };
 
-  const showDownloadToast = useCallback((message: string) => {
+  const showDownloadToast = useCallback((message: string, durationMs: number | null = 2400) => {
     setDownloadToastNotice(message);
     if (downloadToastTimeoutRef.current) clearTimeout(downloadToastTimeoutRef.current);
+    if (durationMs === null) {
+      downloadToastTimeoutRef.current = null;
+      return;
+    }
     downloadToastTimeoutRef.current = setTimeout(() => {
       setDownloadToastNotice('');
       downloadToastTimeoutRef.current = null;
-    }, 2400);
+    }, durationMs);
   }, []);
 
   const showTtsToast = useCallback((message: string) => {
@@ -2876,7 +2882,7 @@ export default function ChatScreen() {
     }
 
     hapticSelection();
-    showTransientNotice(t('chat.imageDownloadStarting'));
+    showDownloadToast(t('chat.imageDownloadStarting'), null);
 
     try {
       const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
@@ -2901,7 +2907,20 @@ export default function ChatScreen() {
       console.log(
         `[chat-image-download:error] endpoint=${resolvedUrl} message="${messageText}"`,
       );
-      showTransientNotice(t('chat.imageDownloadFailed'));
+      if (
+        Platform.OS === 'ios'
+        && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
+      ) {
+        Alert.alert(
+          'Photos Permission Needed',
+          'Allow Photos access in Settings to save images and videos.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+          ],
+        );
+      }
+      showDownloadToast(t('chat.imageDownloadFailed'), 5000);
       hapticError();
     }
   };
@@ -2914,7 +2933,7 @@ export default function ChatScreen() {
     }
 
     hapticSelection();
-    showTransientNotice(t('chat.videoDownloadStarting'));
+    showDownloadToast(t('chat.videoDownloadStarting'), null);
 
     try {
       const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
@@ -2939,7 +2958,20 @@ export default function ChatScreen() {
       console.log(
         `[chat-video-download:error] endpoint=${resolvedUrl} message="${messageText}"`,
       );
-      showTransientNotice(t('chat.videoDownloadFailed'));
+      if (
+        Platform.OS === 'ios'
+        && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
+      ) {
+        Alert.alert(
+          'Photos Permission Needed',
+          'Allow Photos access in Settings to save images and videos.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+          ],
+        );
+      }
+      showDownloadToast(t('chat.videoDownloadFailed'), 5000);
       hapticError();
     }
   };

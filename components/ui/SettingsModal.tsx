@@ -8,6 +8,7 @@ import Animated, { Easing, FadeInDown, useAnimatedStyle, useSharedValue, withTim
 
 import { useAppContext } from '@/context';
 import { useI18n } from '@/hooks';
+import { clearDownloadsSafUri } from '@/services/storage';
 import { AppSwitch } from './AppSwitch';
 import type { AnimationLevel } from '@/services';
 import { PersonalizationSection } from './settings/PersonalizationSection';
@@ -38,6 +39,7 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
   const { height: windowHeight } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
+  const [generalStatusText, setGeneralStatusText] = useState('');
   const overlayOpacity = useSharedValue(0);
   const sheetTranslate = useSharedValue(26);
 
@@ -68,6 +70,15 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
     { value: 'off', label: t('settings.general.animation.off') },
   ];
   const sheetHeight = Math.max(420, Math.round(windowHeight * 0.9));
+
+  const onChangeDownloadFolder = async () => {
+    try {
+      await clearDownloadsSafUri();
+      setGeneralStatusText(t('settings.account.downloadFolderResetSuccess'));
+    } catch (error) {
+      setGeneralStatusText(error instanceof Error ? error.message : t('settings.account.downloadFolderResetError'));
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
@@ -307,6 +318,33 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                       })}
                     </View>
                   </View>
+
+                  {Platform.OS === 'android' ? (
+                    <View className="rounded-xl border px-3 py-2.5" style={{ borderColor: colors.border }}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('settings.account.changeDownloadFolder')}
+                        onPress={() => {
+                          void onChangeDownloadFolder();
+                        }}
+                        className="h-10 items-center justify-center rounded-full px-3"
+                        style={{ borderWidth: 1.2, borderColor: colors.primary }}
+                      >
+                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                          {t('settings.account.changeDownloadFolder')}
+                        </Text>
+                      </Pressable>
+                      <Text style={{ color: colors.textSecondary, fontSize: 10, marginTop: 6, lineHeight: 13 }}>
+                        {t('settings.account.changeDownloadFolderHint')}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {generalStatusText ? (
+                    <Text accessibilityLiveRegion="polite" style={{ color: colors.textSecondary, fontSize: 12 }}>
+                      {generalStatusText}
+                    </Text>
+                  ) : null}
                 </View>
               </Animated.View>
             ) : activeTab === 'personalization' ? (
