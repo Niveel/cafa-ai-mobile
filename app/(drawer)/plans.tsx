@@ -505,9 +505,16 @@ export default function PlansScreen() {
   const displayPlans = useMemo(() => {
     if (Platform.OS === 'ios') {
       const backendPlanByTier = new Map(plans.map((plan) => [plan.tier, plan] as const));
+      const moveFreePlanToEnd = (inputPlans: SubscriptionPlan[]) => {
+        const nonFreePlans = inputPlans.filter((plan) => plan.tier !== 'free');
+        const freePlans = inputPlans.filter((plan) => plan.tier === 'free');
+        return [...nonFreePlans, ...freePlans];
+      };
       if (!offering) {
         // Keep plan details visible for App Review, but disable purchasing until RC products load.
-        return plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits), isActive: false }));
+        return moveFreePlanToEnd(
+          plans.map((plan) => ({ ...plan, benefits: normalizeBenefits(plan.benefits), isActive: false })),
+        );
       }
       const packages = Array.isArray(offering.availablePackages) ? offering.availablePackages : [];
       const paidPlans = packages
@@ -556,7 +563,7 @@ export default function PlansScreen() {
         limits: freeBackendPlan?.limits,
       };
 
-      return [freePlan, ...paidPlans];
+      return [...paidPlans, freePlan];
     }
     return plans.map((plan) => ({
       ...plan,
