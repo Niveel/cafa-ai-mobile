@@ -386,6 +386,10 @@ export default function ChatScreen() {
   const composerPlaceholder = useMemo(() => t('chat.input.placeholder'), [t]);
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
   const isFreshChatState = !isSending && messages.length === 1 && isWelcomeMessage(messages[0]);
+  const visibleMessages = useMemo(
+    () => (isSending ? messages.filter((message) => !isWelcomeMessage(message)) : messages),
+    [isSending, isWelcomeMessage, messages],
+  );
   const announceForA11y = useCallback((message: string) => {
     AccessibilityInfo.announceForAccessibility?.(message);
   }, []);
@@ -4001,7 +4005,7 @@ export default function ChatScreen() {
                   </View>
                 ) : null
               }
-              data={messages}
+              data={visibleMessages}
               showsVerticalScrollIndicator={false}
               keyExtractor={(item) => item.id}
               contentContainerStyle={{
