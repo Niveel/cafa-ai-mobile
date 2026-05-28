@@ -859,13 +859,9 @@ export default function ChatScreen() {
           const attachments = byMessageId.get(message.id);
           if (!attachments?.length) return message;
           changed = true;
-          const firstImage = attachments.find((item) => (item.mimeType ?? '').startsWith('image/'));
-          const firstVideo = attachments.find((item) => (item.mimeType ?? '').startsWith('video/'));
           return {
             ...message,
             attachments,
-            imageUrl: message.imageUrl ?? firstImage?.thumbnailUrl ?? firstImage?.url,
-            videoUrl: message.videoUrl ?? firstVideo?.url,
           };
         });
         return changed ? applyDescriptiveAttachmentNames(next) : prev;

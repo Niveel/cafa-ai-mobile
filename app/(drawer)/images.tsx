@@ -22,6 +22,7 @@ import { AppButton, AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/com
 import { ImageGalleryCard } from '@/components/images/ImageGalleryCard';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
+import { getArtifactsPage } from '@/features';
 import { deleteImage, deleteImagesBulk, getImageHistoryPage } from '@/features/images';
 import { getAccessToken } from '@/services/storage/session';
 import { apiEndpoints } from '@/services/api';
@@ -98,6 +99,7 @@ export default function ImagesScreen() {
   const lastHistoryRequestAtRef = useRef(0);
   const historyRateLimitUntilRef = useRef(0);
   const lastHistoryErrorLogAtRef = useRef(0);
+  const artifactImageUrlsCacheRef = useRef<{ urls: Set<string>; fetchedAt: number } | null>(null);
   const [images, setImages] = useState<ImageHistoryItem[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -200,6 +202,53 @@ export default function ImagesScreen() {
     return `${backendOrigin}/${rawUrl}`;
   }, [backendOrigin]);
 
+  const normalizeComparableUrl = useCallback((rawUrl?: string | null) => {
+    if (!rawUrl) return null;
+    const resolved = resolveBackendAssetUrl(rawUrl);
+    if (!resolved) return null;
+    try {
+      const parsed = new URL(resolved);
+      parsed.hash = '';
+      parsed.search = '';
+      return parsed.toString().replace(/\/$/, '');
+    } catch {
+      return resolved.replace(/[?#].*$/, '').replace(/\/$/, '');
+    }
+  }, [resolveBackendAssetUrl]);
+
+  const getArtifactImageUrlSet = useCallback(async () => {
+    const cached = artifactImageUrlsCacheRef.current;
+    const now = Date.now();
+    if (cached && now - cached.fetchedAt < 60_000) {
+      return cached.urls;
+    }
+
+    const urls = new Set<string>();
+    let page = 1;
+    let pages = 1;
+    do {
+      const payload = await getArtifactsPage({ page, limit: 100 });
+      for (const artifact of payload.artifacts) {
+        const mime = (artifact.mimeType ?? '').toLowerCase();
+        const fileName = (artifact.fileName ?? '').toLowerCase();
+        const isImage = mime.startsWith('image/')
+          || fileName.endsWith('.png')
+          || fileName.endsWith('.jpg')
+          || fileName.endsWith('.jpeg')
+          || fileName.endsWith('.gif')
+          || fileName.endsWith('.webp');
+        if (!isImage) continue;
+        const normalized = normalizeComparableUrl(artifact.url ?? artifact.downloadUrl);
+        if (normalized) urls.add(normalized);
+      }
+      pages = payload.pagination.pages;
+      page += 1;
+    } while (page <= pages && page <= 10);
+
+    artifactImageUrlsCacheRef.current = { urls, fetchedAt: now };
+    return urls;
+  }, [normalizeComparableUrl]);
+
   const loadPage = useCallback(async (page: number, mode: 'replace' | 'append') => {
     if (isLoadingPageRef.current) return;
     if (mode === 'append' && !hasNextPageRef.current) return;
@@ -223,9 +272,17 @@ export default function ImagesScreen() {
         limit: PAGE_SIZE,
         sort: 'newest',
       });
+      const artifactImageUrls = await getArtifactImageUrlSet().catch(() => new Set<string>());
+      const filteredImages = payload.images.filter((item) => {
+        const normalizedImageUrl = normalizeComparableUrl(item.imageUrl);
+        const normalizedDownloadUrl = normalizeComparableUrl(item.downloadUrl);
+        if (normalizedImageUrl && artifactImageUrls.has(normalizedImageUrl)) return false;
+        if (normalizedDownloadUrl && artifactImageUrls.has(normalizedDownloadUrl)) return false;
+        return true;
+      });
 
       setImages((prev) => {
-        const source = mode === 'replace' ? payload.images : [...prev, ...payload.images];
+        const source = mode === 'replace' ? filteredImages : [...prev, ...filteredImages];
         const deduped = new Map<string, ImageHistoryItem>();
         source.forEach((item) => deduped.set(item.id, item));
         return Array.from(deduped.values());

@@ -217,14 +217,6 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
     model: dto.aiModel ?? 'gpt-4o-mini',
     updatedAt: dto.updatedAt,
     messages: (dto.messages ?? []).map((message) => {
-      const firstImageAttachment = message.attachments?.find((attachment) =>
-        (attachment.mimeType ?? '').startsWith('image/')
-        || attachment.fileType === 'image',
-      );
-      const firstVideoAttachment = message.attachments?.find((attachment) =>
-        (attachment.mimeType ?? '').startsWith('video/')
-        || attachment.fileType === 'video',
-      );
       return {
         id: message._id,
         role: message.role,
@@ -243,12 +235,6 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
           url: attachment.url,
           thumbnailUrl: attachment.thumbnailUrl,
         })),
-        imageUrl: firstImageAttachment?.thumbnailUrl ?? firstImageAttachment?.url,
-        imagePrompt: firstImageAttachment ? message.content : undefined,
-        imageId: firstImageAttachment?._id ?? undefined,
-        videoUrl: firstVideoAttachment?.url,
-        videoPrompt: firstVideoAttachment ? message.content : undefined,
-        videoId: firstVideoAttachment?._id ?? undefined,
         reference: message.reference?.kind && message.reference?.url
           ? {
               kind: message.reference.kind,
