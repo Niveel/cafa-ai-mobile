@@ -42,7 +42,7 @@ export function ImageGenerationPlaceholder({
       }}
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Generating image preview"
+      accessibilityLabel="Cafa AI is generating image preview"
     >
       <Animated.View
         style={[
@@ -74,4 +74,3 @@ export function ImageGenerationPlaceholder({
     </View>
   );
 }
-

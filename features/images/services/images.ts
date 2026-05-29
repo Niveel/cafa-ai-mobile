@@ -3,16 +3,34 @@ import { AxiosResponse } from 'axios';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { GenerateImageRequest, ImageHistoryItem, ImageHistoryPage, ImageHistoryQuery } from '@/types';
+import { ApiResponse, GenerateImageRequest, ImageHistoryItem, ImageHistoryPage, ImageHistoryQuery } from '@/types';
 
 export async function generateImage(request: GenerateImageRequest) {
   captureEvent(AnalyticsEvents.imageGenerationStarted, {
     hasPrompt: Boolean((request as { prompt?: string }).prompt?.trim()),
   });
   try {
-    const response: AxiosResponse<{ data: ImageHistoryItem }> = await apiClient.post(apiEndpoints.images.generate, request);
-    captureEvent(AnalyticsEvents.imageGenerationCompleted, { imageId: (response.data.data as { id?: string })?.id ?? null });
-    return response.data.data;
+    const response: AxiosResponse<ApiResponse<ImageHistoryItem> & { error?: string; code?: string }> =
+      await apiClient.post(apiEndpoints.images.generate, request);
+    const payload = response.data;
+    const generated = payload?.data;
+
+    if (payload?.success === false || !generated) {
+      const mapped = new Error(payload?.message ?? 'Image generation failed.') as Error & { code?: string; status?: number };
+      mapped.code = payload?.code ?? payload?.error;
+      mapped.status = response.status;
+      throw mapped;
+    }
+
+    if (!generated.imageUrl) {
+      const mapped = new Error(payload?.message ?? 'Could not generate image right now.') as Error & { code?: string; status?: number };
+      mapped.code = payload?.code ?? payload?.error;
+      mapped.status = response.status;
+      throw mapped;
+    }
+
+    captureEvent(AnalyticsEvents.imageGenerationCompleted, { imageId: (generated as { id?: string })?.id ?? null });
+    return generated;
   } catch (error) {
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
     captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null });

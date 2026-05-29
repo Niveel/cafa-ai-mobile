@@ -108,13 +108,14 @@ export function extractImagePrompt(prompt: string) {
 
   const imageNouns = '(?:image|picture|photo|illustration|artwork|render(?:ing)?|visual|wallpaper|poster)';
   const generationVerbs = '(?:generate|create|make|draw|design|produce|craft|render)';
+  const descriptorWords = '(?:(?:[a-z0-9-]+\\s+){0,3})';
   const politePrefix = '(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you\\s+)?';
 
   const patterns = [
-    new RegExp(`^${politePrefix}${generationVerbs}\\s+(?:(?:me|us)\\s+)?(?:(?:an?|the)\\s+)?${imageNouns}\\s*(?:of|for|showing|that\\s+shows)?\\s+(.+)$`, 'i'),
+    new RegExp(`^${politePrefix}${generationVerbs}\\s+(?:(?:me|us)\\s+)?(?:(?:an?|the)\\s+)?${descriptorWords}${imageNouns}\\s*(?:of|for|showing|that\\s+shows)?\\s+(.+)$`, 'i'),
     new RegExp(`^${politePrefix}(?:draw|render|illustrate|sketch)\\s+(.+)$`, 'i'),
-    new RegExp(`^${politePrefix}(?:give\\s+me|show\\s+me|i\\s+want|i\\s+need|can\\s+i\\s+get|could\\s+i\\s+get)\\s+(?:(?:an?|the)\\s+)?${imageNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
-    new RegExp(`^(?:(?:an?|the)\\s+)?${imageNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
+    new RegExp(`^${politePrefix}(?:give\\s+me|show\\s+me|i\\s+want|i\\s+need|can\\s+i\\s+get|could\\s+i\\s+get)\\s+(?:(?:an?|the)\\s+)?${descriptorWords}${imageNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
+    new RegExp(`^(?:(?:an?|the)\\s+)?${descriptorWords}${imageNouns}\\s*(?:of|for|showing)?\\s+(.+)$`, 'i'),
     new RegExp(`^${politePrefix}(?:turn|convert|make)\\s+(?:this|that|it)\\s+(?:into|as)\\s+(?:(?:an?|the)\\s+)?${imageNouns}\\s*:?\\s+(.+)$`, 'i'),
   ];
 
@@ -141,6 +142,7 @@ export function isLikelyImageGenerationIntent(value: string) {
 
   const hasImageNoun =
     /\b(image|picture|photo|illustration|artwork|render|rendering|visual|wallpaper|poster|chart|graph|diagram|infographic)\b/.test(normalized);
+  const hasGenerationVerb = /\b(generate|create|make|draw|design|produce|craft|render|illustrate|sketch)\b/.test(normalized);
   const hasQuestionLead = /^(what|why|how|when|where|who|which|can you|could you|would you|is|are|do|does|did)\b/.test(normalized);
   const startsLikeCreativePrompt =
     /^(a|an|the)\s+/.test(normalized)
@@ -148,7 +150,7 @@ export function isLikelyImageGenerationIntent(value: string) {
     || /^(graph|diagram|infographic)\b/.test(normalized);
 
   if (hasQuestionLead) return false;
-  return hasImageNoun && startsLikeCreativePrompt;
+  return hasImageNoun && (hasGenerationVerb || startsLikeCreativePrompt);
 }
 
 export function extractVideoPrompt(prompt: string) {

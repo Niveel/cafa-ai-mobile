@@ -43,7 +43,7 @@ export function VideoGenerationPlaceholder({
       }}
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Generating video preview"
+      accessibilityLabel="Cafa AI is generating video preview"
     >
       <Animated.View
         style={[
@@ -77,4 +77,3 @@ export function VideoGenerationPlaceholder({
     </View>
   );
 }
-

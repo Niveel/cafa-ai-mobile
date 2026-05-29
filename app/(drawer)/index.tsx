@@ -690,6 +690,50 @@ export default function ChatScreen() {
       }
     }
 
+    const normalizedAttachments = (message.attachments ?? []).map((attachment) => ({
+      ...attachment,
+      url: resolveBackendAssetUrl(attachment.url) ?? attachment.url,
+      thumbnailUrl: resolveBackendAssetUrl(attachment.thumbnailUrl) ?? attachment.thumbnailUrl,
+    }));
+
+    const normalizedImageUrl = resolveBackendAssetUrl(message.imageUrl) ?? undefined;
+    const normalizedVideoUrl = resolveBackendAssetUrl(message.videoUrl) ?? undefined;
+    const fallbackImageAttachment = normalizedAttachments.find((attachment) => {
+      const fileType = (attachment.fileType ?? '').toLowerCase();
+      const mime = (attachment.mimeType ?? '').toLowerCase();
+      const name = (attachment.originalName ?? '').toLowerCase();
+      return (
+        fileType === 'image'
+        || mime.startsWith('image/')
+        || name.endsWith('.png')
+        || name.endsWith('.jpg')
+        || name.endsWith('.jpeg')
+        || name.endsWith('.webp')
+        || name.endsWith('.gif')
+      );
+    });
+    const fallbackVideoAttachment = normalizedAttachments.find((attachment) => {
+      const fileType = (attachment.fileType ?? '').toLowerCase();
+      const mime = (attachment.mimeType ?? '').toLowerCase();
+      const name = (attachment.originalName ?? '').toLowerCase();
+      return (
+        fileType === 'video'
+        || mime.startsWith('video/')
+        || name.endsWith('.mp4')
+        || name.endsWith('.mov')
+        || name.endsWith('.webm')
+      );
+    });
+
+    const effectiveImageUrl = normalizedImageUrl
+      ?? fallbackImageAttachment?.url
+      ?? fallbackImageAttachment?.thumbnailUrl
+      ?? undefined;
+    const effectiveVideoUrl = normalizedVideoUrl
+      ?? fallbackVideoAttachment?.url
+      ?? fallbackVideoAttachment?.thumbnailUrl
+      ?? undefined;
+
     return {
       id: message.id,
       role,
@@ -697,15 +741,11 @@ export default function ChatScreen() {
       createdAt: createdAtMs,
       referencedMedia,
       tokens: message.tokens,
-      attachments: (message.attachments ?? []).map((attachment) => ({
-        ...attachment,
-        url: resolveBackendAssetUrl(attachment.url) ?? attachment.url,
-        thumbnailUrl: resolveBackendAssetUrl(attachment.thumbnailUrl) ?? attachment.thumbnailUrl,
-      })),
-      imageUrl: resolveBackendAssetUrl(message.imageUrl) ?? undefined,
+      attachments: normalizedAttachments,
+      imageUrl: effectiveImageUrl,
       imagePrompt: message.imagePrompt,
       imageId: message.imageId,
-      videoUrl: resolveBackendAssetUrl(message.videoUrl) ?? undefined,
+      videoUrl: effectiveVideoUrl,
       videoPrompt: message.videoPrompt,
       videoId: message.videoId,
     };
@@ -2335,7 +2375,7 @@ export default function ChatScreen() {
           });
           const resolvedImageUrl = resolveBackendAssetUrl(generated.imageUrl);
           if (!resolvedImageUrl) {
-            throw new Error('Image generated but no image URL was returned.');
+            throw new Error('Could not generate image right now.');
           }
           try {
             const detail = await getAuthenticatedConversation(conversationId, { force: true });
