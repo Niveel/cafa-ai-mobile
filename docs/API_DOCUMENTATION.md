@@ -257,7 +257,7 @@ Validation errors include an additional `errors` array:
 | `USER_NOT_FOUND` | 404 | No account found with the given email |
 | `EMAIL_EXISTS` | 409 | Registration attempted with an already-used email |
 | `DUPLICATE_KEY` | 409 | Database unique constraint violation |
-| `DAILY_LIMIT_EXCEEDED` | 429 | Daily chat or image quota exhausted |
+| `DAILY_LIMIT_EXCEEDED` | 429 | Monthly chat or image quota exhausted |
 | `MISSING_SIGNATURE` | 400 | Stripe webhook `stripe-signature` header missing |
 | `INVALID_TARGET` | 400 | Reaction applied to a non-assistant message |
 | `MISSING_FILE` | 400 | Audio file not attached to transcription request |
@@ -966,7 +966,7 @@ Generates an image using fal.ai. The model used is determined by the subscriptio
 |------|------|--------|
 | `VALIDATION_ERROR` | 400 | Invalid fields |
 | `UPGRADE_REQUIRED` | 403 | Free tier user |
-| `DAILY_LIMIT_EXCEEDED` | 429 | Daily image quota reached |
+| `DAILY_LIMIT_EXCEEDED` | 429 | Monthly image quota reached |
 
 ---
 
@@ -1661,4 +1661,5 @@ Returns the full list of available TTS voices with metadata.
 | `RATE_LIMIT_WINDOW_MS` | No | `900000` | Rate limit window (ms) |
 | `RATE_LIMIT_MAX` | No | `100` | Max requests per window |
 | `VOICE_SERVICE_URL` | No | `http://voice-service:3002` | Internal URL of the voice microservice |
+
 
