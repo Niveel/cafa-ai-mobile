@@ -22,7 +22,7 @@ export const TERMS_OF_SERVICE_DOCUMENT: LegalDocument = {
       paragraphs: [
         'Minimum age. You must be at least 13 years old, or the minimum age required in your country to consent to use digital services. If you are under 18, you must have a parent or legal guardian\'s permission to use the Service.',
         'Account registration. You must provide accurate, current, and complete information when creating an account. You are solely responsible for all activity that occurs under your account, and you agree not to share your login credentials or grant access to your account to any other person.',
-        'Guest access. The Service may allow limited access without an account. Guest usage is subject to daily limits and reduced feature availability, and may be modified or discontinued at any time.',
+        'Guest access. The Service may allow limited access without an account. Guest usage is subject to monthly limits and reduced feature availability, and may be modified or discontinued at any time.',
       ],
     },
     {
@@ -192,4 +192,5 @@ export const TERMS_OF_SERVICE_DOCUMENT: LegalDocument = {
     },
   ],
 };
+
 

@@ -190,7 +190,7 @@ Even if frontend sends higher duration, backend clamps to plan max.
 ## 9) Error Handling
 
 Common errors:
-- `429 DAILY_LIMIT_EXCEEDED` -> daily video cap reached
+- `429 DAILY_LIMIT_EXCEEDED` -> monthly video cap reached
 - `403 UPGRADE_REQUIRED` -> video feature unavailable for plan
 - `403 PLAN_LIMIT_EXCEEDED` -> too many videos requested in ZIP
 - `500/502` -> provider/downstream failure
@@ -215,3 +215,4 @@ Error shape:
 7. Add "Download selected" + "Download all" ZIP action (`/videos/download-zip`).
 8. If ZIP returns `202`, poll `pollUrl` until `200`.
 9. Show plan video usage/limits from subscription endpoints in UI.
+

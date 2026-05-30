@@ -827,7 +827,7 @@ data: {"type":"done","tokens":142,"messageId":"665f1b0000000000000000b2"}
 | `MESSAGE_TOO_LONG` | 400 | Message text exceeds 10 000 chars |
 | `UPGRADE_REQUIRED` | 403 | Document uploaded on Smart/Free tier |
 | `NOT_FOUND` | 404 | Conversation not found |
-| `DAILY_LIMIT_EXCEEDED` | 429 | Daily chat limit reached |
+| `DAILY_LIMIT_EXCEEDED` | 429 | Monthly chat limit reached |
 
 If a streaming error occurs after the SSE connection is open, it is sent as:
 ```
@@ -1661,3 +1661,4 @@ Returns the full list of available TTS voices with metadata.
 | `RATE_LIMIT_WINDOW_MS` | No | `900000` | Rate limit window (ms) |
 | `RATE_LIMIT_MAX` | No | `100` | Max requests per window |
 | `VOICE_SERVICE_URL` | No | `http://voice-service:3002` | Internal URL of the voice microservice |
+

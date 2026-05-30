@@ -71,7 +71,7 @@ Removes an image record from user history.
 
 ## 5) Plan and Limits (Enforced by Backend)
 
-Current daily image limits:
+Current Monthly image limits:
 - `free`: 5/day
 - `cafa_smart`: 10/day
 - `cafa_pro`: 30/day
@@ -89,7 +89,7 @@ Example error envelope:
 {
   "success": false,
   "error": "DAILY_LIMIT_EXCEEDED",
-  "message": "Daily image limit of 5 reached. Resets in 7 hour(s)."
+  "message": "Monthly image limit of 5 reached. Resets in 7 hour(s)."
 }
 ```
 
@@ -154,3 +154,4 @@ export async function generateImage(token: string, payload: GenerateImagePayload
 - History page loads from `/images/history`
 - Image cards render `imageUrl` and metadata
 - Delete action uses `/images/:id`
+

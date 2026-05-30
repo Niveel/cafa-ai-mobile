@@ -283,7 +283,7 @@ Status: `200`
 }
 ```
 
-### Rate limit reached (`guest daily limit`)
+### Rate limit reached (`guest monthly limit`)
 Status: `429`
 ```json
 {
@@ -444,4 +444,5 @@ Optional for `POST /guest/chat/:id/messages`:
 2. `delta`: `{ type, content, requestId, timestamp }`
 3. `done`: `{ type, tokens, messageId, requestId, timestamp }`
 4. `error`: `{ type, code?, message, requestId, timestamp }`
+
 

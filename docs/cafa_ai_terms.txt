@@ -34,7 +34,7 @@ activity that occurs under your account, and you agree not to share your login
 credentials or grant access to your account to any other person.
 
 Guest access. The Service may allow limited access without an account. Guest
-usage is subject to daily limits and reduced feature availability, and may be
+usage is subject to monthly limits and reduced feature availability, and may be
 modified or discontinued at any time.
 
 --------------------------------------------------------------------------------
@@ -275,3 +275,4 @@ the Help page contact form in the app. We are happy to help.
 ================================================================================
 © Cafa AI. All rights reserved.
 ================================================================================
+
