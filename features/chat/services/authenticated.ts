@@ -148,6 +148,7 @@ type AuthStreamTransportError = Error & { code?: string };
 type AuthNonStreamChatResponse = ApiResponse<{
   id?: string;
   prompt?: string;
+  recoveredText?: string;
   model?: string;
   imageUrl?: string;
   videoUrl?: string;
@@ -356,6 +357,25 @@ function extractSseErrorMessageFromText(raw: string): string | null {
     }
   }
   return null;
+}
+
+function extractSseDeltaTextFromRaw(raw: string): string {
+  if (!raw || !raw.includes('data:')) return '';
+  const chunks = raw.split(/\r?\n\r?\n/);
+  let content = '';
+  for (const chunk of chunks) {
+    const parsed = chunk.trim();
+    if (!parsed) continue;
+    try {
+      const event = parseSseChunk(parsed);
+      if (event?.type === 'delta') {
+        content += event.content;
+      }
+    } catch {
+      // Ignore malformed chunks and continue.
+    }
+  }
+  return content.trim();
 }
 
 function mapReplayArtifactsToAttachments(
@@ -611,7 +631,18 @@ export async function sendAuthenticatedMessageStream(
   }
 
   const endpoint = `${API_BASE_URL}${apiEndpoints.chat.messages(conversationId)}`;
+  const sendStartedAt = Date.now();
   let devStreamResponseText = '';
+  let pendingServerStreamError: AuthStreamTransportError | null = null;
+  const streamState: {
+    receivedDone: boolean;
+    receivedDeltaChars: number;
+    lastAssistantMessageId?: string;
+    lastRequestId?: string;
+  } = {
+    receivedDone: false,
+    receivedDeltaChars: 0,
+  };
   const selectedModelId =
     selectedModel === 'ultra' ? 'cafa_ultra' : selectedModel === 'smart' ? 'cafa_smart' : 'cafa_swift';
   const idempotencyKey = createIdempotencyKey();
@@ -652,10 +683,29 @@ export async function sendAuthenticatedMessageStream(
     event: AuthChatStreamEvent,
     transport: 'xhr' | 'fetch-web' | 'fallback-json',
   ) => {
+    if (event.type === 'meta') {
+      if (event.messageId) {
+        streamState.lastAssistantMessageId = event.messageId;
+      }
+      if (event.requestId) {
+        streamState.lastRequestId = event.requestId;
+      }
+    }
     if (event.type === 'delta') {
       devStreamResponseText += event.content;
+      streamState.receivedDeltaChars += event.content.length;
+      if (event.requestId) {
+        streamState.lastRequestId = event.requestId;
+      }
     }
     if (event.type === 'done') {
+      streamState.receivedDone = true;
+      if (event.messageId) {
+        streamState.lastAssistantMessageId = event.messageId;
+      }
+      if (event.requestId) {
+        streamState.lastRequestId = event.requestId;
+      }
       logDevRawChatResponse('auth-stream-final', {
         responseText: devStreamResponseText,
         done: event,
@@ -668,6 +718,55 @@ export async function sendAuthenticatedMessageStream(
     if (event.type === 'done') {
       logDevRawStreamEvent('auth-stream-event', event, { transport });
     }
+  };
+
+  const recoverFromPersistedAssistant = async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const detail = await getAuthenticatedConversation(conversationId, { force: true });
+      const byId = streamState.lastAssistantMessageId
+        ? detail.messages.find((item) => item.id === streamState.lastAssistantMessageId && item.role === 'assistant')
+        : null;
+      const byRecency = [...detail.messages]
+        .reverse()
+        .find((item) => (
+          item.role === 'assistant'
+          && item.content.trim().length > 0
+          && new Date(item.createdAt).getTime() >= sendStartedAt - 2500
+        ));
+      const target = byId?.content?.trim() ? byId : byRecency;
+      if (target?.content?.trim()) {
+        emitStreamEvent(
+          {
+            type: 'meta',
+            model: detail.model,
+            messageId: target.id,
+            requestId: streamState.lastRequestId,
+          },
+          'fallback-json',
+        );
+        emitStreamEvent(
+          {
+            type: 'delta',
+            content: target.content,
+            requestId: streamState.lastRequestId,
+          },
+          'fallback-json',
+        );
+        emitStreamEvent(
+          {
+            type: 'done',
+            messageId: target.id,
+            requestId: streamState.lastRequestId,
+            tokens: target.tokens,
+            attachments: target.attachments,
+          },
+          'fallback-json',
+        );
+        return true;
+      }
+      await sleep(180 * (attempt + 1));
+    }
+    return false;
   };
 
   const emitFromReplay = async (payload: AuthReplayResponse['data']) => {
@@ -833,13 +932,15 @@ export async function sendAuthenticatedMessageStream(
             );
             emitStreamEvent(event, 'xhr');
             if (event.type === 'error') {
-              rejectOnce(
-                createAuthStreamTransportError(
-                  event.message || 'Authenticated stream failed.',
-                  'AUTH_STREAM_ACTIVE_SERVER_ERROR',
-                ),
+              if (streamState.receivedDone) {
+                // Some native transports can surface a late error after terminal done.
+                // Ignore it because the completion event has already been emitted.
+                return;
+              }
+              pendingServerStreamError = createAuthStreamTransportError(
+                event.message || 'Authenticated stream failed.',
+                'AUTH_STREAM_ACTIVE_SERVER_ERROR',
               );
-              return;
             }
           } catch {
             authStreamLog('xhr:event-parse-skip');
@@ -941,18 +1042,21 @@ export async function sendAuthenticatedMessageStream(
               );
               emitStreamEvent(event, 'xhr');
               if (event.type === 'error') {
-                rejectOnce(
-                  createAuthStreamTransportError(
+                if (!streamState.receivedDone) {
+                  pendingServerStreamError = createAuthStreamTransportError(
                     event.message || 'Authenticated stream failed.',
                     'AUTH_STREAM_ACTIVE_SERVER_ERROR',
-                  ),
-                );
-                return;
+                  );
+                }
               }
             }
           } catch {
             // ignore trailing parse noise
           }
+        }
+        if (pendingServerStreamError && !streamState.receivedDone) {
+          rejectOnce(pendingServerStreamError);
+          return;
         }
         resolveOnce();
       };
@@ -1045,7 +1149,12 @@ export async function sendAuthenticatedMessageStream(
         );
         emitStreamEvent(event, transportLabel);
         if (event.type === 'error') {
-          throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
+          if (!streamState.receivedDone) {
+            pendingServerStreamError = createAuthStreamTransportError(
+              event.message || 'Authenticated stream failed.',
+              'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+            );
+          }
         }
       }
     }
@@ -1058,12 +1167,21 @@ export async function sendAuthenticatedMessageStream(
           if (!event) continue;
           emitStreamEvent(event, transportLabel);
           if (event.type === 'error') {
-            throw createAuthStreamTransportError(event.message || 'Authenticated stream failed.', 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
+            if (!streamState.receivedDone) {
+              pendingServerStreamError = createAuthStreamTransportError(
+                event.message || 'Authenticated stream failed.',
+                'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+              );
+            }
           }
         }
       } catch {
         // ignore trailing parse noise
       }
+    }
+
+    if (pendingServerStreamError && !streamState.receivedDone) {
+      throw pendingServerStreamError;
     }
   };
 
@@ -1078,6 +1196,19 @@ export async function sendAuthenticatedMessageStream(
         code === 'AUTH_STREAM_DROPPED_AFTER_START'
         || code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';
       if (shouldAvoidReplayPost) {
+        if (streamState.receivedDone) {
+          onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'xhr' });
+          return;
+        }
+        try {
+          const recovered = await recoverFromPersistedAssistant();
+          if (recovered) {
+            onDebug?.({ stage: 'done', endpoint, idempotencyKey, transport: 'fallback-json' });
+            return;
+          }
+        } catch {
+          // Fall through to the original error.
+        }
         authStreamLog('native:xhr-failed-no-replay-post');
         onDebug?.({
           stage: 'error',
@@ -1175,8 +1306,30 @@ export async function sendAuthenticatedMessageNonStream(
       },
     );
     logDevRawChatResponse('auth-non-stream', response.data);
-    if (typeof response.data === 'string') {
-      const sseErrorMessage = extractSseErrorMessageFromText(response.data);
+    const responseDataAny = response.data as unknown as { payload?: unknown; data?: unknown; message?: string; success?: boolean } | string;
+    const possibleRawSsePayload =
+      typeof responseDataAny === 'string'
+        ? responseDataAny
+        : typeof responseDataAny?.payload === 'string'
+          ? responseDataAny.payload
+          : typeof responseDataAny?.data === 'string'
+            ? responseDataAny.data
+            : null;
+
+    if (possibleRawSsePayload) {
+      const recoveredDeltaText = extractSseDeltaTextFromRaw(possibleRawSsePayload);
+      if (recoveredDeltaText) {
+        // Some backends may still stream SSE even when non-stream was expected.
+        // Treat partial/full delta content as a recoverable success signal.
+        return {
+          success: true,
+          message: 'Recovered non-stream response from SSE payload.',
+          data: {
+            recoveredText: recoveredDeltaText,
+          },
+        };
+      }
+      const sseErrorMessage = extractSseErrorMessageFromText(possibleRawSsePayload);
       if (sseErrorMessage) {
         throw createAuthStreamTransportError(sseErrorMessage, 'AUTH_STREAM_ACTIVE_SERVER_ERROR');
       }

@@ -1898,6 +1898,19 @@ export default function ChatScreen() {
     return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
   }, []);
 
+  const isLikelyLookupOrShoppingPrompt = useCallback((value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    const asksToSearch = /\b(search|look up|find online|browse|google)\b/.test(normalized);
+    const shoppingIntent =
+      /\b(buy|purchase|shop|where can i get|where to get|available in|available at|in stock|price|cost)\b/.test(normalized);
+    const locationHint =
+      /\b(in|at|from)\s+[a-z][a-z\s]{1,40}\b/.test(normalized)
+      || /\bghana\b/.test(normalized);
+    const listIntent = /\b(\d+|ten|top)\b/.test(normalized);
+    return asksToSearch || (shoppingIntent && (locationHint || listIntent));
+  }, []);
+
   const handleSend = () => {
     const run = async () => {
       const trimmed = inputValueRef.current.trim();
@@ -1930,9 +1943,9 @@ export default function ChatScreen() {
       let requestedVideoConversationId = '';
       let requestedVideoStartedAt = 0;
       let didMutateChats = false;
-      const sendStartedAt = Date.now();
       let responseLogEmitted = false;
       let assistantResponseBuffer = '';
+      let shouldRetryReconcileAfterRecoveredSse = false;
       const logParsedResponseForAttempt = (raw: string) => {
         if (responseLogEmitted) return;
         const parsedText = raw.trim();
@@ -1955,6 +1968,7 @@ export default function ChatScreen() {
           thumbnailUrl: asset.uri,
         })),
       };
+      const responseRecoveryStartAt = userMessage.createdAt - 1000;
       if (composerMediaReference) {
         pendingReferencedUserMessagesRef.current.push({
           sentAt: userMessage.createdAt,
@@ -2402,13 +2416,17 @@ export default function ChatScreen() {
         }
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
+        const authSendMode = Platform.OS !== 'web' ? 'auth-non-stream-chat-mobile' : 'auth-stream-chat';
+        const isSearchOnlinePrompt = isLikelyLookupOrShoppingPrompt(trimmed);
+        const mobileAuthModelForTextChat: 'ultra' | 'smart' | 'swift' =
+          Platform.OS !== 'web' && activeModel === 'smart' && isSearchOnlinePrompt ? 'ultra' : activeModel;
         logSendPayload({
           endpoint: lastEndpoint,
-          mode: 'auth-stream-chat',
+          mode: authSendMode,
           conversationId,
           message: trimmed,
           language,
-          model: activeModel,
+          model: mobileAuthModelForTextChat,
           reference: composerMediaReference ?? null,
           attachments: attachmentsForSend.map((asset) => ({
             id: asset.id,
@@ -2418,95 +2436,146 @@ export default function ChatScreen() {
             uri: asset.uri,
           })),
         });
-        await sendAuthenticatedMessageStream(
-          conversationId,
-          trimmed,
-          attachmentsForSend,
-          (event) => {
-            if (event.type === 'meta') {
-              setStreamingModelLabel(
-                resolveModelBadgeLabel(event.model, activeModel),
-              );
-              if (event.messageId) {
-                const previousAssistantId = activeAssistantId;
-                activeAssistantId = event.messageId;
-                pendingAssistantIdRef.current = event.messageId;
-                setMessages((prev) =>
-                  prev.map((message) =>
-                    message.id === previousAssistantId ? { ...message, id: event.messageId! } : message,
-                  ),
+        if (Platform.OS !== 'web') {
+          const nonStreamResponse = await sendAuthenticatedMessageNonStream(
+            conversationId,
+            trimmed,
+            mobileAuthModelForTextChat,
+            composerMediaReference ?? undefined,
+            attachmentsForSend,
+          );
+          const recoveredText = nonStreamResponse.data?.recoveredText?.trim();
+          if (recoveredText) {
+            assistantResponseBuffer = recoveredText;
+            shouldRetryReconcileAfterRecoveredSse = true;
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      content: recoveredText,
+                      isImageGenerating: false,
+                      isVideoGenerating: false,
+                      isArtifactGenerating: false,
+                    }
+                  : message,
+              ),
+            );
+          }
+        } else {
+          await sendAuthenticatedMessageStream(
+            conversationId,
+            trimmed,
+            attachmentsForSend,
+            (event) => {
+              if (event.type === 'meta') {
+                setStreamingModelLabel(
+                  resolveModelBadgeLabel(event.model, activeModel),
                 );
-              }
-              return;
-            }
-
-            if (event.type === 'delta') {
-              if (!assistantFirstDeltaRef.current) {
-                assistantFirstDeltaRef.current = true;
-                hapticSelection();
-              }
-              assistantResponseBuffer += event.content;
-              if (!suppressStreamingTextForArtifact) {
-                queueAssistantDelta(activeAssistantId, event.content);
-              }
-              return;
-            }
-
-            if (event.type === 'done') {
-              if (!suppressStreamingTextForArtifact) {
-                flushPendingAssistantDelta();
-              }
-              hapticSuccess();
-              setStreamingModelLabel(null);
-              logParsedResponseForAttempt(assistantResponseBuffer);
-              const streamedAttachments = event.attachments ?? [];
-              if (event.messageId) {
-                const previousAssistantId = activeAssistantId;
-                activeAssistantId = event.messageId;
-                setMessages((prev) =>
-                  prev.map((message) =>
-                    message.id === previousAssistantId
-                      ? {
-                        ...message,
-                        id: event.messageId!,
-                        tokens: event.tokens,
-                        attachments: streamedAttachments.length ? streamedAttachments : message.attachments,
-                      }
-                      : message,
-                  ),
-                );
-                void syncAssistantMessageAfterStream(
-                  conversationId,
-                  event.messageId,
-                  previousAssistantId,
-                  streamedAttachments,
-                );
+                if (event.messageId) {
+                  const previousAssistantId = activeAssistantId;
+                  activeAssistantId = event.messageId;
+                  pendingAssistantIdRef.current = event.messageId;
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === previousAssistantId ? { ...message, id: event.messageId! } : message,
+                    ),
+                  );
+                }
                 return;
               }
-              if (streamedAttachments.length) {
-                setMessages((prev) =>
-                  prev.map((message) =>
-                    message.id === activeAssistantId
-                      ? { ...message, attachments: streamedAttachments }
-                      : message,
-                  ),
+
+              if (event.type === 'delta') {
+                if (!assistantFirstDeltaRef.current) {
+                  assistantFirstDeltaRef.current = true;
+                  hapticSelection();
+                }
+                assistantResponseBuffer += event.content;
+                if (!suppressStreamingTextForArtifact) {
+                  queueAssistantDelta(activeAssistantId, event.content);
+                }
+                return;
+              }
+
+              if (event.type === 'done') {
+                if (!suppressStreamingTextForArtifact) {
+                  flushPendingAssistantDelta();
+                }
+                hapticSuccess();
+                setStreamingModelLabel(null);
+                logParsedResponseForAttempt(assistantResponseBuffer);
+                const streamedAttachments = event.attachments ?? [];
+                if (event.messageId) {
+                  const previousAssistantId = activeAssistantId;
+                  activeAssistantId = event.messageId;
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === previousAssistantId
+                        ? {
+                          ...message,
+                          id: event.messageId!,
+                          tokens: event.tokens,
+                          attachments: streamedAttachments.length ? streamedAttachments : message.attachments,
+                        }
+                        : message,
+                    ),
+                  );
+                  void syncAssistantMessageAfterStream(
+                    conversationId,
+                    event.messageId,
+                    previousAssistantId,
+                    streamedAttachments,
+                  );
+                  return;
+                }
+                if (streamedAttachments.length) {
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === activeAssistantId
+                        ? { ...message, attachments: streamedAttachments }
+                        : message,
+                    ),
+                  );
+                }
+                void syncAssistantMessageAfterStream(
+                  conversationId,
+                  activeAssistantId,
+                  assistantId,
+                  streamedAttachments,
                 );
               }
-              void syncAssistantMessageAfterStream(
-                conversationId,
-                activeAssistantId,
-                assistantId,
-                streamedAttachments,
-              );
+            },
+            language,
+            activeModel,
+            (debugEvent) => {
+              lastIdempotencyKey = debugEvent.idempotencyKey;
+            },
+          );
+        }
+        try {
+          if (Platform.OS !== 'web' && shouldRetryReconcileAfterRecoveredSse) {
+            let reconciled = false;
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+              try {
+                await reconcileAuthConversationAfterSend(conversationId);
+                reconciled = true;
+                break;
+              } catch {
+                await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
+              }
             }
-          },
-          language,
-          activeModel,
-          (debugEvent) => {
-            lastIdempotencyKey = debugEvent.idempotencyKey;
-          },
-        );
-        await reconcileAuthConversationAfterSend(conversationId);
+            if (!reconciled && !assistantResponseBuffer.trim()) {
+              throw new Error('Could not sync conversation after response.');
+            }
+          } else {
+            await reconcileAuthConversationAfterSend(conversationId);
+          }
+        } catch {
+          if (!assistantResponseBuffer.trim()) {
+            throw new Error('Could not sync conversation after response.');
+          }
+          // Keep recovered text if sync fails.
+        }
         didMutateChats = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
@@ -2535,6 +2604,200 @@ export default function ChatScreen() {
             || message.toLowerCase().includes('too many video generation requests')
             || message.toLowerCase().includes('too many requests')
           );
+        const isAuthStreamActiveServerError =
+          isAuthenticated
+          && requestKind === 'chat'
+          && code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';
+        if (isAuthenticated && attachmentsForSend.length) {
+          setAttachedAssets(attachmentsForSend);
+        }
+        if (requestKind === 'video') {
+          videoGenerationInFlightRef.current = false;
+          videoFromImageInFlightRef.current = false;
+        }
+        if (usedVideoReferenceFollowUp && isLikelyTimeoutOrDisconnect && activeAuthConversationId) {
+          for (let recoveryAttempt = 1; recoveryAttempt <= 24; recoveryAttempt += 1) {
+            try {
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+              const detail = await getAuthenticatedConversation(activeAuthConversationId, { force: true });
+              const hasRecoveredVideo = detail.messages
+                .slice()
+                .reverse()
+                .some((item) => (
+                  item.role === 'assistant'
+                  && Boolean(item.videoUrl)
+                  && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+                ));
+              if (!hasRecoveredVideo) continue;
+              applyAuthConversationDetail(detail);
+              hapticSuccess();
+              didMutateChats = true;
+              return;
+            } catch {
+              // Continue recovery polling.
+            }
+          }
+        }
+        if (isAuthStreamActiveServerError && !activeAuthConversationId && !authConversationId) {
+          const buffered = assistantResponseBuffer.trim();
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    isImageGenerating: false,
+                    isVideoGenerating: false,
+                    isArtifactGenerating: false,
+                    content: buffered || 'Response was interrupted. Please tap send to retry.',
+                  }
+                : item,
+            ),
+          );
+          if (!buffered) {
+            showTransientNotice('Response was interrupted. Please retry.');
+          } else {
+            hapticSuccess();
+          }
+          didMutateChats = true;
+          return;
+        }
+        const recoveryConversationId = activeAuthConversationId ?? authConversationId;
+        if (
+          isAuthStreamActiveServerError
+          && recoveryConversationId
+        ) {
+          let fallbackResponseText = '';
+          try {
+            const fallbackResponse = await sendAuthenticatedMessageNonStream(
+              recoveryConversationId,
+              trimmed,
+              activeModel,
+              composerMediaReference ?? undefined,
+              attachmentsForSend,
+            );
+            fallbackResponseText = fallbackResponse.data?.recoveredText?.trim() ?? '';
+          } catch {
+            // Continue with best-effort recovery paths below.
+          }
+
+          if (fallbackResponseText) {
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      isImageGenerating: false,
+                      isVideoGenerating: false,
+                      isArtifactGenerating: false,
+                      content: fallbackResponseText,
+                    }
+                  : item,
+              ),
+            );
+            hapticSuccess();
+            didMutateChats = true;
+            void getAuthenticatedConversation(recoveryConversationId, { force: true })
+              .then((detail) => {
+                const recoveredAssistant = [...detail.messages]
+                  .reverse()
+                  .find((item) => (
+                    item.role === 'assistant'
+                    && item.content.trim().length > 0
+                    && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+                  ));
+                if (recoveredAssistant) {
+                  applyAuthConversationDetail(detail);
+                }
+              })
+              .catch(() => {
+                // Best-effort sync only; keep recovered text in-place.
+              });
+            return;
+          }
+
+          for (let recoveryAttempt = 1; recoveryAttempt <= 5; recoveryAttempt += 1) {
+            try {
+              if (recoveryAttempt > 1) {
+                await new Promise((resolve) => setTimeout(resolve, 240 * recoveryAttempt));
+              }
+              const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
+              const recoveredAssistant = [...detail.messages]
+                .reverse()
+                .find((item) => (
+                  item.role === 'assistant'
+                  && item.content.trim().length > 0
+                  && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+                ));
+              if (!recoveredAssistant) continue;
+              applyAuthConversationDetail(detail);
+              hapticSuccess();
+              didMutateChats = true;
+              return;
+            } catch {
+              // Keep trying.
+            }
+          }
+
+          if (assistantResponseBuffer.trim()) {
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      isImageGenerating: false,
+                      isVideoGenerating: false,
+                      isArtifactGenerating: false,
+                      content: assistantResponseBuffer.trim(),
+                    }
+                  : item,
+              ),
+            );
+            hapticSuccess();
+            didMutateChats = true;
+            return;
+          }
+
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    isImageGenerating: false,
+                    isVideoGenerating: false,
+                    isArtifactGenerating: false,
+                    content: 'Response was interrupted. Please tap send to retry.',
+                  }
+                : item,
+            ),
+          );
+          showTransientNotice('Response was interrupted. Please retry.');
+          didMutateChats = true;
+          return;
+        }
+        if (isAuthenticated && (isAuthStreamTransportError || isIdempotencyInProgress)) {
+          if (recoveryConversationId) {
+            for (let recoveryAttempt = 1; recoveryAttempt <= 8; recoveryAttempt += 1) {
+              try {
+                await new Promise((resolve) => setTimeout(resolve, 280 * recoveryAttempt));
+                const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
+                const recoveredAssistant = [...detail.messages]
+                  .reverse()
+                  .find((item) => (
+                    item.role === 'assistant'
+                    && item.content.trim().length > 0
+                    && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+                  ));
+                if (!recoveredAssistant) continue;
+                applyAuthConversationDetail(detail);
+                logParsedResponseForAttempt(recoveredAssistant.content);
+                didMutateChats = true;
+                return;
+              } catch {
+                // continue recovery retries
+              }
+            }
+          }
+        }
         try {
           console.log(
             '[chat-send:error]',
@@ -2562,85 +2825,6 @@ export default function ChatScreen() {
             message,
             rawErrorMessage,
           });
-        }
-        if (isAuthenticated && attachmentsForSend.length) {
-          setAttachedAssets(attachmentsForSend);
-        }
-        if (requestKind === 'video') {
-          videoGenerationInFlightRef.current = false;
-          videoFromImageInFlightRef.current = false;
-        }
-        if (usedVideoReferenceFollowUp && isLikelyTimeoutOrDisconnect && activeAuthConversationId) {
-          for (let recoveryAttempt = 1; recoveryAttempt <= 24; recoveryAttempt += 1) {
-            try {
-              await new Promise((resolve) => setTimeout(resolve, 5000));
-              const detail = await getAuthenticatedConversation(activeAuthConversationId, { force: true });
-              const hasRecoveredVideo = detail.messages
-                .slice()
-                .reverse()
-                .some((item) => (
-                  item.role === 'assistant'
-                  && Boolean(item.videoUrl)
-                  && new Date(item.createdAt).getTime() >= sendStartedAt - 5000
-                ));
-              if (!hasRecoveredVideo) continue;
-              applyAuthConversationDetail(detail);
-              hapticSuccess();
-              didMutateChats = true;
-              return;
-            } catch {
-              // Continue recovery polling.
-            }
-          }
-        }
-        if (
-          isAuthenticated
-          && requestKind === 'chat'
-          && code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR'
-          && attachmentsForSend.length > 0
-          && activeAuthConversationId
-        ) {
-          try {
-            await sendAuthenticatedMessageNonStream(
-              activeAuthConversationId,
-              trimmed,
-              activeModel,
-              composerMediaReference ?? undefined,
-              attachmentsForSend,
-            );
-            const detail = await getAuthenticatedConversation(activeAuthConversationId, { force: true });
-            applyAuthConversationDetail(detail);
-            hapticSuccess();
-            didMutateChats = true;
-            return;
-          } catch {
-            // Fall through to normal error handling.
-          }
-        }
-        if (isAuthenticated && (isAuthStreamTransportError || isIdempotencyInProgress)) {
-          const recoveryConversationId = activeAuthConversationId ?? authConversationId;
-          if (recoveryConversationId) {
-            for (let recoveryAttempt = 1; recoveryAttempt <= 8; recoveryAttempt += 1) {
-              try {
-                await new Promise((resolve) => setTimeout(resolve, 280 * recoveryAttempt));
-                const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
-                const recoveredAssistant = [...detail.messages]
-                  .reverse()
-                  .find((item) => (
-                    item.role === 'assistant'
-                    && item.content.trim().length > 0
-                    && new Date(item.createdAt).getTime() >= sendStartedAt - 2000
-                  ));
-                if (!recoveredAssistant) continue;
-                applyAuthConversationDetail(detail);
-                logParsedResponseForAttempt(recoveredAssistant.content);
-                didMutateChats = true;
-                return;
-              } catch {
-                // continue recovery retries
-              }
-            }
-          }
         }
         const idempotencyVisibleMessage = 'Your previous request is still processing. Please wait a moment and try again.';
         if (delayedVideoError) {
@@ -2691,6 +2875,28 @@ export default function ChatScreen() {
         const visibleErrorMessage = isIdempotencyInProgress
           ? idempotencyVisibleMessage
           : friendlyMessage;
+
+        if (
+          requestKind === 'chat'
+          && assistantResponseBuffer.trim().length > 0
+        ) {
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    isImageGenerating: false,
+                    isVideoGenerating: false,
+                    isArtifactGenerating: false,
+                    content: assistantResponseBuffer.trim(),
+                  }
+                : item,
+            ),
+          );
+          didMutateChats = true;
+          hapticSuccess();
+          return;
+        }
 
         if (!isLimitError) {
           showTransientNotice(visibleErrorMessage, isRateLimited ? 5000 : 3200);
@@ -3513,6 +3719,19 @@ export default function ChatScreen() {
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
     const newChatToken = typeof params.newChat === 'string' ? params.newChat.trim() : '';
+    const isHydratingActiveConversationWhileSending = Boolean(
+      isSending
+      && targetConversationId
+      && (
+        (isAuthenticated && authConversationId === targetConversationId)
+        || (!isAuthenticated && guestConversationId === targetConversationId)
+      ),
+    );
+
+    if (isHydratingActiveConversationWhileSending) {
+      return;
+    }
+
     if (initialNewChatTokenRef.current === null) {
       initialNewChatTokenRef.current = newChatToken || '';
     }
@@ -3584,7 +3803,18 @@ export default function ChatScreen() {
     };
 
     void hydrateTarget();
-  }, [applyDescriptiveAttachmentNames, createWelcomeMessage, isAuthenticated, mapAuthMessageToUiMessage, params.conversationId, params.newChat, rotateStarterPrompts]);
+  }, [
+    applyDescriptiveAttachmentNames,
+    authConversationId,
+    createWelcomeMessage,
+    guestConversationId,
+    isAuthenticated,
+    isSending,
+    mapAuthMessageToUiMessage,
+    params.conversationId,
+    params.newChat,
+    rotateStarterPrompts,
+  ]);
 
   useEffect(() => {
     if (isAuthenticated) return;
