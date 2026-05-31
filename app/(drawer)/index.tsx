@@ -1560,7 +1560,7 @@ export default function ChatScreen() {
       if (!paragraphBuffer.length) return;
       const paragraph = paragraphBuffer.join('\n');
       nodes.push(
-        <Text key={`p-${key}`} style={{ color: textColor, lineHeight: 20 }}>
+        <Text key={`p-${key}`} selectable style={{ color: textColor, lineHeight: 20 }}>
           {renderInlineMarkdown(paragraph, { textColor })}
         </Text>,
       );
@@ -1619,6 +1619,7 @@ export default function ChatScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View className="px-3 py-2" style={{ minWidth: '100%' }}>
               <Text
+                selectable
                 style={{
                   color: isDark ? '#D4D4D4' : '#24292F',
                   fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -1672,6 +1673,7 @@ export default function ChatScreen() {
         nodes.push(
           <Text
             key={`h-${key}`}
+            selectable
             style={{
               color: textColor,
               fontWeight: '800',
@@ -1693,8 +1695,8 @@ export default function ChatScreen() {
         flushParagraph();
         nodes.push(
           <View key={`ul-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text style={{ color: textColor, lineHeight: 20 }}>{'\u2022 '}</Text>
-            <Text style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+            <Text selectable style={{ color: textColor, lineHeight: 20 }}>{'\u2022 '}</Text>
+            <Text selectable style={{ color: textColor, lineHeight: 20, flex: 1 }}>
               {renderInlineMarkdown(bulletMatch[1], { textColor })}
             </Text>
           </View>,
@@ -1708,8 +1710,8 @@ export default function ChatScreen() {
         flushParagraph();
         nodes.push(
           <View key={`ol-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text style={{ color: textColor, lineHeight: 20 }}>{`${orderedMatch[1]}. `}</Text>
-            <Text style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+            <Text selectable style={{ color: textColor, lineHeight: 20 }}>{`${orderedMatch[1]}. `}</Text>
+            <Text selectable style={{ color: textColor, lineHeight: 20, flex: 1 }}>
               {renderInlineMarkdown(orderedMatch[2], { textColor })}
             </Text>
           </View>,
@@ -1732,7 +1734,7 @@ export default function ChatScreen() {
               backgroundColor: isDark ? '#121218' : '#F0F2F8',
             }}
           >
-            <Text style={{ color: textColor, lineHeight: 20 }}>
+            <Text selectable style={{ color: textColor, lineHeight: 20 }}>
               {renderInlineMarkdown(quoteMatch[1], { textColor })}
             </Text>
           </View>,
@@ -1751,7 +1753,7 @@ export default function ChatScreen() {
 
     if (!nodes.length) {
       return (
-        <Text style={{ color: textColor, lineHeight: 20 }}>
+        <Text selectable style={{ color: textColor, lineHeight: 20 }}>
           {content}
         </Text>
       );
