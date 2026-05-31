@@ -214,7 +214,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'chat.limitReached': 'Guest message limit reached for now. Please try again after reset.',
     'chat.limit.chatReached': 'You reached your Monthly chat limit. Upgrade to continue chatting.',
     'chat.limit.imageReached': 'You reached your monthly image generation limit. Upgrade for more images.',
-    'chat.limit.videoReached': 'You reached your Monthly video generation limit. Upgrade for more videos.',
+    'chat.limit.videoReached': 'You reached your monthly video generation limit. Upgrade for more videos.',
     'chat.videoGenerationInProgress': 'A video is already generating. Please wait for it to finish.',
     'chat.videoGenerationCooldown': 'Please wait {{seconds}}s before starting another video.',
     'chat.videoGenerationDelayed': 'Video generation is taking longer than usual. Check back shortly and it will appear automatically.',

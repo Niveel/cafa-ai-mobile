@@ -86,10 +86,10 @@ function isUnlimitedLimit(limit?: number | null) {
 }
 
 function formatUsageWindow(bucketDate?: string | null) {
-  if (!bucketDate || !/^\d{4}-\d{2}$/.test(bucketDate)) return 'this month';
+  if (!bucketDate || !/^\d{4}-\d{2}$/.test(bucketDate)) return 'Monthly';
   const [year, month] = bucketDate.split('-').map((v) => Number(v));
-  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return 'this month';
-  return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return 'Monthly';
+  return 'Monthly';
 }
 
 function getLimitState(used: number, limit?: number | null) {
