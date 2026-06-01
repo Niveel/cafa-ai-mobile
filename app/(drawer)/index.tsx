@@ -2533,6 +2533,7 @@ export default function ChatScreen() {
         }
         didMutateChats = true;
       } catch (error) {
+        const assistantMessageIdForRecovery = activeAssistantId || assistantId;
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         const friendlyMessage = getFriendlyErrorMessage(error, requestKind);
         const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
@@ -2597,7 +2598,7 @@ export default function ChatScreen() {
           const buffered = assistantResponseBuffer.trim();
           setMessages((prev) =>
             prev.map((item) =>
-              item.id === assistantId
+              item.id === assistantMessageIdForRecovery
                 ? {
                     ...item,
                     isImageGenerating: false,
@@ -2638,7 +2639,7 @@ export default function ChatScreen() {
           if (fallbackResponseText) {
             setMessages((prev) =>
               prev.map((item) =>
-                item.id === assistantId
+                item.id === assistantMessageIdForRecovery
                   ? {
                       ...item,
                       isImageGenerating: false,
@@ -2696,7 +2697,7 @@ export default function ChatScreen() {
           if (assistantResponseBuffer.trim()) {
             setMessages((prev) =>
               prev.map((item) =>
-                item.id === assistantId
+                item.id === assistantMessageIdForRecovery
                   ? {
                       ...item,
                       isImageGenerating: false,
@@ -2714,7 +2715,7 @@ export default function ChatScreen() {
 
           setMessages((prev) =>
             prev.map((item) =>
-              item.id === assistantId
+              item.id === assistantMessageIdForRecovery
                 ? {
                     ...item,
                     isImageGenerating: false,
@@ -2795,7 +2796,7 @@ export default function ChatScreen() {
             {
               let matched = false;
               const next = prev.map((item) => {
-                if (item.id !== assistantId) return item;
+                if (item.id !== assistantMessageIdForRecovery) return item;
                 matched = true;
                 return {
                   ...item,
@@ -2837,7 +2838,7 @@ export default function ChatScreen() {
         ) {
           setMessages((prev) =>
             prev.map((item) =>
-              item.id === assistantId
+              item.id === assistantMessageIdForRecovery
                 ? {
                     ...item,
                     isImageGenerating: false,
@@ -2860,7 +2861,7 @@ export default function ChatScreen() {
           {
             let matched = false;
             const next = prev.map((item) => {
-              if (item.id !== assistantId) return item;
+              if (item.id !== assistantMessageIdForRecovery) return item;
               matched = true;
                 return {
                   ...item,
