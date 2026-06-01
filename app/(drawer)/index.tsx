@@ -1129,6 +1129,8 @@ export default function ChatScreen() {
     const typed = error as { code?: string; status?: number; message?: string } | undefined;
     const code = (typed?.code ?? '').toUpperCase();
     const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+    const isModelUnavailableUpgrade = code === 'UPGRADE_REQUIRED' && message.includes('not available on your current plan');
+    if (isModelUnavailableUpgrade) return false;
     if (code === 'DAILY_LIMIT_EXCEEDED' || code === 'GUEST_DAILY_LIMIT_EXCEEDED' || code === 'UPGRADE_REQUIRED') {
       return true;
     }
@@ -1231,6 +1233,13 @@ export default function ChatScreen() {
     const code = (typed?.code ?? '').toUpperCase();
     const rawMessage = typed?.message ?? (error instanceof Error ? error.message : '');
     const message = rawMessage.toLowerCase();
+    const isModelUnavailableUpgrade = code === 'UPGRADE_REQUIRED' && message.includes('not available on your current plan');
+
+    if (isModelUnavailableUpgrade) {
+      if (message.includes('gpt-4o-mini')) return 'Cafa Smart is not available on your current plan.';
+      if (message.includes('gpt-4o')) return 'Cafa Ultra is not available on your current plan.';
+      return 'This model is not available on your current plan.';
+    }
 
     if (isLimitOrUpgradeError(error)) {
       return getLimitNoticeMessage(kind);
@@ -1900,19 +1909,6 @@ export default function ChatScreen() {
     return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
   }, []);
 
-  const isLikelyLookupOrShoppingPrompt = useCallback((value: string) => {
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) return false;
-    const asksToSearch = /\b(search|look up|find online|browse|google)\b/.test(normalized);
-    const shoppingIntent =
-      /\b(buy|purchase|shop|where can i get|where to get|available in|available at|in stock|price|cost)\b/.test(normalized);
-    const locationHint =
-      /\b(in|at|from)\s+[a-z][a-z\s]{1,40}\b/.test(normalized)
-      || /\bghana\b/.test(normalized);
-    const listIntent = /\b(\d+|ten|top)\b/.test(normalized);
-    return asksToSearch || (shoppingIntent && (locationHint || listIntent));
-  }, []);
-
   const handleSend = () => {
     const run = async () => {
       const trimmed = inputValueRef.current.trim();
@@ -1947,7 +1943,6 @@ export default function ChatScreen() {
       let didMutateChats = false;
       let responseLogEmitted = false;
       let assistantResponseBuffer = '';
-      let shouldRetryReconcileAfterRecoveredSse = false;
       const logParsedResponseForAttempt = (raw: string) => {
         if (responseLogEmitted) return;
         const parsedText = raw.trim();
@@ -2418,14 +2413,12 @@ export default function ChatScreen() {
         }
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
-        const isSearchOnlinePrompt = isLikelyLookupOrShoppingPrompt(trimmed);
-        const useMobileNonStreamWorkaround = Platform.OS !== 'web' && isSearchOnlinePrompt;
+        const useMobileNonStreamWorkaround = false;
         const authSendMode =
           Platform.OS !== 'web'
             ? (useMobileNonStreamWorkaround ? 'auth-non-stream-chat-mobile' : 'auth-stream-chat-mobile')
             : 'auth-stream-chat';
-        const mobileAuthModelForTextChat: 'ultra' | 'smart' | 'swift' =
-          useMobileNonStreamWorkaround && activeModel === 'smart' ? 'ultra' : activeModel;
+        const mobileAuthModelForTextChat: 'ultra' | 'smart' | 'swift' = activeModel;
         logSendPayload({
           endpoint: lastEndpoint,
           mode: authSendMode,
@@ -2442,38 +2435,11 @@ export default function ChatScreen() {
             uri: asset.uri,
           })),
         });
-        if (useMobileNonStreamWorkaround) {
-          const nonStreamResponse = await sendAuthenticatedMessageNonStream(
-            conversationId,
-            trimmed,
-            mobileAuthModelForTextChat,
-            composerMediaReference ?? undefined,
-            attachmentsForSend,
-          );
-          const recoveredText = nonStreamResponse.data?.recoveredText?.trim();
-          if (recoveredText) {
-            assistantResponseBuffer = recoveredText;
-            shouldRetryReconcileAfterRecoveredSse = true;
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: recoveredText,
-                      isImageGenerating: false,
-                      isVideoGenerating: false,
-                      isArtifactGenerating: false,
-                    }
-                  : message,
-              ),
-            );
-          }
-        } else {
-          await sendAuthenticatedMessageStream(
-            conversationId,
-            trimmed,
-            attachmentsForSend,
-            (event) => {
+        await sendAuthenticatedMessageStream(
+          conversationId,
+          trimmed,
+          attachmentsForSend,
+          (event) => {
               if (event.type === 'meta') {
                 setStreamingModelLabel(
                   resolveModelBadgeLabel(event.model, activeModel),
@@ -2551,31 +2517,14 @@ export default function ChatScreen() {
                 );
               }
             },
-            language,
-            activeModel,
-            (debugEvent) => {
-              lastIdempotencyKey = debugEvent.idempotencyKey;
-            },
-          );
-        }
+          language,
+          activeModel,
+          (debugEvent) => {
+            lastIdempotencyKey = debugEvent.idempotencyKey;
+          },
+        );
         try {
-          if (useMobileNonStreamWorkaround && shouldRetryReconcileAfterRecoveredSse) {
-            let reconciled = false;
-            for (let attempt = 1; attempt <= 8; attempt += 1) {
-              try {
-                await reconcileAuthConversationAfterSend(conversationId);
-                reconciled = true;
-                break;
-              } catch {
-                await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
-              }
-            }
-            if (!reconciled && !assistantResponseBuffer.trim()) {
-              throw new Error('Could not sync conversation after response.');
-            }
-          } else {
-            await reconcileAuthConversationAfterSend(conversationId);
-          }
+          await reconcileAuthConversationAfterSend(conversationId);
         } catch {
           if (!assistantResponseBuffer.trim()) {
             throw new Error('Could not sync conversation after response.');
