@@ -919,6 +919,13 @@ export async function sendAuthenticatedMessageStream(
       xhr.onprogress = () => {
         const next = xhr.responseText.slice(lastOffset);
         if (!next) return;
+        if (__DEV__) {
+          console.log('[chat:raw:auth-stream-xhr-progress]', JSON.stringify({
+            chunkLength: next.length,
+            totalLength: xhr.responseText.length,
+            hasDataPrefix: next.includes('data:'),
+          }));
+        }
         streamStarted = true;
         lastOffset = xhr.responseText.length;
         buffer += next;
@@ -954,6 +961,12 @@ export async function sendAuthenticatedMessageStream(
       };
 
       xhr.onerror = () => {
+        if (__DEV__) {
+          console.log('[chat:raw:auth-stream-xhr-error]', JSON.stringify({
+            status: xhr.status,
+            responseLength: xhr.responseText?.length ?? 0,
+          }));
+        }
         authStreamLog('xhr:error');
         if (settled) return;
         // Android can emit onerror just before onload for valid SSE responses.
@@ -978,6 +991,14 @@ export async function sendAuthenticatedMessageStream(
       };
 
       xhr.onload = async () => {
+        if (__DEV__) {
+          console.log('[chat:raw:auth-stream-xhr-load]', JSON.stringify({
+            status: xhr.status,
+            contentType: xhr.getResponseHeader('content-type') ?? null,
+            responseLength: xhr.responseText?.length ?? 0,
+            bufferedLength: buffer.length,
+          }));
+        }
         authStreamLog(
           'xhr:load',
           `status=${xhr.status} contentType=${xhr.getResponseHeader('content-type') ?? 'unknown'} bufferedLen=${buffer.length}`,
