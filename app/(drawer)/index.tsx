@@ -2418,10 +2418,14 @@ export default function ChatScreen() {
         }
 
         lastEndpoint = `${API_BASE_URL}/chat/${conversationId}/messages`;
-        const authSendMode = Platform.OS !== 'web' ? 'auth-non-stream-chat-mobile' : 'auth-stream-chat';
         const isSearchOnlinePrompt = isLikelyLookupOrShoppingPrompt(trimmed);
+        const useMobileNonStreamWorkaround = Platform.OS !== 'web' && isSearchOnlinePrompt;
+        const authSendMode =
+          Platform.OS !== 'web'
+            ? (useMobileNonStreamWorkaround ? 'auth-non-stream-chat-mobile' : 'auth-stream-chat-mobile')
+            : 'auth-stream-chat';
         const mobileAuthModelForTextChat: 'ultra' | 'smart' | 'swift' =
-          Platform.OS !== 'web' && activeModel === 'smart' && isSearchOnlinePrompt ? 'ultra' : activeModel;
+          useMobileNonStreamWorkaround && activeModel === 'smart' ? 'ultra' : activeModel;
         logSendPayload({
           endpoint: lastEndpoint,
           mode: authSendMode,
@@ -2438,7 +2442,7 @@ export default function ChatScreen() {
             uri: asset.uri,
           })),
         });
-        if (Platform.OS !== 'web') {
+        if (useMobileNonStreamWorkaround) {
           const nonStreamResponse = await sendAuthenticatedMessageNonStream(
             conversationId,
             trimmed,
@@ -2555,7 +2559,7 @@ export default function ChatScreen() {
           );
         }
         try {
-          if (Platform.OS !== 'web' && shouldRetryReconcileAfterRecoveredSse) {
+          if (useMobileNonStreamWorkaround && shouldRetryReconcileAfterRecoveredSse) {
             let reconciled = false;
             for (let attempt = 1; attempt <= 8; attempt += 1) {
               try {
