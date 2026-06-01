@@ -919,14 +919,20 @@ export default function ChatScreen() {
       const previousById = new Map(prev.map((message) => [message.id, message] as const));
       const merged = mapped.map((message) => {
         if (message.role !== 'assistant') return message;
-        if ((message.attachments?.length ?? 0) > 0) return message;
-
         const prior = previousById.get(message.id);
-        if (!prior || (prior.attachments?.length ?? 0) === 0) return message;
+        if (!prior) return message;
+
+        const serverContent = message.content.trim();
+        const priorContent = prior.content.trim();
+        const mergedContent = serverContent.length > 0 ? message.content : (priorContent.length > 0 ? prior.content : message.content);
+        const shouldPreservePriorMedia =
+          (message.attachments?.length ?? 0) === 0
+          && (prior.attachments?.length ?? 0) > 0;
 
         return {
           ...message,
-          attachments: prior.attachments,
+          content: mergedContent,
+          attachments: shouldPreservePriorMedia ? prior.attachments : message.attachments,
           imageUrl: message.imageUrl ?? prior.imageUrl,
           imagePrompt: message.imagePrompt ?? prior.imagePrompt,
           imageId: message.imageId ?? prior.imageId,
