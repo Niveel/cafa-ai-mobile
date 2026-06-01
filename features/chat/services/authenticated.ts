@@ -193,7 +193,7 @@ function logDevRawStreamEvent(
   meta?: { transport?: string; status?: number; contentType?: string | null },
 ) {
   if (!__DEV__) return;
-  if (event.type !== 'done') return;
+  if (event.type !== 'done' && event.type !== 'error' && event.type !== 'meta') return;
   try {
     console.log(`[chat:raw:${scope}]`, JSON.stringify({ meta, event }, null, 2));
   } catch {
