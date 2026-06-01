@@ -325,7 +325,20 @@ function parseSseChunk(chunk: string) {
 
   if (!dataLines.length) return null;
   const raw = dataLines.join('\n');
-  return JSON.parse(raw) as AuthChatStreamEvent;
+  return parseSseEventPayload(raw);
+}
+
+function parseSseEventPayload(raw: string): AuthChatStreamEvent {
+  try {
+    return JSON.parse(raw) as AuthChatStreamEvent;
+  } catch {
+    // Some mobile transports surface escaped JSON payloads: {\"type\":\"delta\",...}
+    const unescaped = raw
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+      .trim();
+    return JSON.parse(unescaped) as AuthChatStreamEvent;
+  }
 }
 
 function createAuthSendError(message: string, status?: number, code?: string): AuthSendError {
@@ -369,18 +382,70 @@ function parseRawSseEvents(raw: string): AuthChatStreamEvent[] {
   }
 
   const events: AuthChatStreamEvent[] = [];
-  const lineMatches = normalized.match(/^data:\s*.+$/gm) ?? [];
-  for (const line of lineMatches) {
-    const payload = line.replace(/^data:\s*/, '').trim();
+  const segments = normalized.split(/(?:^|\n)\s*data:\s*/g).slice(1);
+  for (const segment of segments) {
+    const payload = segment.trim();
     if (!payload) continue;
     try {
-      events.push(JSON.parse(payload) as AuthChatStreamEvent);
+      events.push(parseSseEventPayload(payload));
     } catch {
-      // Ignore malformed event lines and continue scanning.
+      // Some transports concatenate multiple `data:` records without reliable newlines.
+      // Split again by inline `data:` markers and parse each unit.
+      const inlineParts = payload.split(/\n\s*data:\s*/g);
+      for (const part of inlineParts) {
+        const unit = part.trim();
+        if (!unit) continue;
+        try {
+          events.push(parseSseEventPayload(unit));
+        } catch {
+          // Ignore malformed event units and continue scanning.
+        }
+      }
     }
   }
 
   return events;
+}
+
+function decodeJsonStringFragment(value: string): string {
+  try {
+    return JSON.parse(`"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`) as string;
+  } catch {
+    return value
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+}
+
+function extractDeltaTextFromRawPayload(raw: string): string {
+  if (!raw) return '';
+  const matches = [...raw.matchAll(/"type"\s*:\s*"delta"[\s\S]*?"content"\s*:\s*"((?:\\.|[^"\\])*)"/g)];
+  if (!matches.length) return '';
+  return matches
+    .map((match) => decodeJsonStringFragment(match[1] ?? ''))
+    .join('')
+    .trim();
+}
+
+function splitSseChunks(raw: string): string[] {
+  const byRealNewlines = raw.split(/\r?\n\r?\n/);
+  if (byRealNewlines.length > 1) return byRealNewlines;
+  if (raw.includes('\\n\\n')) return raw.split('\\n\\n');
+  return byRealNewlines;
+}
+
+function parseSseEventsFromChunk(chunk: string): AuthChatStreamEvent[] {
+  const trimmed = chunk.trim();
+  if (!trimmed) return [];
+  try {
+    const event = parseSseChunk(trimmed);
+    return event ? [event] : [];
+  } catch {
+    return parseRawSseEvents(trimmed);
+  }
 }
 
 function mapReplayArtifactsToAttachments(
@@ -889,6 +954,7 @@ export async function sendAuthenticatedMessageStream(
       let settled = false;
       let streamAccepted = false;
       let streamStarted = false;
+      let emittedEventCount = 0;
       let pendingErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
       const rejectOnce = (error: unknown) => {
@@ -931,18 +997,20 @@ export async function sendAuthenticatedMessageStream(
         buffer += next;
         authStreamLog('xhr:progress', `chunkLen=${next.length} totalLen=${xhr.responseText.length}`);
 
-        const chunks = buffer.split(/\r?\n\r?\n/);
+        const chunks = splitSseChunks(buffer);
         buffer = chunks.pop() ?? '';
         for (const chunk of chunks) {
           if (!chunk.trim()) continue;
           try {
-            const event = parseSseChunk(chunk);
-            if (!event) continue;
+            const events = parseSseEventsFromChunk(chunk);
+            for (const event of events) {
+              if (!event) continue;
             authStreamLog(
               'xhr:event',
               `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
             );
             emitStreamEvent(event, 'xhr');
+            emittedEventCount += 1;
             if (event.type === 'error') {
               if (streamState.receivedDone) {
                 // Some native transports can surface a late error after terminal done.
@@ -953,6 +1021,7 @@ export async function sendAuthenticatedMessageStream(
                 event.message || 'Authenticated stream failed.',
                 'AUTH_STREAM_ACTIVE_SERVER_ERROR',
               );
+            }
             }
           } catch {
             authStreamLog('xhr:event-parse-skip');
@@ -1057,27 +1126,65 @@ export async function sendAuthenticatedMessageStream(
 
         if (buffer.trim()) {
           try {
-            const trailingChunks = buffer.split(/\r?\n\r?\n/).filter((chunk) => chunk.trim());
+            const trailingChunks = splitSseChunks(buffer).filter((chunk) => chunk.trim());
             authStreamLog('xhr:trailing', `count=${trailingChunks.length}`);
             for (const trailingChunk of trailingChunks) {
-              const event = parseSseChunk(trailingChunk.trim());
-              if (!event) continue;
-              authStreamLog(
-                'xhr:trailing-event',
-                `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0}`,
-              );
-              emitStreamEvent(event, 'xhr');
-              if (event.type === 'error') {
-                if (!streamState.receivedDone) {
-                  pendingServerStreamError = createAuthStreamTransportError(
-                    event.message || 'Authenticated stream failed.',
-                    'AUTH_STREAM_ACTIVE_SERVER_ERROR',
-                  );
+              const events = parseSseEventsFromChunk(trailingChunk.trim());
+              for (const event of events) {
+                if (!event) continue;
+                authStreamLog(
+                  'xhr:trailing-event',
+                  `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0}`,
+                );
+                emitStreamEvent(event, 'xhr');
+                emittedEventCount += 1;
+                if (event.type === 'error') {
+                  if (!streamState.receivedDone) {
+                    pendingServerStreamError = createAuthStreamTransportError(
+                      event.message || 'Authenticated stream failed.',
+                      'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+                    );
+                  }
                 }
               }
             }
           } catch {
             // ignore trailing parse noise
+          }
+        }
+        if (emittedEventCount === 0 && xhr.responseText?.includes('data:')) {
+          try {
+            const fallbackEvents = parseRawSseEvents(xhr.responseText);
+            for (const event of fallbackEvents) {
+              emitStreamEvent(event, 'xhr');
+              emittedEventCount += 1;
+              if (event.type === 'error' && !streamState.receivedDone) {
+                pendingServerStreamError = createAuthStreamTransportError(
+                  event.message || 'Authenticated stream failed.',
+                  'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+                );
+              }
+            }
+            if (__DEV__) {
+              console.log('[chat:raw:auth-stream-xhr-full-parse]', JSON.stringify({
+                parsedEvents: fallbackEvents.length,
+              }));
+            }
+            if (emittedEventCount === 0) {
+              const recoveredText = extractDeltaTextFromRawPayload(xhr.responseText);
+              if (recoveredText) {
+                emitStreamEvent({ type: 'delta', content: recoveredText }, 'xhr');
+                emitStreamEvent({ type: 'done' }, 'xhr');
+                emittedEventCount += 2;
+                if (__DEV__) {
+                  console.log('[chat:raw:auth-stream-xhr-text-recovery]', JSON.stringify({
+                    recoveredLength: recoveredText.length,
+                  }));
+                }
+              }
+            }
+          } catch {
+            // Ignore full-payload fallback parse errors.
           }
         }
         if (pendingServerStreamError && !streamState.receivedDone) {
@@ -1162,35 +1269,18 @@ export async function sendAuthenticatedMessageStream(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split(/\r?\n\r?\n/);
+      const chunks = splitSseChunks(buffer);
       buffer = chunks.pop() ?? '';
 
       for (const chunk of chunks) {
         if (!chunk.trim()) continue;
-        const event = parseSseChunk(chunk);
-        if (!event) continue;
-        authStreamLog(
-          `${transportLabel}:event`,
-          `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
-        );
-        emitStreamEvent(event, transportLabel);
-        if (event.type === 'error') {
-          if (!streamState.receivedDone) {
-            pendingServerStreamError = createAuthStreamTransportError(
-              event.message || 'Authenticated stream failed.',
-              'AUTH_STREAM_ACTIVE_SERVER_ERROR',
-            );
-          }
-        }
-      }
-    }
-
-    if (buffer.trim()) {
-      try {
-        const trailingChunks = buffer.split(/\r?\n\r?\n/).filter((chunk) => chunk.trim());
-        for (const trailingChunk of trailingChunks) {
-          const event = parseSseChunk(trailingChunk);
+        const events = parseSseEventsFromChunk(chunk);
+        for (const event of events) {
           if (!event) continue;
+          authStreamLog(
+            `${transportLabel}:event`,
+            `type=${event.type} deltaLen=${event.type === 'delta' ? event.content.length : 0} messageId=${'messageId' in event ? (event.messageId ?? '') : ''}`,
+          );
           emitStreamEvent(event, transportLabel);
           if (event.type === 'error') {
             if (!streamState.receivedDone) {
@@ -1198,6 +1288,27 @@ export async function sendAuthenticatedMessageStream(
                 event.message || 'Authenticated stream failed.',
                 'AUTH_STREAM_ACTIVE_SERVER_ERROR',
               );
+            }
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      try {
+        const trailingChunks = splitSseChunks(buffer).filter((chunk) => chunk.trim());
+        for (const trailingChunk of trailingChunks) {
+          const events = parseSseEventsFromChunk(trailingChunk);
+          for (const event of events) {
+            if (!event) continue;
+            emitStreamEvent(event, transportLabel);
+            if (event.type === 'error') {
+              if (!streamState.receivedDone) {
+                pendingServerStreamError = createAuthStreamTransportError(
+                  event.message || 'Authenticated stream failed.',
+                  'AUTH_STREAM_ACTIVE_SERVER_ERROR',
+                );
+              }
             }
           }
         }

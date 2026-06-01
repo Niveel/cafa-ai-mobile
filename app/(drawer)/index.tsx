@@ -322,6 +322,12 @@ export default function ChatScreen() {
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
+  const tier = authUser?.subscriptionTier ?? 'free';
+  const canUseUltraModel = isAuthenticated && (tier === 'cafa_pro' || tier === 'cafa_max');
+  const availableChatModelOptions = useMemo(
+    () => CHAT_MODEL_OPTIONS.filter((option) => option.key !== 'ultra' || canUseUltraModel),
+    [canUseUltraModel],
+  );
   const [starterPrompts, setStarterPrompts] = useState<string[]>([]);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const lastJumpedMessageKeyRef = useRef<string>('');
@@ -920,7 +926,24 @@ export default function ChatScreen() {
       const merged = mapped.map((message) => {
         if (message.role !== 'assistant') return message;
         const prior = previousById.get(message.id);
-        if (!prior) return message;
+        if (!prior) {
+          if (message.content.trim().length > 0) return message;
+          const latestLocalAssistantWithText = [...prev]
+            .reverse()
+            .find((item) => item.role === 'assistant' && item.content.trim().length > 0);
+          if (!latestLocalAssistantWithText) return message;
+          return {
+            ...message,
+            content: latestLocalAssistantWithText.content,
+            attachments: (message.attachments?.length ?? 0) > 0 ? message.attachments : latestLocalAssistantWithText.attachments,
+            imageUrl: message.imageUrl ?? latestLocalAssistantWithText.imageUrl,
+            imagePrompt: message.imagePrompt ?? latestLocalAssistantWithText.imagePrompt,
+            imageId: message.imageId ?? latestLocalAssistantWithText.imageId,
+            videoUrl: message.videoUrl ?? latestLocalAssistantWithText.videoUrl,
+            videoPrompt: message.videoPrompt ?? latestLocalAssistantWithText.videoPrompt,
+            videoId: message.videoId ?? latestLocalAssistantWithText.videoId,
+          };
+        }
 
         const serverContent = message.content.trim();
         const priorContent = prior.content.trim();
@@ -2546,13 +2569,37 @@ export default function ChatScreen() {
             lastIdempotencyKey = debugEvent.idempotencyKey;
           },
         );
-        try {
-          await reconcileAuthConversationAfterSend(conversationId);
-        } catch {
-          if (!assistantResponseBuffer.trim()) {
+        const streamedText = assistantResponseBuffer.trim();
+        if (streamedText.length > 0) {
+          // Do not let an eventually-consistent backend snapshot overwrite already rendered text.
+          // Reconcile in the background only when server has a non-empty assistant response.
+          void (async () => {
+            for (let attempt = 1; attempt <= 8; attempt += 1) {
+              try {
+                const detail = await getAuthenticatedConversation(conversationId, { force: true });
+                const recoveredAssistant = [...detail.messages]
+                  .reverse()
+                  .find((item) => (
+                    item.role === 'assistant'
+                    && item.content.trim().length > 0
+                    && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+                  ));
+                if (recoveredAssistant) {
+                  applyAuthConversationDetail(detail);
+                  break;
+                }
+              } catch {
+                // keep trying
+              }
+              await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
+            }
+          })();
+        } else {
+          try {
+            await reconcileAuthConversationAfterSend(conversationId);
+          } catch {
             throw new Error('Could not sync conversation after response.');
           }
-          // Keep recovered text if sync fails.
         }
         didMutateChats = true;
       } catch (error) {
@@ -3953,6 +4000,12 @@ export default function ChatScreen() {
     );
   }, [announceForA11y, attachmentMenuOpen, isAuthenticated]);
 
+  useEffect(() => {
+    if (activeModel === 'ultra' && !canUseUltraModel) {
+      setActiveModel('smart');
+    }
+  }, [activeModel, canUseUltraModel]);
+
   const topBarModelSwitcher = isAuthenticated ? (
     <View
       className="relative rounded-full border px-1.5 py-1"
@@ -3998,7 +4051,7 @@ export default function ChatScreen() {
             menuTouchRef.current = true;
           }}
         >
-          {CHAT_MODEL_OPTIONS.map((model) => {
+          {availableChatModelOptions.map((model) => {
             const active = activeModel === model.key;
             const modelDescription = t(`chat.model.desc.${model.key}`);
             return (
