@@ -935,7 +935,24 @@ export default function ChatScreen() {
           videoId: message.videoId ?? prior.videoId,
         };
       });
-      return applyDescriptiveAttachmentNames(merged);
+      const mappedIds = new Set(merged.map((message) => message.id));
+      const endsWithUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
+      const lastMappedUserCreatedAt = [...merged]
+        .reverse()
+        .find((message) => message.role === 'user')?.createdAt ?? 0;
+      const localAssistantFallback = endsWithUser
+        ? [...prev]
+          .reverse()
+          .find((message) => (
+            message.role === 'assistant'
+            && !mappedIds.has(message.id)
+            && (message.content.trim().length > 0 || message.isImageGenerating || message.isVideoGenerating || message.isArtifactGenerating)
+            && message.createdAt >= lastMappedUserCreatedAt
+          ))
+        : null;
+
+      const next = localAssistantFallback ? [...merged, localAssistantFallback] : merged;
+      return applyDescriptiveAttachmentNames(next);
     });
     setMessageReactions(() =>
       detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
