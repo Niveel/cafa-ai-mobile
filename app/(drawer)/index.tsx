@@ -2581,12 +2581,48 @@ export default function ChatScreen() {
           isAuthenticated
           && requestKind === 'chat'
           && code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';
+        const bufferedAssistantText = assistantResponseBuffer.trim();
         if (isAuthenticated && attachmentsForSend.length) {
           setAttachedAssets(attachmentsForSend);
         }
         if (requestKind === 'video') {
           videoGenerationInFlightRef.current = false;
           videoFromImageInFlightRef.current = false;
+        }
+        if (
+          requestKind === 'chat'
+          && bufferedAssistantText.length > 0
+          && isAuthStreamActiveServerError
+        ) {
+          setMessages((prev) => {
+            let matched = false;
+            const next = prev.map((item) => {
+              if (item.id !== assistantMessageIdForRecovery) return item;
+              matched = true;
+              return {
+                ...item,
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+                content: bufferedAssistantText,
+              };
+            });
+            if (!matched) {
+              next.push({
+                id: assistantMessageIdForRecovery,
+                role: 'assistant',
+                content: bufferedAssistantText,
+                createdAt: Date.now(),
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+              });
+            }
+            return next;
+          });
+          hapticSuccess();
+          didMutateChats = true;
+          return;
         }
         if (usedVideoReferenceFollowUp && isLikelyTimeoutOrDisconnect && activeAuthConversationId) {
           for (let recoveryAttempt = 1; recoveryAttempt <= 24; recoveryAttempt += 1) {
@@ -2849,23 +2885,33 @@ export default function ChatScreen() {
           ? idempotencyVisibleMessage
           : friendlyMessage;
 
-        if (
-          requestKind === 'chat'
-          && assistantResponseBuffer.trim().length > 0
-        ) {
-          setMessages((prev) =>
-            prev.map((item) =>
-              item.id === assistantMessageIdForRecovery
-                ? {
-                    ...item,
-                    isImageGenerating: false,
-                    isVideoGenerating: false,
-                    isArtifactGenerating: false,
-                    content: assistantResponseBuffer.trim(),
-                  }
-                : item,
-            ),
-          );
+        if (requestKind === 'chat' && bufferedAssistantText.length > 0) {
+          setMessages((prev) => {
+            let matched = false;
+            const next = prev.map((item) => {
+              if (item.id !== assistantMessageIdForRecovery) return item;
+              matched = true;
+              return {
+                ...item,
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+                content: bufferedAssistantText,
+              };
+            });
+            if (!matched) {
+              next.push({
+                id: assistantMessageIdForRecovery,
+                role: 'assistant',
+                content: bufferedAssistantText,
+                createdAt: Date.now(),
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+              });
+            }
+            return next;
+          });
           didMutateChats = true;
           hapticSuccess();
           return;
