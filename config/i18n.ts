@@ -212,7 +212,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'chat.speechError': 'Speech recognition failed. Please try again.',
     'chat.mediaNeedsLogin': 'Image and video generation are available after login. Please log in to use media tools.',
     'chat.limitReached': 'Guest message limit reached for now. Please try again after reset.',
-    'chat.limit.chatReached': 'You reached your Monthly chat limit. Upgrade to continue chatting.',
+    'chat.limit.chatReached': 'You reached your monthly chat limit. Upgrade to continue chatting.',
     'chat.limit.imageReached': 'You reached your monthly image generation limit. Upgrade for more images.',
     'chat.limit.videoReached': 'You reached your monthly video generation limit. Upgrade for more videos.',
     'chat.videoGenerationInProgress': 'A video is already generating. Please wait for it to finish.',
