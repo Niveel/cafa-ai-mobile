@@ -343,39 +343,44 @@ function createAuthStreamTransportError(message: string, code: string): AuthStre
 
 function extractSseErrorMessageFromText(raw: string): string | null {
   if (!raw || !raw.includes('data:')) return null;
-  const chunks = raw.split(/\r?\n\r?\n/);
-  for (const chunk of chunks) {
-    const parsed = chunk.trim();
-    if (!parsed) continue;
-    try {
-      const event = parseSseChunk(parsed);
-      if (event?.type === 'error') {
-        return event.message || 'The AI response failed. Please try again.';
-      }
-    } catch {
-      // Ignore malformed chunks and keep scanning.
-    }
+  const events = parseRawSseEvents(raw);
+  const errorEvent = events.find((event) => event?.type === 'error');
+  if (errorEvent?.type === 'error') {
+    return errorEvent.message || 'The AI response failed. Please try again.';
   }
   return null;
 }
 
 function extractSseDeltaTextFromRaw(raw: string): string {
   if (!raw || !raw.includes('data:')) return '';
-  const chunks = raw.split(/\r?\n\r?\n/);
-  let content = '';
-  for (const chunk of chunks) {
-    const parsed = chunk.trim();
-    if (!parsed) continue;
+  const events = parseRawSseEvents(raw);
+  const content = events
+    .filter((event): event is Extract<AuthChatStreamEvent, { type: 'delta' }> => event?.type === 'delta')
+    .map((event) => event.content ?? '')
+    .join('');
+  return content.trim();
+}
+
+function parseRawSseEvents(raw: string): AuthChatStreamEvent[] {
+  if (!raw || !raw.includes('data:')) return [];
+  let normalized = raw.replace(/\r/g, '');
+  if (!normalized.includes('\n') && normalized.includes('\\n')) {
+    normalized = normalized.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+  }
+
+  const events: AuthChatStreamEvent[] = [];
+  const lineMatches = normalized.match(/^data:\s*.+$/gm) ?? [];
+  for (const line of lineMatches) {
+    const payload = line.replace(/^data:\s*/, '').trim();
+    if (!payload) continue;
     try {
-      const event = parseSseChunk(parsed);
-      if (event?.type === 'delta') {
-        content += event.content;
-      }
+      events.push(JSON.parse(payload) as AuthChatStreamEvent);
     } catch {
-      // Ignore malformed chunks and continue.
+      // Ignore malformed event lines and continue scanning.
     }
   }
-  return content.trim();
+
+  return events;
 }
 
 function mapReplayArtifactsToAttachments(
