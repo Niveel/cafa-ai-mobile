@@ -314,7 +314,7 @@ export default function ImagesScreen() {
       setIsLoadingMore(false);
       setIsRefreshing(false);
     }
-  }, [showNotice, t]);
+  }, [getArtifactImageUrlSet, normalizeComparableUrl, showNotice, t]);
 
   useEffect(() => {
     if (hasBootstrappedRef.current) return;
@@ -639,6 +639,33 @@ export default function ImagesScreen() {
     }
   }, [showNotice, t, zipProgress.fileUri]);
 
+  const renderImageItem = useCallback(({ item }: { item: ImageHistoryItem }) => {
+    const resolvedImageUrl = resolveBackendAssetUrl(
+      item.imageUrl ?? item.downloadUrl ?? apiEndpoints.images.download(item.id),
+    ) || '';
+    const imageHeaders =
+      accessToken && resolvedImageUrl.startsWith(backendOrigin)
+        ? { Authorization: `Bearer ${accessToken}` }
+        : undefined;
+
+    return (
+      <ImageGalleryCard
+        item={item}
+        imageUrl={resolvedImageUrl}
+        imageHeaders={imageHeaders}
+        width={cardWidth}
+        onDownload={(target) => {
+          void downloadImage(target);
+        }}
+        onDelete={(target) => {
+          setDeleteTarget(target);
+        }}
+      />
+    );
+  }, [accessToken, backendOrigin, cardWidth, downloadImage, resolveBackendAssetUrl]);
+
+  const keyExtractor = useCallback((item: ImageHistoryItem) => item.id, []);
+
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
@@ -712,36 +739,17 @@ export default function ImagesScreen() {
         <FlatList
           data={images}
           numColumns={2}
-          renderItem={({ item }) => (
-            (() => {
-              const resolvedImageUrl = resolveBackendAssetUrl(
-                item.imageUrl ?? item.downloadUrl ?? apiEndpoints.images.download(item.id),
-              ) || '';
-              const imageHeaders =
-                accessToken && resolvedImageUrl.startsWith(backendOrigin)
-                  ? { Authorization: `Bearer ${accessToken}` }
-                  : undefined;
-              return (
-            <ImageGalleryCard
-              item={item}
-              imageUrl={resolvedImageUrl}
-              imageHeaders={imageHeaders}
-              width={cardWidth}
-              onDownload={(target) => {
-                void downloadImage(target);
-              }}
-              onDelete={(target) => {
-                setDeleteTarget(target);
-              }}
-            />
-              );
-            })()
-          )}
-          keyExtractor={(item) => item.id}
+          renderItem={renderImageItem}
+          keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: 36, paddingTop: 2 }}
           columnWrapperStyle={{ justifyContent: 'space-between' }}
           onEndReached={onLoadMore}
           onEndReachedThreshold={0.6}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          updateCellsBatchingPeriod={80}
+          windowSize={7}
           refreshControl={(
             <RefreshControl
               refreshing={isRefreshing}

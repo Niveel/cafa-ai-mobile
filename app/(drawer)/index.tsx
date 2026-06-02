@@ -65,10 +65,12 @@ import {
   ImageLightbox,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
+  ImageRequirementCard,
   ImageGenerationPlaceholder,
   ImageMessageActionsRow,
   MessageActionsRow,
   RecordingWaves,
+  ScreenHandoffCard,
   extractImagePrompt,
   extractVideoPrompt,
   resolveModelBadgeLabel,
@@ -93,7 +95,9 @@ import {
   createAuthenticatedConversation,
   createGuestConversation,
   ensureGuestSession,
+  editImage,
   generateImage,
+  generateVideoFromImageDirect,
   syncSubscriptionState,
   getSubscriptionOverview,
   getAuthenticatedConversation,
@@ -173,7 +177,26 @@ type ComposerMediaReference = {
   url: string;
 };
 
+type ChatScreenMode = 'chat' | 'image-to-video' | 'edit-image';
+
+type ScreenHandoffConfig = {
+  target: 'index' | 'image-to-video' | 'edit-image';
+  title: string;
+  description: string;
+  ctaLabel: string;
+  iconName: 'chatbubble-ellipses-outline' | 'film-outline' | 'color-wand-outline';
+};
+
+type ImageRequirementConfig = {
+  title: string;
+  description: string;
+  ctaLabel: string;
+  iconName: 'image-outline';
+};
+
 let expoAudioModulePromise: Promise<ExpoAudioModule> | null = null;
+let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
+let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
 let sharingModulePromise: Promise<unknown> | null = null;
 let webBrowserModulePromise: Promise<ExpoWebBrowserModule> | null = null;
 
@@ -192,24 +215,32 @@ async function getExpoAudioModule() {
 
 async function getImagePickerModule() {
   try {
-    const moduleCandidate = require('expo-image-picker') as ImagePickerModule;
+    if (!imagePickerModulePromise) {
+      imagePickerModulePromise = import('expo-image-picker') as Promise<ImagePickerModule>;
+    }
+    const moduleCandidate = await imagePickerModulePromise;
     if (!moduleCandidate || typeof moduleCandidate.launchImageLibraryAsync !== 'function') {
       throw new Error('Image picker module is not available.');
     }
     return moduleCandidate;
   } catch {
+    imagePickerModulePromise = null;
     throw new Error('Image picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
 
 async function getDocumentPickerModule() {
   try {
-    const moduleCandidate = require('expo-document-picker') as DocumentPickerModule;
+    if (!documentPickerModulePromise) {
+      documentPickerModulePromise = import('expo-document-picker') as Promise<DocumentPickerModule>;
+    }
+    const moduleCandidate = await documentPickerModulePromise;
     if (!moduleCandidate || typeof moduleCandidate.getDocumentAsync !== 'function') {
       throw new Error('Document picker module is not available.');
     }
     return moduleCandidate;
   } catch {
+    documentPickerModulePromise = null;
     throw new Error('Document picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
@@ -253,7 +284,7 @@ async function getWebBrowserModule() {
   }
 }
 
-export default function ChatScreen() {
+export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatScreenMode } = {}) {
   const COMPOSER_MIN_HEIGHT = 32;
   const COMPOSER_MAX_HEIGHT = 120;
   const COMPOSER_VERTICAL_PADDING = Platform.OS === 'ios' ? 6 : 4;
@@ -272,14 +303,43 @@ export default function ChatScreen() {
   const { isAuthenticated, authUser, refreshAuthUser, setAuthSubscriptionTier } = useAppContext();
   const { restorePurchases, refreshCustomerInfo } = useRevenueCat();
   const { t, language } = useI18n();
+  const screenConfig = useMemo(() => {
+    if (screenMode === 'image-to-video') {
+      return {
+        welcome:
+          'This section is for generating a video based on an image. Upload an image, then describe the motion, camera movement, or scene you want.',
+        attachmentMenuAnnouncement: 'Attachment menu opened. Choose image upload.',
+        attachImageLabel: 'Image upload',
+        attachImageHint: 'Opens your photo library to select an image.',
+        allowDocumentAttachment: false,
+      };
+    }
+    if (screenMode === 'edit-image') {
+      return {
+        welcome:
+          'This section is for editing an image. Upload an image, then describe the changes, style updates, or fixes you want.',
+        attachmentMenuAnnouncement: 'Attachment menu opened. Choose image upload.',
+        attachImageLabel: 'Image upload',
+        attachImageHint: 'Opens your photo library to select an image.',
+        allowDocumentAttachment: false,
+      };
+    }
+    return {
+      welcome: t('chat.welcome'),
+      attachmentMenuAnnouncement: 'Attachment menu opened. Choose image or document.',
+      attachImageLabel: t('chat.attachImage'),
+      attachImageHint: 'Opens your photo library to select an image.',
+      allowDocumentAttachment: true,
+    };
+  }, [screenMode, t]);
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
       id: 'welcome-1',
       role: 'assistant',
-      content: t('chat.welcome'),
+      content: screenConfig.welcome,
       createdAt: Date.now(),
     }),
-    [t],
+    [screenConfig.welcome],
   );
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string; messageId?: string }>();
   const [input, setInput] = useState('');
@@ -322,6 +382,7 @@ export default function ChatScreen() {
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
+  const allowDocumentAttachment = screenConfig.allowDocumentAttachment && canAttachDocuments;
   const tier = authUser?.subscriptionTier ?? 'free';
   const canUseUltraModel = isAuthenticated && (tier === 'cafa_pro' || tier === 'cafa_max');
   const availableChatModelOptions = useMemo(
@@ -400,11 +461,153 @@ export default function ChatScreen() {
     AccessibilityInfo.announceForAccessibility?.(message);
   }, []);
   const rotateStarterPrompts = useCallback(() => {
+    if (screenMode === 'image-to-video') {
+      setStarterPrompts([
+        'Generate a video from this image with soft cinematic camera movement.',
+        'Turn this image into a short product reveal video with subtle motion.',
+        'Animate this image into a dramatic scene with slow zoom and drifting light.',
+      ]);
+      return;
+    }
+    if (screenMode === 'edit-image') {
+      setStarterPrompts([
+        'Edit this image by cleaning the background and improving the lighting.',
+        'Retouch this image to look sharper, brighter, and more polished.',
+        'Transform this image into a premium brand-style visual with better color balance.',
+      ]);
+      return;
+    }
     const selected = starterPromptCyclerRef.current();
     if (selected.length) {
       setStarterPrompts(selected);
     }
+  }, [screenMode]);
+
+  const isLikelyImageEditIntent = useCallback((value: string) => {
+    const normalized = value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return false;
+    const editVerb =
+      /\b(edit|retouch|enhance|improve|fix|clean|cleanup|touch up|touchup|remove|replace|erase|crop|upscale|sharpen|brighten|blur|restore)\b/.test(normalized);
+    const imageCue =
+      /\b(image|photo|picture|background|lighting|colors?|face|skin|object|logo)\b/.test(normalized);
+    return editVerb && imageCue;
   }, []);
+
+  const getImageRequirementConfig = useCallback((
+    prompt: string,
+    attachments: AttachedAsset[],
+  ): ImageRequirementConfig | null => {
+    const hasImageAttachment = attachments.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
+    if (hasImageAttachment) return null;
+
+    const isVideoIntent = Boolean(extractVideoPrompt(prompt)) || isLikelyVideoGenerationIntent(prompt);
+    const isEditIntent = isLikelyImageEditIntent(prompt);
+
+    if (screenMode === 'image-to-video' && isVideoIntent) {
+      return {
+        title: 'Add an image first',
+        description: 'Upload an image before sending this prompt so Cafa AI can generate a video from it.',
+        ctaLabel: 'Upload image',
+        iconName: 'image-outline',
+      };
+    }
+
+    if (screenMode === 'edit-image' && isEditIntent) {
+      return {
+        title: 'Add an image first',
+        description: 'Upload an image before sending this prompt so Cafa AI can edit it for you.',
+        ctaLabel: 'Upload image',
+        iconName: 'image-outline',
+      };
+    }
+
+    return null;
+  }, [isLikelyImageEditIntent, screenMode]);
+
+  const getScreenHandoffConfig = useCallback((
+    prompt: string,
+    attachments: AttachedAsset[],
+  ): ScreenHandoffConfig | null => {
+    const hasImageAttachment = attachments.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
+    const isVideoIntent = Boolean(extractVideoPrompt(prompt)) || isLikelyVideoGenerationIntent(prompt);
+    const isEditIntent = isLikelyImageEditIntent(prompt);
+
+    if (screenMode === 'image-to-video') {
+      if (hasImageAttachment && isEditIntent) {
+        return {
+          target: 'edit-image',
+          title: 'Better in Edit image',
+          description: 'This request looks like editing an uploaded image. Use the Edit image screen for that workflow.',
+          ctaLabel: 'Open Edit image',
+          iconName: 'color-wand-outline',
+        };
+      }
+      if (!hasImageAttachment && isVideoIntent) {
+        return null;
+      }
+      if (!isVideoIntent) {
+        return {
+          target: 'index',
+          title: 'Use main chat for this',
+          description: 'This screen is only for generating a video from an uploaded image. For anything else, continue in the main chat.',
+          ctaLabel: 'Open main chat',
+          iconName: 'chatbubble-ellipses-outline',
+        };
+      }
+      return null;
+    }
+
+    if (screenMode === 'edit-image') {
+      if (hasImageAttachment && isVideoIntent) {
+        return {
+          target: 'image-to-video',
+          title: 'Better in Image-to-video',
+          description: 'This request looks like turning an uploaded image into a video. Use the dedicated Image-to-video screen for that flow.',
+          ctaLabel: 'Open Image-to-video',
+          iconName: 'film-outline',
+        };
+      }
+      if (!hasImageAttachment && isEditIntent) {
+        return null;
+      }
+      if (!isEditIntent) {
+        return {
+          target: 'index',
+          title: 'Use main chat for this',
+          description: 'This screen is only for editing an uploaded image. For general requests, continue in the main chat.',
+          ctaLabel: 'Open main chat',
+          iconName: 'chatbubble-ellipses-outline',
+        };
+      }
+      return null;
+    }
+
+    if (hasImageAttachment && isVideoIntent) {
+      return {
+        target: 'image-to-video',
+        title: 'Better in Image-to-video',
+        description: 'This request looks like turning an uploaded image into a video. Use the dedicated Image-to-video screen for that flow.',
+        ctaLabel: 'Open Image-to-video',
+        iconName: 'film-outline',
+      };
+    }
+
+    if (hasImageAttachment && isEditIntent) {
+      return {
+        target: 'edit-image',
+        title: 'Better in Edit image',
+        description: 'This request looks like editing an uploaded image. Use the Edit image screen for a cleaner workflow.',
+        ctaLabel: 'Open Edit image',
+        iconName: 'color-wand-outline',
+      };
+    }
+
+    return null;
+  }, [isLikelyImageEditIntent, screenMode]);
 
   const jumpToReferencedMedia = (reference: ComposerMediaReference) => {
     const index = messages.findIndex((message) => {
@@ -440,6 +643,14 @@ export default function ChatScreen() {
     hapticSelection();
     showTransientNotice(t('chat.reference.jumpSuccess'));
   };
+
+  const openHandoffTarget = useCallback((target: 'index' | 'image-to-video' | 'edit-image') => {
+    if (target === 'index') {
+      void router.push('/(drawer)');
+      return;
+    }
+    void router.push(`/${target}`);
+  }, []);
 
   useEffect(() => () => {
     if (referencedMediaHighlightTimerRef.current) {
@@ -518,12 +729,6 @@ export default function ChatScreen() {
     }
     return null;
   }, [resolveBackendAssetUrl]);
-
-  const isPdfAttachment = useCallback((attachment: UiMessageAttachment) => {
-    const mime = (attachment.mimeType ?? '').toLowerCase();
-    const name = (attachment.originalName ?? '').toLowerCase();
-    return mime.includes('application/pdf') || name.endsWith('.pdf');
-  }, []);
 
   const isMarkdownAttachment = useCallback((attachment: UiMessageAttachment) => {
     const mime = (attachment.mimeType ?? '').toLowerCase();
@@ -1375,6 +1580,8 @@ export default function ChatScreen() {
   ) => {
     const textColor = options?.textColor ?? colors.textPrimary;
     const isCode = options?.isCode ?? false;
+    const linkColor = isDark ? '#8FD3FF' : '#0E5DA8';
+    const linkBackgroundColor = isDark ? 'rgba(143, 211, 255, 0.14)' : 'rgba(14, 93, 168, 0.10)';
     if (
       isCode
       || (
@@ -1411,9 +1618,12 @@ export default function ChatScreen() {
               }}
               suppressHighlighting
               style={{
-                color: colors.primary,
-                textDecorationLine: 'underline',
-                fontWeight: '600',
+                color: linkColor,
+                fontWeight: '700',
+                backgroundColor: linkBackgroundColor,
+                paddingHorizontal: 4,
+                paddingVertical: 1,
+                borderRadius: 6,
               }}
             >
               {label}
@@ -1463,7 +1673,7 @@ export default function ChatScreen() {
     }
 
     return result.length ? result : content;
-  }, [colors.primary, colors.textPrimary, isDark, openInAppBrowser]);
+  }, [colors.textPrimary, isDark, openInAppBrowser]);
 
   type PrismTokenNode = string | {
     type: string;
@@ -1568,6 +1778,49 @@ export default function ChatScreen() {
     }
   }, [renderCodeTokens]);
 
+  const normalizeAssistantSearchResponse = useCallback((content: string) => {
+    if (!content.includes('](')) return content;
+
+    const normalizedNewlines = content.replace(/\r\n/g, '\n');
+    const sourceSectionMatch = /\nSources:\n([\s\S]+)$/i.exec(normalizedNewlines);
+    const sourceLines = sourceSectionMatch?.[1]
+      ?.split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => /^\d+\.\s+\[.+\]\(https?:\/\/.+\)$/.test(line)) ?? [];
+
+    const bodyWithoutSources = sourceSectionMatch
+      ? normalizedNewlines.slice(0, sourceSectionMatch.index).trim()
+      : normalizedNewlines.trim();
+
+    const compactBody = bodyWithoutSources
+      .split('\n')
+      .filter((line, index, lines) => {
+        const trimmed = line.trim();
+        const isStandaloneLink = /^\[.+\]\(https?:\/\/.+\)$/.test(trimmed);
+        if (!isStandaloneLink) return true;
+        const nextNonEmpty = lines.slice(index + 1).find((candidate) => candidate.trim().length > 0)?.trim() ?? '';
+        return !nextNonEmpty.startsWith('**');
+      })
+      .map((line) => line.replace(/\(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\)/g, 'Source: [$1]($2)'))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    if (!sourceLines.length) {
+      return compactBody;
+    }
+
+    const compactSources = sourceLines.map((line, index) => {
+      const match = /^\d+\.\s+\[([^\]]+)\]\((https?:\/\/.+)\)$/.exec(line);
+      if (!match) return line;
+      const [, label, url] = match;
+      return `${index + 1}. [${label}](${url})`;
+    });
+
+    return `${compactBody}\n\n**Sources**\n${compactSources.join('\n')}`;
+  }, []);
+
   const normalizeCodeLanguage = useCallback((rawLanguage?: string) => {
     const language = (rawLanguage ?? '').trim().toLowerCase();
     if (!language) return 'text';
@@ -1602,7 +1855,7 @@ export default function ChatScreen() {
       );
     }
 
-    const normalized = content.replace(/\r\n/g, '\n');
+    const normalized = normalizeAssistantSearchResponse(content).replace(/\r\n/g, '\n');
     const lines = normalized.split('\n');
     const nodes: ReactNode[] = [];
     let paragraphBuffer: string[] = [];
@@ -1809,12 +2062,12 @@ export default function ChatScreen() {
     if (!nodes.length) {
       return (
         <Text selectable style={{ color: textColor, lineHeight: 20 }}>
-          {content}
+          {normalizeAssistantSearchResponse(content)}
         </Text>
       );
     }
     return nodes;
-  }, [colors.primary, colors.textPrimary, copiedCodeBlockId, isDark, normalizeCodeLanguage, renderHighlightedCode, renderInlineMarkdown]);
+  }, [colors.primary, colors.textPrimary, copiedCodeBlockId, isDark, normalizeAssistantSearchResponse, normalizeCodeLanguage, renderHighlightedCode, renderInlineMarkdown]);
 
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
     hapticSelection();
@@ -1956,15 +2209,115 @@ export default function ChatScreen() {
   }, []);
 
   const handleSend = () => {
-    const run = async () => {
-      const trimmed = inputValueRef.current.trim();
-      const attachmentsForSend = [...attachedAssets];
-      const attemptId = ++sendAttemptSeqRef.current;
-      const now = Date.now();
+      const run = async () => {
+        const trimmed = inputValueRef.current.trim();
+        const attachmentsForSend = [...attachedAssets];
+        ++sendAttemptSeqRef.current;
+        const now = Date.now();
       const sinceLastAttemptMs = now - lastSendAttemptAtRef.current;
       const SEND_DEBOUNCE_MS = 450;
+      let lastEndpoint = `${API_BASE_URL}/chat`;
+      let lastIdempotencyKey = '';
+      let activeAuthConversationId: string | null = authConversationId ?? null;
 
       if (!trimmed && attachmentsForSend.length === 0) {
+        return;
+      }
+
+      const imageRequirement = getImageRequirementConfig(trimmed, attachmentsForSend);
+      if (imageRequirement) {
+        lastEndpoint = `${API_BASE_URL}/chat/image-required`;
+        logSendPayload({
+          endpoint: lastEndpoint,
+          mode: 'frontend-image-required-blocked',
+          conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+          screenMode,
+          message: trimmed,
+          language,
+          model: activeModel,
+          attachments: attachmentsForSend.map((asset) => ({
+            id: asset.id,
+            label: asset.label,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType,
+            uri: asset.uri,
+          })),
+        });
+        setMessages((prev) => {
+          const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+          return [
+            ...withoutSyntheticWelcome,
+            {
+              id: `assistant-image-required-${Date.now()}`,
+              role: 'assistant',
+              content: '',
+              createdAt: Date.now(),
+              imageRequirement,
+            },
+          ];
+        });
+        autoScrollEnabledRef.current = true;
+        setShowScrollToBottom(false);
+        scrollToBottom();
+        return;
+      }
+
+      const screenHandoff = getScreenHandoffConfig(trimmed, attachmentsForSend);
+      if (screenHandoff) {
+        lastEndpoint = `${API_BASE_URL}/chat/intent-handoff`;
+        logSendPayload({
+          endpoint: lastEndpoint,
+          mode: 'frontend-intent-handoff-blocked',
+          conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+          screenMode,
+          message: trimmed,
+          language,
+          model: activeModel,
+          reference: composerMediaReference ?? null,
+          attachments: attachmentsForSend.map((asset) => ({
+            id: asset.id,
+            label: asset.label,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType,
+            uri: asset.uri,
+          })),
+          handoffTarget: screenHandoff.target,
+        });
+        const userMessage: UiMessage = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: trimmed,
+          createdAt: Date.now(),
+          attachments: attachmentsForSend.map((asset) => ({
+            id: asset.id,
+            originalName: asset.fileName ?? asset.label,
+            mimeType: asset.mimeType,
+            fileType: (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? 'image' : 'document',
+            url: asset.uri,
+            thumbnailUrl: asset.uri,
+          })),
+        };
+        const assistantMessage: UiMessage = {
+          id: `assistant-handoff-${Date.now()}`,
+          role: 'assistant',
+          content: '',
+          createdAt: Date.now() + 1,
+          screenHandoff,
+        };
+        setAttachmentMenuOpen(false);
+        setModelMenuOpen(false);
+        if (attachmentsForSend.length) {
+          setAttachedAssets([]);
+        }
+        inputValueRef.current = '';
+        setInput('');
+        setMessages((prev) => {
+          const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+          return [...withoutSyntheticWelcome, userMessage, assistantMessage];
+        });
+        autoScrollEnabledRef.current = true;
+        setShowScrollToBottom(false);
+        scrollToBottom();
         return;
       }
 
@@ -1978,9 +2331,6 @@ export default function ChatScreen() {
       lastSendAttemptAtRef.current = now;
       isSendRunInFlightRef.current = true;
 
-      let lastEndpoint = `${API_BASE_URL}/chat`;
-      let lastIdempotencyKey = '';
-      let activeAuthConversationId: string | null = null;
       let requestKind: 'chat' | 'image' | 'video' = 'chat';
       let usedVideoReferenceFollowUp = false;
       let requestedVideoPrompt = '';
@@ -1989,11 +2339,27 @@ export default function ChatScreen() {
       let didMutateChats = false;
       let responseLogEmitted = false;
       let assistantResponseBuffer = '';
+      const logResponsePayloadForAttempt = (responsePayload: Record<string, unknown>) => {
+        if (!__DEV__ || responseLogEmitted) return;
+        responseLogEmitted = true;
+        const payload = {
+          endpoint: lastEndpoint,
+          requestKind,
+          isAuthenticated,
+          conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+          idempotencyKey: lastIdempotencyKey || null,
+          ...responsePayload,
+        };
+        try {
+          console.log('[chat-send:response]', JSON.stringify(payload));
+        } catch {
+          console.log('[chat-send:response]', payload);
+        }
+      };
       const logParsedResponseForAttempt = (raw: string) => {
-        if (responseLogEmitted) return;
         const parsedText = raw.trim();
         if (!parsedText) return;
-        responseLogEmitted = true;
+        logResponsePayloadForAttempt({ responseText: parsedText });
       };
 
       const userMessage: UiMessage = {
@@ -2066,8 +2432,8 @@ export default function ChatScreen() {
 
       try {
         if (!isAuthenticated) {
-          if (isMediaGenerationPrompt(trimmed)) {
-                setMessages((prev) =>
+          if (screenMode !== 'chat' || isMediaGenerationPrompt(trimmed)) {
+            setMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? {
@@ -2166,20 +2532,6 @@ export default function ChatScreen() {
           return;
         }
 
-        let conversationId = authConversationId;
-        if (!conversationId) {
-          lastEndpoint = `${API_BASE_URL}/chat`;
-          const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
-          conversationId = created.conversationId;
-          setAuthConversationId(conversationId);
-          router.setParams({ conversationId, newChat: undefined });
-          didMutateChats = true;
-        }
-        if (conversationId !== params.conversationId) {
-          router.setParams({ conversationId, newChat: undefined });
-        }
-        activeAuthConversationId = conversationId;
-
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         const extractedImagePrompt = extractImagePrompt(trimmed);
         const inferredImagePrompt = !extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
@@ -2213,6 +2565,217 @@ export default function ChatScreen() {
             )
           );
 
+        if (screenMode === 'image-to-video') {
+          const imageAttachmentForVideo = imageAttachmentForVideoIntent;
+          if (!imageAttachmentForVideo) {
+            throw new Error('Please upload an image to continue.');
+          }
+
+          requestKind = 'video';
+          if (videoGenerationInFlightRef.current || videoFromImageInFlightRef.current) {
+            const inProgressMessage = t('chat.videoGenerationInProgress');
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: inProgressMessage,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+            showTransientNotice(inProgressMessage, 5000);
+            return;
+          }
+
+          const now = Date.now();
+          const elapsedSinceLastStart = now - lastVideoGenerationStartAtRef.current;
+          if (elapsedSinceLastStart < 8000) {
+            const waitSeconds = Math.max(1, Math.ceil((8000 - elapsedSinceLastStart) / 1000));
+            const cooldownMessage = t('chat.videoGenerationCooldown', { seconds: `${waitSeconds}` });
+            setMessages((prev) =>
+              prev.map((item) =>
+                item.id === assistantId
+                  ? {
+                      ...item,
+                      content: cooldownMessage,
+                      isVideoGenerating: false,
+                    }
+                  : item,
+              ),
+            );
+            showTransientNotice(cooldownMessage, 5000);
+            return;
+          }
+
+          videoGenerationInFlightRef.current = true;
+          videoFromImageInFlightRef.current = true;
+          requestedVideoPrompt = trimmed;
+          requestedVideoStartedAt = Date.now();
+          lastVideoGenerationStartAtRef.current = now;
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: trimmed,
+                    videoPrompt: trimmed,
+                    isVideoGenerating: true,
+                  }
+                : item,
+            ),
+          );
+
+          lastEndpoint = `${API_BASE_URL}/media/video/image-to-video`;
+          logSendPayload({
+            endpoint: lastEndpoint,
+            mode: 'auth-direct-media-image-to-video',
+            prompt: trimmed,
+            duration: 5,
+            aspectRatio: '16:9',
+            attachments: [
+              {
+                id: imageAttachmentForVideo.id,
+                label: imageAttachmentForVideo.label,
+                fileName: imageAttachmentForVideo.fileName,
+                mimeType: imageAttachmentForVideo.mimeType,
+                uri: imageAttachmentForVideo.uri,
+              },
+            ],
+          });
+
+          const generatedVideo = await generateVideoFromImageDirect({
+            prompt: trimmed,
+            durationSeconds: 5,
+            aspectRatio: '16:9',
+            image: {
+              uri: imageAttachmentForVideo.uri,
+              fileName: imageAttachmentForVideo.fileName ?? imageAttachmentForVideo.label,
+              mimeType: imageAttachmentForVideo.mimeType ?? 'image/jpeg',
+            },
+          });
+          const resolvedVideoUrl = resolveBackendAssetUrl(generatedVideo.videoUrl);
+          if (!resolvedVideoUrl) {
+            throw new Error('Could not generate video right now.');
+          }
+
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: trimmed,
+                    videoPrompt: trimmed,
+                    videoUrl: resolvedVideoUrl,
+                    isVideoGenerating: false,
+                  }
+                : item,
+            ),
+          );
+          logResponsePayloadForAttempt({
+            response: {
+              videoUrl: generatedVideo.videoUrl,
+              generationTime: generatedVideo.generationTime ?? null,
+              duration: generatedVideo.duration ?? 5,
+            },
+          });
+          hapticSuccess();
+          videoGenerationInFlightRef.current = false;
+          videoFromImageInFlightRef.current = false;
+          didMutateChats = true;
+          return;
+        }
+
+        if (screenMode === 'edit-image') {
+          const imageAttachmentForEdit = attachmentsForSend.find((asset) =>
+            (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
+          );
+          if (!imageAttachmentForEdit) {
+            throw new Error('Please upload an image to continue.');
+          }
+
+          requestKind = 'image';
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: trimmed,
+                    imagePrompt: trimmed,
+                    isImageGenerating: true,
+                  }
+                : item,
+            ),
+          );
+
+          lastEndpoint = `${API_BASE_URL}/media/image/edit`;
+          logSendPayload({
+            endpoint: lastEndpoint,
+            mode: 'auth-direct-media-image-edit',
+            prompt: trimmed,
+            attachments: [
+              {
+                id: imageAttachmentForEdit.id,
+                label: imageAttachmentForEdit.label,
+                fileName: imageAttachmentForEdit.fileName,
+                mimeType: imageAttachmentForEdit.mimeType,
+                uri: imageAttachmentForEdit.uri,
+              },
+            ],
+          });
+
+          const editedImage = await editImage({
+            prompt: trimmed,
+            image: {
+              uri: imageAttachmentForEdit.uri,
+              fileName: imageAttachmentForEdit.fileName ?? imageAttachmentForEdit.label,
+              mimeType: imageAttachmentForEdit.mimeType ?? 'image/jpeg',
+            },
+          });
+          const resolvedImageUrl = resolveBackendAssetUrl(editedImage.imageUrl);
+          if (!resolvedImageUrl) {
+            throw new Error('Could not edit image right now.');
+          }
+
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId
+                ? {
+                    ...item,
+                    content: trimmed,
+                    imagePrompt: trimmed,
+                    imageUrl: resolvedImageUrl,
+                    isImageGenerating: false,
+                  }
+                : item,
+            ),
+          );
+          logResponsePayloadForAttempt({
+            response: {
+              imageUrl: editedImage.imageUrl,
+              generationTime: editedImage.generationTime ?? null,
+            },
+          });
+          hapticSuccess();
+          didMutateChats = true;
+          return;
+        }
+
+        let conversationId = authConversationId;
+        if (!conversationId) {
+          lastEndpoint = `${API_BASE_URL}/chat`;
+          const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
+          conversationId = created.conversationId;
+          setAuthConversationId(conversationId);
+          router.setParams({ conversationId, newChat: undefined });
+          didMutateChats = true;
+        }
+        if (conversationId !== params.conversationId) {
+          router.setParams({ conversationId, newChat: undefined });
+        }
+        activeAuthConversationId = conversationId;
+
         if (shouldUseVideoFollowUp || shouldUseImageFollowUp || shouldUseReferencedNonStreamChat) {
           requestKind = shouldUseVideoFollowUp ? 'video' : shouldUseImageFollowUp ? 'image' : 'chat';
           usedVideoReferenceFollowUp = shouldUseVideoFollowUp;
@@ -2243,7 +2806,7 @@ export default function ChatScreen() {
             reference: composerMediaReference ?? null,
             model: activeModel,
           });
-          await sendAuthenticatedMessageNonStream(
+          const nonStreamResult = await sendAuthenticatedMessageNonStream(
             conversationId,
             trimmed,
             activeModel,
@@ -2252,6 +2815,18 @@ export default function ChatScreen() {
           );
           const detail = await getAuthenticatedConversation(conversationId, { force: true });
           applyAuthConversationDetail(detail);
+          const latestAssistant = [...detail.messages]
+            .reverse()
+            .find((item) => (
+              item.role === 'assistant'
+              && item.content.trim().length > 0
+              && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+            ));
+          if (latestAssistant?.content) {
+            logParsedResponseForAttempt(latestAssistant.content);
+          } else if (nonStreamResult.data?.recoveredText) {
+            logParsedResponseForAttempt(nonStreamResult.data.recoveredText);
+          }
           hapticSuccess();
           didMutateChats = true;
           return;
@@ -3786,7 +4361,7 @@ export default function ChatScreen() {
     rotateStarterPrompts();
     router.setParams({ conversationId: undefined, newChat: undefined });
     setIsHydratingAuthChat(false);
-  }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts, router]);
+  }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts]);
 
   useEffect(() => {
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
@@ -3995,10 +4570,10 @@ export default function ChatScreen() {
     if (!isAuthenticated) return;
     announceForA11y(
       attachmentMenuOpen
-        ? 'Attachment menu opened. Choose image or document.'
+        ? screenConfig.attachmentMenuAnnouncement
         : 'Attachment menu closed.',
     );
-  }, [announceForA11y, attachmentMenuOpen, isAuthenticated]);
+  }, [announceForA11y, attachmentMenuOpen, isAuthenticated, screenConfig.attachmentMenuAnnouncement]);
 
   useEffect(() => {
     if (activeModel === 'ultra' && !canUseUltraModel) {
@@ -4390,6 +4965,8 @@ export default function ChatScreen() {
                 const isArtifactGenerating = !isUser && item.isArtifactGenerating && !item.videoUrl && !item.imageUrl;
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
+                const isScreenHandoffMessage = !isUser && Boolean(item.screenHandoff);
+                const isImageRequirementMessage = !isUser && Boolean(item.imageRequirement);
                 const isReferencedMediaHighlighted = highlightedReferencedMediaTarget?.messageId === item.id
                   && (
                     (highlightedReferencedMediaTarget.kind === 'image' && isImageMessage)
@@ -4404,7 +4981,7 @@ export default function ChatScreen() {
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View
-                      className="max-w-[88%] rounded-2xl"
+                      className={`${isScreenHandoffMessage || isImageRequirementMessage ? 'w-[96%] max-w-[96%]' : 'max-w-[88%]'} rounded-2xl`}
                       style={highlightedMessageId === item.id
                         ? {
                             borderWidth: 1,
@@ -4441,7 +5018,31 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
+                      {isScreenHandoffMessage ? (
+                        <ScreenHandoffCard
+                          title={item.screenHandoff!.title}
+                          description={item.screenHandoff!.description}
+                          ctaLabel={item.screenHandoff!.ctaLabel}
+                          iconName={item.screenHandoff!.iconName as keyof typeof Ionicons.glyphMap}
+                          isDark={isDark}
+                          colors={colors}
+                          onPress={() => openHandoffTarget(item.screenHandoff!.target)}
+                        />
+                      ) : null}
+
+                      {isImageRequirementMessage ? (
+                        <ImageRequirementCard
+                          title={item.imageRequirement!.title}
+                          description={item.imageRequirement!.description}
+                          ctaLabel={item.imageRequirement!.ctaLabel}
+                          iconName={item.imageRequirement!.iconName as keyof typeof Ionicons.glyphMap}
+                          isDark={isDark}
+                          colors={colors}
+                          onPress={() => { void pickAttachment(); }}
+                        />
+                      ) : null}
+
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
                         <View style={{ position: 'relative' }}>
                           <Pressable
                             onPress={() => {
@@ -4508,7 +5109,7 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
                         <View style={{ position: 'relative' }}>
                           <ChatVideoCard
                             uri={item.videoUrl!}
@@ -4541,7 +5142,7 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
                         <View className="mb-2 gap-1.5">
                           {!isImageMessage && !isVideoMessage ? imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
@@ -4649,7 +5250,7 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable
@@ -4684,12 +5285,13 @@ export default function ChatScreen() {
                         </View>
                       ) : null}
 
-                      {!isUser && !isImageGenerating && isImageMessage ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && isImageMessage ? (
                         <ImageMessageActionsRow
                           reaction={reaction}
                           primaryColor={colors.primary}
                           borderColor={colors.border}
                           iconColor={colors.textSecondary}
+                          showReference={screenMode === 'chat'}
                           onCopyPrompt={() => {
                             void copyMessage(item.imagePrompt || item.content);
                           }}
@@ -4727,12 +5329,13 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isUser && !isVideoGenerating && isVideoMessage ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isVideoGenerating && isVideoMessage ? (
                         <ImageMessageActionsRow
                           reaction={reaction}
                           primaryColor={colors.primary}
                           borderColor={colors.border}
                           iconColor={colors.textSecondary}
+                          showReference={screenMode === 'chat'}
                           onCopyPrompt={() => {
                             void copyMessage(item.videoPrompt || item.content);
                           }}
@@ -4770,7 +5373,7 @@ export default function ChatScreen() {
                         />
                       ) : null}
 
-                      {!isUser && !isImageMessage && !isVideoMessage && item.content.trim() ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
                         <MessageActionsRow
                           isReading={isReading}
                           reaction={reaction}
@@ -4957,7 +5560,7 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
-          {isAuthenticated && composerMediaReference ? (
+          {screenMode === 'chat' && isAuthenticated && composerMediaReference ? (
             <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
               <View
                 className="flex-row items-center rounded-full border px-2 py-0.5"
@@ -5056,14 +5659,14 @@ export default function ChatScreen() {
                       <Pressable
                         onPress={pickAttachment}
                         accessibilityRole="button"
-                        accessibilityLabel={t('chat.attachImage')}
-                        accessibilityHint="Opens your photo library to select an image."
+                        accessibilityLabel={screenConfig.attachImageLabel}
+                        accessibilityHint={screenConfig.attachImageHint}
                         className="flex-row items-center rounded-md px-2 py-2"
                       >
                         <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
-                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachImage')}</Text>
+                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{screenConfig.attachImageLabel}</Text>
                       </Pressable>
-                      {canAttachDocuments ? (
+                      {allowDocumentAttachment ? (
                         <Pressable
                           onPress={pickDocumentAttachment}
                           accessibilityRole="button"

@@ -1,15 +1,14 @@
 import { memo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView } from 'expo-video';
 
 import { useAppTheme, useI18n } from '@/hooks';
 import { VideoHistoryItem } from '@/types';
 
 type VideoGalleryCardProps = {
   item: VideoHistoryItem;
-  videoUrl: string;
   width: number;
+  onOpen: (item: VideoHistoryItem) => void;
   onDownload: (item: VideoHistoryItem) => void;
   onDelete: (item: VideoHistoryItem) => void;
 };
@@ -22,14 +21,10 @@ function formatDate(value: string) {
   }
 }
 
-function VideoGalleryCardImpl({ item, videoUrl, width, onDownload, onDelete }: VideoGalleryCardProps) {
+function VideoGalleryCardImpl({ item, width, onOpen, onDownload, onDelete }: VideoGalleryCardProps) {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const videoHeight = Math.round(width * 9 / 16);
-  const player = useVideoPlayer(videoUrl, (instance) => {
-    instance.loop = false;
-    instance.muted = true;
-  });
 
   return (
     <View
@@ -50,14 +45,39 @@ function VideoGalleryCardImpl({ item, videoUrl, width, onDownload, onDelete }: V
           borderBottomColor: isDark ? 'rgba(95,127,184,0.18)' : 'rgba(32,64,121,0.18)',
         }}
       >
-        <VideoView
-          key={videoUrl}
-          style={StyleSheet.absoluteFillObject}
-          player={player}
-          nativeControls
-          contentFit="cover"
+        <Pressable
+          accessibilityRole="button"
           accessibilityLabel={t('chat.generatedVideoAlt')}
-        />
+          accessibilityHint="Opens this video in a focused player."
+          onPress={() => onOpen(item)}
+          className="flex-1 items-center justify-center"
+          style={{
+            backgroundColor: isDark ? 'rgba(8,12,20,0.9)' : 'rgba(234,242,255,0.95)',
+          }}
+        >
+          <View
+            className="items-center justify-center rounded-full"
+            style={{
+              width: 56,
+              height: 56,
+              backgroundColor: isDark ? 'rgba(95,127,184,0.2)' : 'rgba(32,64,121,0.12)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(95,127,184,0.28)' : 'rgba(32,64,121,0.2)',
+            }}
+          >
+            <Ionicons name="play" size={22} color={colors.primary} style={{ marginLeft: 2 }} />
+          </View>
+          <Text
+            style={{
+              marginTop: 10,
+              color: colors.textSecondary,
+              fontSize: 12,
+              fontWeight: '600',
+            }}
+          >
+            Open video
+          </Text>
+        </Pressable>
       </View>
 
       <View className="px-3 pb-3 pt-2">

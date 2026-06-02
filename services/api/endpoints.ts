@@ -48,6 +48,11 @@ export const apiEndpoints = {
     downloadZipJob: (jobId: string) => `${API_BASE_PATH}/videos/download-zip/${jobId}`,
   },
 
+  media: {
+    imageEdit: `${API_BASE_PATH}/media/image/edit`,
+    imageToVideo: `${API_BASE_PATH}/media/video/image-to-video`,
+  },
+
   artifacts: {
     list: `${API_BASE_PATH}/artifacts`,
     download: (artifactId: string) => `${API_BASE_PATH}/artifacts/${encodeURIComponent(artifactId)}/download`,

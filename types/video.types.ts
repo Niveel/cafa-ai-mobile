@@ -5,6 +5,23 @@ export type GenerateVideoRequest = {
   aspectRatio?: '16:9' | '9:16' | '1:1';
 };
 
+export type GenerateVideoFromImageDirectRequest = {
+  prompt: string;
+  durationSeconds?: 5 | 10;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
+  image: {
+    uri: string;
+    fileName?: string;
+    mimeType?: string;
+  };
+};
+
+export type GenerateVideoFromImageDirectResult = {
+  videoUrl: string;
+  generationTime?: number;
+  duration?: number;
+};
+
 export type VideoGenerationJob = {
   jobId: string;
   status: 'queued' | 'processing' | 'completed' | 'failed';

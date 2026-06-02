@@ -12,6 +12,7 @@ type ImageMessageActionsRowProps = {
   onDownload: () => void;
   onShare: () => void;
   onReference: () => void;
+  showReference?: boolean;
   isShareBusy?: boolean;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
   labels: {
@@ -41,6 +42,7 @@ export function ImageMessageActionsRow({
   onDownload,
   onShare,
   onReference,
+  showReference = true,
   isShareBusy = false,
   onTooltip,
   labels,
@@ -109,18 +111,20 @@ export function ImageMessageActionsRow({
         <Ionicons name="download-outline" size={13} color={iconColor} />
       </Pressable>
 
-      <Pressable
-        onPress={onReference}
-        delayLongPress={180}
-        onLongPress={(event) => onTooltip(labels.reference, event)}
-        accessibilityRole="button"
-        accessibilityLabel={labels.reference}
-        accessibilityHint={labels.referenceHint}
-        className="h-7 w-7 items-center justify-center rounded-full border"
-        style={{ borderColor }}
-      >
-        <Ionicons name="link-outline" size={13} color={iconColor} />
-      </Pressable>
+      {showReference ? (
+        <Pressable
+          onPress={onReference}
+          delayLongPress={180}
+          onLongPress={(event) => onTooltip(labels.reference, event)}
+          accessibilityRole="button"
+          accessibilityLabel={labels.reference}
+          accessibilityHint={labels.referenceHint}
+          className="h-7 w-7 items-center justify-center rounded-full border"
+          style={{ borderColor }}
+        >
+          <Ionicons name="link-outline" size={13} color={iconColor} />
+        </Pressable>
+      ) : null}
 
       <Pressable
         onPress={onShare}

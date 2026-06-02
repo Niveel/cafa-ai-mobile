@@ -6,6 +6,20 @@ export type GenerateImageRequest = {
   style?: string;
 };
 
+export type EditImageRequest = {
+  prompt: string;
+  image: {
+    uri: string;
+    fileName?: string;
+    mimeType?: string;
+  };
+};
+
+export type EditImageResult = {
+  imageUrl: string;
+  generationTime?: number;
+};
+
 export type ImageHistoryItem = {
   id: string;
   prompt: string;

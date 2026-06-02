@@ -4,11 +4,13 @@ import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { GenerateVideoRequest, VideoGenerationJob, VideoHistoryItem, VideoHistoryPage, VideoHistoryQuery } from '@/types';
+import { GenerateVideoFromImageDirectRequest, GenerateVideoFromImageDirectResult, GenerateVideoRequest, VideoGenerationJob, VideoHistoryItem, VideoHistoryPage, VideoHistoryQuery } from '@/types';
 
 const VIDEO_HISTORY_MIN_REQUEST_GAP_MS = 1200;
 const VIDEO_HISTORY_RATE_LIMIT_BACKOFF_MS = 12000;
 const VIDEO_HISTORY_CACHE_TTL_MS = 10000;
+const MEDIA_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MEDIA_MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
 let videoHistoryInFlightPromise: Promise<VideoHistoryPage> | null = null;
 let videoHistoryLastRequestedAt = 0;
@@ -80,6 +82,36 @@ async function assertReadableUploadUri(uri: string) {
     if ((error as ApiMappedError)?.code) throw error;
     throw createVideoTransportError('Could not read selected image from local storage.', 'VIDEO_FROM_IMAGE_FILE_UNREADABLE', 0);
   }
+}
+
+function inferUploadMimeType(fileName?: string, providedMimeType?: string) {
+  const normalizedProvided = (providedMimeType ?? '').trim().toLowerCase();
+  if (normalizedProvided) return normalizedProvided;
+  const normalizedName = (fileName ?? '').toLowerCase();
+  if (normalizedName.endsWith('.png')) return 'image/png';
+  if (normalizedName.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+async function validateMediaImageUpload(image: GenerateVideoFromImageDirectRequest['image']) {
+  await assertReadableUploadUri(image.uri);
+
+  const mimeType = inferUploadMimeType(image.fileName, image.mimeType);
+  if (!MEDIA_ALLOWED_IMAGE_TYPES.has(mimeType)) {
+    throw createVideoTransportError('Only JPEG, PNG, and WebP images are supported.', 'INVALID_FILE_TYPE', 400);
+  }
+
+  if (image.uri.startsWith('file://')) {
+    const info = await LegacyFileSystem.getInfoAsync(image.uri);
+    if (!info.exists) {
+      throw createVideoTransportError('The uploaded image appears to be empty or corrupted.', 'INVALID_IMAGE', 400);
+    }
+    if (typeof info.size === 'number' && info.size > MEDIA_MAX_IMAGE_SIZE_BYTES) {
+      throw createVideoTransportError('Image must be 10MB or smaller.', 'INVALID_IMAGE', 400);
+    }
+  }
+
+  return mimeType;
 }
 
 function isLikelyTransportNetworkError(error: unknown) {
@@ -178,6 +210,67 @@ export async function startVideoGenerationFromImage(request: {
   }
 
   throw createVideoTransportError('Could not start image-to-video upload due to network transport failure.', 'VIDEO_FROM_IMAGE_NETWORK_ERROR', 0);
+}
+
+export async function generateVideoFromImageDirect(request: GenerateVideoFromImageDirectRequest) {
+  captureEvent(AnalyticsEvents.videoGenerationFromImageStarted, {
+    hasPrompt: Boolean(request.prompt?.trim()),
+    aspectRatio: request.aspectRatio ?? null,
+    durationSeconds: request.durationSeconds ?? 5,
+    mode: 'direct-image-to-video',
+  });
+
+  const normalizedPrompt = request.prompt.trim();
+  if (!normalizedPrompt) {
+    throw createVideoTransportError('Please provide a prompt describing what you want.', 'MISSING_PROMPT', 400);
+  }
+
+  const normalizedMimeType = await validateMediaImageUpload(request.image);
+  const formData = new FormData();
+  formData.append('prompt', normalizedPrompt);
+  formData.append('duration', String(request.durationSeconds ?? 5));
+  formData.append('aspectRatio', request.aspectRatio ?? '16:9');
+  const imageFile = {
+    uri: request.image.uri,
+    name: request.image.fileName ?? `image-${Date.now()}.${normalizedMimeType === 'image/png' ? 'png' : normalizedMimeType === 'image/webp' ? 'webp' : 'jpg'}`,
+    type: normalizedMimeType,
+  } as unknown as { uri: string; name: string; type: string };
+  formData.append('image', imageFile as never);
+  formData.append('files', imageFile as never);
+
+  try {
+    const response: AxiosResponse<
+      | { success?: boolean; videoUrl?: string; generationTime?: number; duration?: number; message?: string; error?: string; code?: string }
+      | { data?: { videoUrl?: string; generationTime?: number; duration?: number }; success?: boolean; message?: string; error?: string; code?: string }
+    > = await apiClient.post(
+      apiEndpoints.media.imageToVideo,
+      formData,
+      {
+        timeout: 210_000,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+
+    const payload = response.data;
+    const rawResult = 'data' in payload && payload.data ? payload.data : payload;
+    const result = rawResult as GenerateVideoFromImageDirectResult & { videoUrl?: string };
+
+    if (payload?.success === false || !result?.videoUrl) {
+      const mapped = new Error(payload?.message ?? 'Video generation failed.') as ApiMappedError;
+      mapped.code = payload?.code ?? payload?.error;
+      mapped.status = response.status;
+      throw mapped;
+    }
+
+    captureEvent(AnalyticsEvents.videoGenerationFromImageCompleted, { mode: 'direct-image-to-video' });
+    return result as GenerateVideoFromImageDirectResult;
+  } catch (error) {
+    const mapped = mapApiError(error) as ApiMappedError;
+    throw mapped;
+  }
 }
 
 export async function pollVideoJob(jobId: string) {

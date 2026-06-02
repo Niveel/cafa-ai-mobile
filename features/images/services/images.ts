@@ -1,9 +1,57 @@
 import { AxiosResponse } from 'axios';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { ApiResponse, GenerateImageRequest, ImageHistoryItem, ImageHistoryPage, ImageHistoryQuery } from '@/types';
+import { ApiResponse, EditImageRequest, EditImageResult, GenerateImageRequest, ImageHistoryItem, ImageHistoryPage, ImageHistoryQuery } from '@/types';
+
+const MEDIA_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MEDIA_MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+
+type ApiMappedError = Error & {
+  code?: string;
+  status?: number;
+};
+
+function createMediaImageError(message: string, code: string, status?: number): ApiMappedError {
+  const error = new Error(message) as ApiMappedError;
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+function inferImageMimeType(fileName?: string, providedMimeType?: string) {
+  const normalizedProvided = (providedMimeType ?? '').trim().toLowerCase();
+  if (normalizedProvided) return normalizedProvided;
+  const normalizedName = (fileName ?? '').toLowerCase();
+  if (normalizedName.endsWith('.png')) return 'image/png';
+  if (normalizedName.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+async function validateEditableImageUpload(image: EditImageRequest['image']) {
+  if (!image.uri?.trim()) {
+    throw createMediaImageError('Please upload an image to continue.', 'MISSING_IMAGE', 400);
+  }
+
+  const mimeType = inferImageMimeType(image.fileName, image.mimeType);
+  if (!MEDIA_ALLOWED_IMAGE_TYPES.has(mimeType)) {
+    throw createMediaImageError('Only JPEG, PNG, and WebP images are supported.', 'INVALID_FILE_TYPE', 400);
+  }
+
+  if (image.uri.startsWith('file://')) {
+    const info = await LegacyFileSystem.getInfoAsync(image.uri);
+    if (!info.exists) {
+      throw createMediaImageError('The uploaded image appears to be empty or corrupted.', 'INVALID_IMAGE', 400);
+    }
+    if (typeof info.size === 'number' && info.size > MEDIA_MAX_IMAGE_SIZE_BYTES) {
+      throw createMediaImageError('Image must be 10MB or smaller.', 'INVALID_IMAGE', 400);
+    }
+  }
+
+  return mimeType;
+}
 
 export async function generateImage(request: GenerateImageRequest) {
   captureEvent(AnalyticsEvents.imageGenerationStarted, {
@@ -34,6 +82,63 @@ export async function generateImage(request: GenerateImageRequest) {
   } catch (error) {
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
     captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
+    throw mapped;
+  }
+}
+
+export async function editImage(request: EditImageRequest) {
+  captureEvent(AnalyticsEvents.imageGenerationStarted, {
+    hasPrompt: Boolean(request.prompt?.trim()),
+    mode: 'edit-image',
+  });
+
+  const normalizedPrompt = request.prompt.trim();
+  if (!normalizedPrompt) {
+    throw createMediaImageError('Please provide a prompt describing what you want.', 'MISSING_PROMPT', 400);
+  }
+
+  const normalizedMimeType = await validateEditableImageUpload(request.image);
+  const formData = new FormData();
+  formData.append('prompt', normalizedPrompt);
+  const imageFile = {
+    uri: request.image.uri,
+    name: request.image.fileName ?? `image-${Date.now()}.${normalizedMimeType === 'image/png' ? 'png' : normalizedMimeType === 'image/webp' ? 'webp' : 'jpg'}`,
+    type: normalizedMimeType,
+  } as unknown as { uri: string; name: string; type: string };
+  formData.append('image', imageFile as never);
+
+  try {
+    const response: AxiosResponse<
+      | { success?: boolean; imageUrl?: string; generationTime?: number; message?: string; error?: string; code?: string }
+      | { data?: { imageUrl?: string; generationTime?: number }; success?: boolean; message?: string; error?: string; code?: string }
+    > = await apiClient.post(
+      apiEndpoints.media.imageEdit,
+      formData,
+      {
+        timeout: 45_000,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'multipart/form-data',
+        },
+      },
+    );
+
+    const payload = response.data;
+    const rawResult = 'data' in payload && payload.data ? payload.data : payload;
+    const result = rawResult as EditImageResult & { imageUrl?: string };
+
+    if (payload?.success === false || !result?.imageUrl) {
+      const mapped = new Error(payload?.message ?? 'Image editing failed.') as ApiMappedError;
+      mapped.code = payload?.code ?? payload?.error;
+      mapped.status = response.status;
+      throw mapped;
+    }
+
+    captureEvent(AnalyticsEvents.imageGenerationCompleted, { mode: 'edit-image' });
+    return result as EditImageResult;
+  } catch (error) {
+    const mapped = mapApiError(error) as ApiMappedError;
+    captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null, mode: 'edit-image' });
     throw mapped;
   }
 }

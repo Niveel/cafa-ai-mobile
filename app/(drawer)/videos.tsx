@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,7 +7,9 @@ import {
   Easing,
   FlatList,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   Text,
   TouchableOpacity,
@@ -18,7 +20,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppButton, AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
+import { AppButton, AppPromptModal, ChatVideoCard, RequireAuthRoute, SecondaryNav } from '@/components';
 import { VideoGalleryCard } from '@/components/videos/VideoGalleryCard';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
@@ -103,6 +105,7 @@ export default function VideosScreen() {
   const [showDeleteAllPrompt, setShowDeleteAllPrompt] = useState(false);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
+  const [selectedVideo, setSelectedVideo] = useState<VideoHistoryItem | null>(null);
   const pulse = useRef(new Animated.Value(0)).current;
   const [zipProgress, setZipProgress] = useState<{
     visible: boolean;
@@ -121,6 +124,9 @@ export default function VideosScreen() {
   });
 
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
+  const listCardWidth = useMemo(() => Dimensions.get('window').width - 20, []);
+  const modalVideoWidth = useMemo(() => Math.min(Dimensions.get('window').width - 24, 680), []);
+  const modalVideoHeight = useMemo(() => Math.round(modalVideoWidth * 9 / 16), [modalVideoWidth]);
 
   useEffect(() => {
     return () => {
@@ -558,9 +564,79 @@ export default function VideosScreen() {
     }
   }, [showNotice, t, zipProgress.fileUri]);
 
+  const renderVideoItem = useCallback(({ item }: { item: VideoHistoryItem }) => (
+    <VideoGalleryCard
+      item={item}
+      width={listCardWidth}
+      onOpen={setSelectedVideo}
+      onDownload={(target) => {
+        void downloadVideo(target);
+      }}
+      onDelete={(target) => {
+        setDeleteTarget(target);
+      }}
+    />
+  ), [downloadVideo, listCardWidth]);
+
+  const keyExtractor = useCallback((item: VideoHistoryItem) => item.id, []);
+  const selectedVideoUrl = resolveBackendAssetUrl(
+    selectedVideo?.videoUrl ?? selectedVideo?.downloadUrl ?? (selectedVideo ? apiEndpoints.videos.download(selectedVideo.id) : null),
+  );
+
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
+        <Modal
+          visible={Boolean(selectedVideo && selectedVideoUrl)}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedVideo(null)}
+        >
+          <View
+            className="flex-1 items-center justify-center px-3"
+            style={{ backgroundColor: 'rgba(0,0,0,0.78)' }}
+          >
+            <View
+              className="w-full rounded-3xl border p-3"
+              style={{
+                maxWidth: 720,
+                backgroundColor: isDark ? '#0E1118' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(95,127,184,0.24)' : 'rgba(32,64,121,0.18)',
+              }}
+            >
+              <View className="mb-3 flex-row items-center justify-between">
+                <Text
+                  numberOfLines={2}
+                  style={{ flex: 1, color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginRight: 12 }}
+                >
+                  {selectedVideo?.prompt || 'Video preview'}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close video preview"
+                  onPress={() => setSelectedVideo(null)}
+                  className="h-9 w-9 items-center justify-center rounded-full"
+                  style={{
+                    backgroundColor: isDark ? 'rgba(95,127,184,0.14)' : 'rgba(32,64,121,0.08)',
+                  }}
+                >
+                  <Ionicons name="close" size={18} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+              {selectedVideoUrl ? (
+                <ChatVideoCard
+                  uri={selectedVideoUrl}
+                  width={modalVideoWidth}
+                  height={modalVideoHeight}
+                  borderColor={isDark ? 'rgba(95,127,184,0.22)' : 'rgba(32,64,121,0.18)'}
+                  backgroundColor={isDark ? '#101010' : '#FFFFFF'}
+                  accessibilityLabel="Selected generated video preview"
+                />
+              ) : null}
+            </View>
+          </View>
+        </Modal>
+
         <AppPromptModal
           visible={Boolean(deleteTarget)}
           title="Delete video?"
@@ -630,23 +706,16 @@ export default function VideosScreen() {
 
         <FlatList
           data={videos}
-          renderItem={({ item }) => (
-            <VideoGalleryCard
-              item={item}
-              videoUrl={resolveBackendAssetUrl(item.videoUrl ?? item.downloadUrl ?? apiEndpoints.videos.download(item.id)) || ''}
-              width={Dimensions.get('window').width - 20}
-              onDownload={(target) => {
-                void downloadVideo(target);
-              }}
-              onDelete={(target) => {
-                setDeleteTarget(target);
-              }}
-            />
-          )}
-          keyExtractor={(item) => item.id}
+          renderItem={renderVideoItem}
+          keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: 36, paddingTop: 2 }}
           onEndReached={onLoadMore}
           onEndReachedThreshold={0.6}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={4}
+          maxToRenderPerBatch={4}
+          updateCellsBatchingPeriod={80}
+          windowSize={5}
           refreshControl={(
             <RefreshControl
               refreshing={isRefreshing}

@@ -1,3 +1,18 @@
+export type UiMessageScreenHandoff = {
+  target: 'index' | 'image-to-video' | 'edit-image';
+  title: string;
+  description: string;
+  ctaLabel: string;
+  iconName?: string;
+};
+
+export type UiMessageImageRequirement = {
+  title: string;
+  description: string;
+  ctaLabel: string;
+  iconName?: string;
+};
+
 export type UiMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -19,6 +34,8 @@ export type UiMessage = {
   videoId?: string;
   isVideoGenerating?: boolean;
   isArtifactGenerating?: boolean;
+  screenHandoff?: UiMessageScreenHandoff;
+  imageRequirement?: UiMessageImageRequirement;
 };
 
 export type UiMessageAttachment = {
