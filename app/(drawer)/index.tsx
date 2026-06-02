@@ -7,6 +7,7 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Dimensions,
+  findNodeHandle,
   Keyboard, 
   KeyboardAvoidingView,
   Linking,
@@ -308,9 +309,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return {
         welcome:
           'This section is for generating a video based on an image. Upload an image, then describe the motion, camera movement, or scene you want.',
-        attachmentMenuAnnouncement: 'Attachment menu opened. Choose image upload.',
+        attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload.',
+        uploadTriggerLabel: 'Upload',
+        uploadTriggerHint: 'Opens upload options.',
         attachImageLabel: 'Image upload',
         attachImageHint: 'Opens your photo library to select an image.',
+        attachDocumentLabel: 'Document upload',
+        attachDocumentHint: 'Opens the document picker.',
         allowDocumentAttachment: false,
       };
     }
@@ -318,17 +323,25 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return {
         welcome:
           'This section is for editing an image. Upload an image, then describe the changes, style updates, or fixes you want.',
-        attachmentMenuAnnouncement: 'Attachment menu opened. Choose image upload.',
+        attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload.',
+        uploadTriggerLabel: 'Upload',
+        uploadTriggerHint: 'Opens upload options.',
         attachImageLabel: 'Image upload',
         attachImageHint: 'Opens your photo library to select an image.',
+        attachDocumentLabel: 'Document upload',
+        attachDocumentHint: 'Opens the document picker.',
         allowDocumentAttachment: false,
       };
     }
     return {
       welcome: t('chat.welcome'),
-      attachmentMenuAnnouncement: 'Attachment menu opened. Choose image or document.',
-      attachImageLabel: t('chat.attachImage'),
+      attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload or document upload.',
+      uploadTriggerLabel: 'Upload',
+      uploadTriggerHint: 'Opens upload options.',
+      attachImageLabel: 'Image upload',
       attachImageHint: 'Opens your photo library to select an image.',
+      attachDocumentLabel: 'Document upload',
+      attachDocumentHint: 'Opens the document picker.',
       allowDocumentAttachment: true,
     };
   }, [screenMode, t]);
@@ -409,6 +422,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     shown: false,
   });
   const menuTouchRef = useRef(false);
+  const uploadImageOptionRef = useRef<View | null>(null);
+  const uploadDocumentOptionRef = useRef<View | null>(null);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
   const activeReadAloudRequestRef = useRef(0);
@@ -4571,9 +4586,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     announceForA11y(
       attachmentMenuOpen
         ? screenConfig.attachmentMenuAnnouncement
-        : 'Attachment menu closed.',
+        : 'Upload menu closed.',
     );
   }, [announceForA11y, attachmentMenuOpen, isAuthenticated, screenConfig.attachmentMenuAnnouncement]);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen || !isAuthenticated) return;
+    const timer = setTimeout(() => {
+      const focusTarget = uploadImageOptionRef.current ?? (allowDocumentAttachment ? uploadDocumentOptionRef.current : null);
+      const node = focusTarget ? findNodeHandle(focusTarget) : null;
+      if (node) {
+        AccessibilityInfo.setAccessibilityFocus?.(node);
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [allowDocumentAttachment, attachmentMenuOpen, isAuthenticated]);
 
   useEffect(() => {
     if (activeModel === 'ultra' && !canUseUltraModel) {
@@ -5633,8 +5660,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     }}
                     onLongPress={(event) => showTooltip(t('chat.tooltip.attach'), event)}
                     accessibilityRole="button"
-                    accessibilityLabel={t('chat.tooltip.attach')}
-                    accessibilityHint={attachmentMenuOpen ? 'Closes attachment options.' : 'Opens attachment options.'}
+                    accessibilityLabel={screenConfig.uploadTriggerLabel}
+                    accessibilityHint={attachmentMenuOpen ? 'Closes upload options.' : screenConfig.uploadTriggerHint}
                     accessibilityState={{ expanded: attachmentMenuOpen }}
                     className="h-8 w-8 items-center justify-center rounded-full border"
                     style={{ borderColor: colors.border }}
@@ -5657,6 +5684,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       }}
                     >
                       <Pressable
+                        ref={uploadImageOptionRef}
                         onPress={pickAttachment}
                         accessibilityRole="button"
                         accessibilityLabel={screenConfig.attachImageLabel}
@@ -5668,14 +5696,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       </Pressable>
                       {allowDocumentAttachment ? (
                         <Pressable
+                          ref={uploadDocumentOptionRef}
                           onPress={pickDocumentAttachment}
                           accessibilityRole="button"
-                          accessibilityLabel={t('chat.attachDocument')}
-                          accessibilityHint="Opens your files to select a document."
+                          accessibilityLabel={screenConfig.attachDocumentLabel}
+                          accessibilityHint={screenConfig.attachDocumentHint}
                           className="flex-row items-center rounded-md px-2 py-2"
                         >
                           <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
-                          <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{t('chat.attachDocument')}</Text>
+                          <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{screenConfig.attachDocumentLabel}</Text>
                         </Pressable>
                       ) : null}
                     </Animated.View>
