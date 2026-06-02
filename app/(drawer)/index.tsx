@@ -20,6 +20,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
@@ -105,6 +106,7 @@ import {
   getGuestConversation,
   getVoiceCatalog,
   pollVideoJob,
+  rewriteMediaPrompt,
   getArtifactsPage,
   sendAuthenticatedMessageStream,
   sendAuthenticatedMessageNonStream,
@@ -659,6 +661,56 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return null;
   }, [isLikelyImageEditIntent, screenMode]);
 
+  const getScreenHandoffConfigFromIntent = useCallback((
+    intent: MediaPromptRewriteIntent,
+  ): ScreenHandoffConfig | null => {
+    if (screenMode === 'image-to-video') {
+      if (intent === 'edit-image') {
+        return {
+          target: 'edit-image',
+          title: 'Better in Edit image',
+          description: 'This request looks like editing an image. Use the Edit image screen for that workflow.',
+          ctaLabel: 'Open Edit image',
+          iconName: 'color-wand-outline',
+        };
+      }
+      if (intent === 'unsupported') {
+        return {
+          target: 'index',
+          title: 'Use main chat for this',
+          description: 'This screen is only for generating a video from an image. For anything else, continue in the main chat.',
+          ctaLabel: 'Open main chat',
+          iconName: 'chatbubble-ellipses-outline',
+        };
+      }
+      return null;
+    }
+
+    if (screenMode === 'edit-image') {
+      if (intent === 'image-to-video') {
+        return {
+          target: 'image-to-video',
+          title: 'Better in Image-to-video',
+          description: 'This request looks like turning an image into a video. Use the dedicated Image-to-video screen for that flow.',
+          ctaLabel: 'Open Image-to-video',
+          iconName: 'film-outline',
+        };
+      }
+      if (intent === 'unsupported') {
+        return {
+          target: 'index',
+          title: 'Use main chat for this',
+          description: 'This screen is only for editing an image. For general requests, continue in the main chat.',
+          ctaLabel: 'Open main chat',
+          iconName: 'chatbubble-ellipses-outline',
+        };
+      }
+      return null;
+    }
+
+    return null;
+  }, [screenMode]);
+
   const jumpToReferencedMedia = (reference: ComposerMediaReference) => {
     const index = messages.findIndex((message) => {
       if (message.role !== 'assistant') return false;
@@ -726,6 +778,53 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       console.log('[chat-upload:selection]', payload);
     }
   }, []);
+
+  const resolveMediaPromptRewrite = useCallback(async (
+    currentScreenMode: ChatScreenMode,
+    prompt: string,
+  ): Promise<MediaPromptRewriteResult | null> => {
+    if (currentScreenMode !== 'image-to-video' && currentScreenMode !== 'edit-image') {
+      return null;
+    }
+
+    try {
+      return await rewriteMediaPrompt({
+        screen: currentScreenMode,
+        prompt,
+        language,
+      });
+    } catch (error) {
+      const typed = error as { status?: number; code?: string; message?: string } | undefined;
+      const status = typed?.status ?? null;
+      const code = (typed?.code ?? '').toUpperCase();
+
+      if (status === 404 || status === 501 || code === 'ERR_BAD_REQUEST' || code === 'NOT_FOUND') {
+        return null;
+      }
+
+      if (__DEV__) {
+        try {
+          console.log('[media-prompt-rewrite:fallback]', JSON.stringify({
+            screen: currentScreenMode,
+            prompt,
+            status,
+            code: typed?.code ?? null,
+            message: typed?.message ?? null,
+          }));
+        } catch {
+          console.log('[media-prompt-rewrite:fallback]', {
+            screen: currentScreenMode,
+            prompt,
+            status,
+            code: typed?.code ?? null,
+            message: typed?.message ?? null,
+          });
+        }
+      }
+
+      return null;
+    }
+  }, [language]);
 
   useEffect(() => {
     rotateStarterPrompts();
@@ -2283,9 +2382,84 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         return;
       }
 
-      const imageRequirement = getImageRequirementConfig(trimmed, attachmentsForSend);
+      let effectivePrompt = trimmed;
+      let mediaPromptRewriteResult: MediaPromptRewriteResult | null = null;
+
+      if (screenMode === 'image-to-video' || screenMode === 'edit-image') {
+        mediaPromptRewriteResult = await resolveMediaPromptRewrite(screenMode, trimmed);
+        const rewrittenPrompt = mediaPromptRewriteResult?.rewrittenPrompt?.trim();
+        if (rewrittenPrompt) {
+          effectivePrompt = rewrittenPrompt;
+        }
+      }
+
+      const backendIntentHandoff = mediaPromptRewriteResult && !mediaPromptRewriteResult.belongsToCurrentScreen
+        ? getScreenHandoffConfigFromIntent(mediaPromptRewriteResult.intent)
+        : null;
+
+      if (backendIntentHandoff) {
+        lastEndpoint = `${API_BASE_URL}/media/prompts/rewrite`;
+        logSendPayload({
+          endpoint: lastEndpoint,
+          mode: 'frontend-intent-handoff-blocked',
+          conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+          screenMode,
+          message: trimmed,
+          language,
+          model: activeModel,
+          reference: composerMediaReference ?? null,
+          attachments: attachmentsForSend.map((asset) => ({
+            id: asset.id,
+            label: asset.label,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType,
+            uri: asset.uri,
+          })),
+          handoffTarget: backendIntentHandoff.target,
+          rewrittenPrompt: effectivePrompt,
+          interpretedIntent: mediaPromptRewriteResult?.intent ?? null,
+        });
+        const userMessage: UiMessage = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: trimmed,
+          createdAt: Date.now(),
+          attachments: attachmentsForSend.map((asset) => ({
+            id: asset.id,
+            originalName: asset.fileName ?? asset.label,
+            mimeType: asset.mimeType,
+            fileType: (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? 'image' : 'document',
+            url: asset.uri,
+            thumbnailUrl: asset.uri,
+          })),
+        };
+        const assistantMessage: UiMessage = {
+          id: `assistant-handoff-${Date.now()}`,
+          role: 'assistant',
+          content: '',
+          createdAt: Date.now() + 1,
+          screenHandoff: backendIntentHandoff,
+        };
+        setAttachmentMenuOpen(false);
+        setModelMenuOpen(false);
+        if (attachmentsForSend.length) {
+          setAttachedAssets([]);
+        }
+        inputValueRef.current = '';
+        setInput('');
+        setMessages((prev) => {
+          const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+          return [...withoutSyntheticWelcome, userMessage, assistantMessage];
+        });
+        autoScrollEnabledRef.current = true;
+        setShowScrollToBottom(false);
+        scrollToBottom();
+        return;
+      }
+
+      const imageRequirement = getImageRequirementConfig(effectivePrompt, attachmentsForSend);
       if (imageRequirement) {
-        lastEndpoint = `${API_BASE_URL}/chat/image-required`;
+        lastEndpoint = mediaPromptRewriteResult ? `${API_BASE_URL}/media/prompts/rewrite` : `${API_BASE_URL}/chat/image-required`;
         logSendPayload({
           endpoint: lastEndpoint,
           mode: 'frontend-image-required-blocked',
@@ -2294,6 +2468,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           message: trimmed,
           language,
           model: activeModel,
+          rewrittenPrompt: effectivePrompt !== trimmed ? effectivePrompt : undefined,
+          interpretedIntent: mediaPromptRewriteResult?.intent ?? null,
           attachments: attachmentsForSend.map((asset) => ({
             id: asset.id,
             label: asset.label,
@@ -2321,7 +2497,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         return;
       }
 
-      const screenHandoff = getScreenHandoffConfig(trimmed, attachmentsForSend);
+      const screenHandoff = getScreenHandoffConfig(effectivePrompt, attachmentsForSend);
       if (screenHandoff) {
         lastEndpoint = `${API_BASE_URL}/chat/intent-handoff`;
         logSendPayload({
@@ -2333,6 +2509,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           language,
           model: activeModel,
           reference: composerMediaReference ?? null,
+          rewrittenPrompt: effectivePrompt !== trimmed ? effectivePrompt : undefined,
           attachments: attachmentsForSend.map((asset) => ({
             id: asset.id,
             label: asset.label,
@@ -2678,8 +2855,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               item.id === assistantId
                 ? {
                     ...item,
-                    content: trimmed,
-                    videoPrompt: trimmed,
+                    content: effectivePrompt,
+                    videoPrompt: effectivePrompt,
                     isVideoGenerating: true,
                   }
                 : item,
@@ -2690,7 +2867,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           logSendPayload({
             endpoint: lastEndpoint,
             mode: 'auth-direct-media-image-to-video',
-            prompt: trimmed,
+            prompt: effectivePrompt,
             duration: 5,
             aspectRatio: '16:9',
             attachments: [
@@ -2705,7 +2882,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           });
 
           const generatedVideo = await generateVideoFromImageDirect({
-            prompt: trimmed,
+            prompt: effectivePrompt,
             durationSeconds: 5,
             aspectRatio: '16:9',
             image: {
@@ -2724,8 +2901,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               item.id === assistantId
                 ? {
                     ...item,
-                    content: trimmed,
-                    videoPrompt: trimmed,
+                    content: effectivePrompt,
+                    videoPrompt: effectivePrompt,
                     videoUrl: resolvedVideoUrl,
                     isVideoGenerating: false,
                   }
@@ -2760,8 +2937,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               item.id === assistantId
                 ? {
                     ...item,
-                    content: trimmed,
-                    imagePrompt: trimmed,
+                    content: effectivePrompt,
+                    imagePrompt: effectivePrompt,
                     isImageGenerating: true,
                   }
                 : item,
@@ -2772,7 +2949,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           logSendPayload({
             endpoint: lastEndpoint,
             mode: 'auth-direct-media-image-edit',
-            prompt: trimmed,
+            prompt: effectivePrompt,
             attachments: [
               {
                 id: imageAttachmentForEdit.id,
@@ -2785,7 +2962,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           });
 
           const editedImage = await editImage({
-            prompt: trimmed,
+            prompt: effectivePrompt,
             image: {
               uri: imageAttachmentForEdit.uri,
               fileName: imageAttachmentForEdit.fileName ?? imageAttachmentForEdit.label,
@@ -2802,8 +2979,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               item.id === assistantId
                 ? {
                     ...item,
-                    content: trimmed,
-                    imagePrompt: trimmed,
+                    content: effectivePrompt,
+                    imagePrompt: effectivePrompt,
                     imageUrl: resolvedImageUrl,
                     isImageGenerating: false,
                   }

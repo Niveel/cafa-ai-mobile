@@ -7,6 +7,7 @@ export * from './chat.types';
 export * from './form.types';
 export * from './image.types';
 export * from './legal.types';
+export * from './mediaPrompt.types';
 export * from './personalization.types';
 export * from './revenuecat.types';
 export * from './user.types';
