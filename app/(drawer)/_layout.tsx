@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { useAppTheme, useI18n } from '@/hooks';
 import { AppDrawerContent } from '@/components/ui/AppDrawerContent';
 import { useAppContext } from '@/context';
+import { consumeDrawerShouldReopenOnFocus } from '@/services/navigation/drawerRestore';
 
 const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'chatbubble-ellipses-outline',
@@ -29,6 +30,15 @@ export default function DrawerLayout() {
       drawerContent={(props) =>
         isAuthenticated ? <AppDrawerContent {...props} /> : <View style={{ flex: 1, backgroundColor: colors.surface }} />
       }
+      screenListeners={({ route, navigation }) => ({
+        focus: () => {
+          if (!isAuthenticated) return;
+          if (!consumeDrawerShouldReopenOnFocus(route.name)) return;
+          requestAnimationFrame(() => {
+            navigation.openDrawer();
+          });
+        },
+      })}
       screenOptions={({ route }) => ({
         headerShown: false,
         sceneStyle: {

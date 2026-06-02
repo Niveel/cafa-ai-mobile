@@ -18,7 +18,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppButton, AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
+import { AppButton, AppPromptModal, ImageLightbox, RequireAuthRoute, SecondaryNav } from '@/components';
 import { ImageGalleryCard } from '@/components/images/ImageGalleryCard';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
@@ -127,6 +127,7 @@ export default function ImagesScreen() {
   const [hasNextPage, setHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [imageLightboxState, setImageLightboxState] = useState<{ uri: string; headers?: Record<string, string> } | null>(null);
   const pulse = useRef(new Animated.Value(0)).current;
   const screenWidth = useMemo(() => Dimensions.get('window').width, []);
   const cardWidth = useMemo(() => Math.floor((screenWidth - 20 - CARD_GAP) / 2), [screenWidth]);
@@ -653,6 +654,12 @@ export default function ImagesScreen() {
         item={item}
         imageUrl={resolvedImageUrl}
         imageHeaders={imageHeaders}
+        onOpen={() => {
+          setImageLightboxState({
+            uri: resolvedImageUrl,
+            headers: imageHeaders,
+          });
+        }}
         width={cardWidth}
         onDownload={(target) => {
           void downloadImage(target);
@@ -777,6 +784,14 @@ export default function ImagesScreen() {
               </View>
             ) : <View style={{ height: 8 }} />
           )}
+        />
+
+        <ImageLightbox
+          visible={Boolean(imageLightboxState?.uri)}
+          uri={imageLightboxState?.uri ?? null}
+          headers={imageLightboxState?.headers}
+          onClose={() => setImageLightboxState(null)}
+          accessibilityLabel={t('chat.generatedImageAlt')}
         />
 
         {statusNotice ? (

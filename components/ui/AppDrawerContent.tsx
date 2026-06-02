@@ -22,6 +22,7 @@ import {
 } from '@/services/storage/chatPreferences';
 import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
 import { getAccessToken, subscribeToChatMutated } from '@/services';
+import { markDrawerShouldReopenOnFocus } from '@/services/navigation/drawerRestore';
 import { hapticSelection } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
@@ -344,6 +345,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const activeChatIdRef = useRef('');
   const hasInitializedRef = useRef(false);
 
+  const getCurrentDrawerRouteName = useCallback(() => {
+    const state = navigation.getState();
+    const activeRoute = state.routes[state.index ?? 0];
+    return typeof activeRoute?.name === 'string' ? activeRoute.name : null;
+  }, [navigation]);
+
   useEffect(() => {
     chatsRef.current = chats;
   }, [chats]);
@@ -641,10 +648,11 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
 
   const openRoute = useCallback(
     (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
+      markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
     },
-    [navigation],
+    [getCurrentDrawerRouteName, navigation],
   );
 
   const openChat = useCallback(
@@ -652,10 +660,11 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       hapticSelection();
       setChatActionMenuId(null);
       setActiveChatId(chatId);
+      markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
       (navigation as any).navigate('index', { conversationId: chatId, newChat: undefined });
       navigation.closeDrawer();
     },
-    [navigation],
+    [getCurrentDrawerRouteName, navigation],
   );
 
   const createNewChat = useCallback(() => {
@@ -672,9 +681,10 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       },
       ...prev.filter((chat) => !chat.id.startsWith('temp-new-chat-')),
     ]);
+    markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
     (navigation as any).navigate('index', { newChat: `${Date.now()}`, conversationId: undefined });
     navigation.closeDrawer();
-  }, [navigation, t]);
+  }, [getCurrentDrawerRouteName, navigation, t]);
 
   const onUserOption = useCallback(
     (action: 'settings' | 'plans' | 'help' | 'privacy' | 'terms' | 'login' | 'signup' | 'signout') => {

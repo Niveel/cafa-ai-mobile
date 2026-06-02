@@ -150,6 +150,15 @@ type ImagePickerModule = {
     canceled: boolean;
     assets?: { fileName?: string | null; uri: string; mimeType?: string | null }[];
   }>;
+  launchCameraAsync: (options: {
+    allowsEditing: boolean;
+    quality: number;
+    mediaTypes: string[];
+  }) => Promise<{
+    canceled: boolean;
+    assets?: { fileName?: string | null; uri: string; mimeType?: string | null }[];
+  }>;
+  requestCameraPermissionsAsync: () => Promise<{ granted: boolean }>;
 };
 
 type DocumentPickerModule = {
@@ -200,6 +209,13 @@ let imagePickerModulePromise: Promise<ImagePickerModule> | null = null;
 let documentPickerModulePromise: Promise<DocumentPickerModule> | null = null;
 let sharingModulePromise: Promise<unknown> | null = null;
 let webBrowserModulePromise: Promise<ExpoWebBrowserModule> | null = null;
+
+function focusAccessibilityNode(target: View | null) {
+  const node = target ? findNodeHandle(target) : null;
+  if (node) {
+    AccessibilityInfo.setAccessibilityFocus?.(node);
+  }
+}
 
 async function getExpoAudioModule() {
   if (!expoAudioModulePromise) {
@@ -317,6 +333,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         attachDocumentLabel: 'Document upload',
         attachDocumentHint: 'Opens the document picker.',
         allowDocumentAttachment: false,
+        placeholder: 'Describe the motion, camera movement, or scene you want...',
       };
     }
     if (screenMode === 'edit-image') {
@@ -331,6 +348,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         attachDocumentLabel: 'Document upload',
         attachDocumentHint: 'Opens the document picker.',
         allowDocumentAttachment: false,
+        placeholder: 'Describe the changes, style updates, or fixes you want...',
       };
     }
     return {
@@ -343,6 +361,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       attachDocumentLabel: 'Document upload',
       attachDocumentHint: 'Opens the document picker.',
       allowDocumentAttachment: true,
+      placeholder: t('chat.input.placeholder'),
     };
   }, [screenMode, t]);
   const createWelcomeMessage = useCallback(
@@ -359,6 +378,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [isSending, setIsSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [uploadOptionModalVisible, setUploadOptionModalVisible] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [attachedAssets, setAttachedAssets] = useState<AttachedAsset[]>([]);
   const [tooltipState, setTooltipState] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -422,8 +442,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     shown: false,
   });
   const menuTouchRef = useRef(false);
+  const uploadTriggerButtonRef = useRef<View | null>(null);
   const uploadImageOptionRef = useRef<View | null>(null);
   const uploadDocumentOptionRef = useRef<View | null>(null);
+  const uploadCancelOptionRef = useRef<View | null>(null);
+  const takePhotoOptionRef = useRef<View | null>(null);
+  const chooseGalleryOptionRef = useRef<View | null>(null);
+  const chooserCancelOptionRef = useRef<View | null>(null);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
   const activeReadAloudRequestRef = useRef(0);
@@ -465,7 +490,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const topPillBg = isDark ? '#10264D' : '#204079';
   const topPillBorder = '#204079';
   const dividerPill = '#204079';
-  const composerPlaceholder = useMemo(() => t('chat.input.placeholder'), [t]);
+  const composerPlaceholder = useMemo(() => screenConfig.placeholder, [screenConfig.placeholder]);
+  const useCompactComposerPlaceholder = screenMode === 'image-to-video' || screenMode === 'edit-image';
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
   const isFreshChatState = !isSending && messages.length === 1 && isWelcomeMessage(messages[0]);
   const visibleMessages = useMemo(
@@ -505,11 +531,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       .replace(/\s+/g, ' ')
       .trim();
     if (!normalized) return false;
+
+    // Classic edit verbs paired with an image element cue
     const editVerb =
-      /\b(edit|retouch|enhance|improve|fix|clean|cleanup|touch up|touchup|remove|replace|erase|crop|upscale|sharpen|brighten|blur|restore)\b/.test(normalized);
+      /\b(edit|retouch|enhance|improve|fix|clean|cleanup|touch ?up|remove|replace|erase|crop|upscale|sharpen|brighten|darken|blur|restore|adjust|colorize|desaturate|saturate|stylize|filter|transform|overlay|swap|inpaint|outpaint|fill|extend|expand|redraw|repaint|recolor)\b/.test(normalized);
     const imageCue =
-      /\b(image|photo|picture|background|lighting|colors?|face|skin|object|logo)\b/.test(normalized);
-    return editVerb && imageCue;
+      /\b(image|photo|picture|background|foreground|lighting|light|shadow|color|colour|hue|tone|tint|shade|contrast|exposure|saturation|brightness|face|skin|eye|hair|object|element|subject|logo|texture|style|look|appearance|scene|sky|floor|wall|outfit|clothes)\b/.test(normalized);
+
+    if (editVerb && imageCue) return true;
+
+    // Natural transformation phrasing: "make it/the X", "change X to Y", "turn X into Y", "add X", "set X to Y"
+    const naturalEdit =
+      /\b(make (it|the|this|them|everything|all)|change (it|the|this|them|all|color|colour|background|lighting|light|style|look|appearance) to|turn (it|the|this|them) into|set (the|all|it) (color|colour|hue|tone|lighting|light|style) to|add (a |some )?(filter|effect|overlay|texture|color|colour|tint|shadow|glow|blur)|convert (to|into)|apply (a |the )?(filter|effect|style|look)|give it (a |the )?|put (a |the )?)/.test(normalized);
+
+    return naturalEdit;
   }, []);
 
   const getImageRequirementConfig = useCallback((
@@ -680,6 +715,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       console.log('[chat-send:payload]', JSON.stringify(payload));
     } catch {
       console.log('[chat-send:payload]', payload);
+    }
+  }, []);
+
+  const logUploadSelection = useCallback((payload: Record<string, unknown>) => {
+    if (!__DEV__) return;
+    try {
+      console.log('[chat-upload:selection]', JSON.stringify(payload));
+    } catch {
+      console.log('[chat-upload:selection]', payload);
     }
   }, []);
 
@@ -3645,6 +3689,63 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     });
   };
 
+  const takePhotoAttachment = async () => {
+    setAttachmentMenuOpen(false);
+    let result: Awaited<ReturnType<ImagePickerModule['launchCameraAsync']>>;
+    try {
+      const ImagePicker = await getImagePickerModule();
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        showTransientNotice('Camera permission is required to take a photo.');
+        return;
+      }
+      result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.9,
+        mediaTypes: ['images'],
+      });
+    } catch {
+      showTransientNotice('Camera is unavailable in this build.');
+      return;
+    }
+
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+    const fallbackFileName = `image-${Date.now()}.jpg`;
+    logUploadSelection({
+      source: 'camera',
+      screenMode,
+      fileName: asset.fileName ?? fallbackFileName,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+      uri: asset.uri,
+    });
+    setAttachedAssets((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        label: asset.fileName ?? fallbackFileName,
+        uri: asset.uri,
+        fileName: asset.fileName ?? fallbackFileName,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      },
+    ]);
+  };
+
+  const handleUploadImagePress = () => {
+    setUploadOptionModalVisible(true);
+  };
+
+  const closeAttachmentMenu = useCallback(() => {
+    setAttachmentMenuOpen(false);
+    setTimeout(() => focusAccessibilityNode(uploadTriggerButtonRef.current), 120);
+  }, []);
+
+  const closeUploadOptionModal = useCallback(() => {
+    setUploadOptionModalVisible(false);
+    setTimeout(() => focusAccessibilityNode(uploadTriggerButtonRef.current), 120);
+  }, []);
+
   const pickAttachment = async () => {
     setAttachmentMenuOpen(false);
     let result: Awaited<ReturnType<ImagePickerModule['launchImageLibraryAsync']>>;
@@ -3664,6 +3765,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
     const asset = result.assets[0];
     const fallbackFileName = `image-${Date.now()}.jpg`;
+    logUploadSelection({
+      source: 'gallery',
+      screenMode,
+      fileName: asset.fileName ?? fallbackFileName,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+      uri: asset.uri,
+    });
     setAttachedAssets((prev) => [
       ...prev,
       {
@@ -4593,14 +4701,19 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   useEffect(() => {
     if (!attachmentMenuOpen || !isAuthenticated) return;
     const timer = setTimeout(() => {
-      const focusTarget = uploadImageOptionRef.current ?? (allowDocumentAttachment ? uploadDocumentOptionRef.current : null);
-      const node = focusTarget ? findNodeHandle(focusTarget) : null;
-      if (node) {
-        AccessibilityInfo.setAccessibilityFocus?.(node);
-      }
+      const focusTarget = uploadImageOptionRef.current ?? (allowDocumentAttachment ? uploadDocumentOptionRef.current : uploadCancelOptionRef.current);
+      focusAccessibilityNode(focusTarget);
     }, 180);
     return () => clearTimeout(timer);
   }, [allowDocumentAttachment, attachmentMenuOpen, isAuthenticated]);
+
+  useEffect(() => {
+    if (!uploadOptionModalVisible) return;
+    const timer = setTimeout(() => {
+      focusAccessibilityNode(takePhotoOptionRef.current ?? chooseGalleryOptionRef.current ?? chooserCancelOptionRef.current);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [uploadOptionModalVisible]);
 
   useEffect(() => {
     if (activeModel === 'ultra' && !canUseUltraModel) {
@@ -4691,6 +4804,292 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       contentTopOffset={-12}
       topAuthRightContent={topBarModelSwitcher}
     >
+      <Modal
+        visible={uploadOptionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeUploadOptionModal}
+        statusBarTranslucent
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.68)',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no"
+            onPress={closeUploadOptionModal}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+
+          <Animated.View
+            entering={FadeInDown.duration(MOTION.duration.normal)}
+            accessibilityViewIsModal
+            accessible
+            accessibilityRole="menu"
+            accessibilityLabel="Image upload options"
+            accessibilityHint="Choose whether to take a photo or pick an image from your gallery."
+            onAccessibilityEscape={closeUploadOptionModal}
+            style={{
+              backgroundColor: isDark ? '#0C0C0E' : '#FFFFFF',
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              paddingHorizontal: 24,
+              paddingTop: 16,
+              paddingBottom: Math.max(insets.bottom + 16, 24),
+              borderTopWidth: 1,
+              borderColor: colors.border,
+              shadowColor: '#000000',
+              shadowOpacity: 0.25,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 20,
+            }}
+          >
+            {/* Drag Handle */}
+            <View
+              style={{
+                width: 42,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: colors.border,
+                alignSelf: 'center',
+                marginBottom: 20,
+                opacity: 0.6,
+              }}
+            />
+
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: '700',
+                color: colors.textPrimary,
+                marginBottom: 18,
+                textAlign: 'center',
+              }}
+            >
+              Upload Image
+            </Text>
+
+            <Pressable
+              onPress={() => {
+                setUploadOptionModalVisible(false);
+                void takePhotoAttachment();
+              }}
+              ref={takePhotoOptionRef}
+              focusable
+              accessibilityRole="button"
+              accessibilityLabel="Take a photo with camera"
+              accessibilityHint="Opens the camera so you can capture an image to upload."
+              className="flex-row items-center py-3.5 px-4 rounded-xl mb-3 border"
+              style={{
+                backgroundColor: isDark ? '#141416' : '#F9FAFB',
+                borderColor: colors.border,
+              }}
+            >
+              <Ionicons name="camera-outline" size={20} color={colors.primary} />
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: colors.textPrimary,
+                  marginLeft: 12,
+                }}
+              >
+                Take a Photo
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                setUploadOptionModalVisible(false);
+                void pickAttachment();
+              }}
+              ref={chooseGalleryOptionRef}
+              focusable
+              accessibilityRole="button"
+              accessibilityLabel="Choose an image from gallery"
+              accessibilityHint="Opens your photo gallery so you can pick an image to upload."
+              className="flex-row items-center py-3.5 px-4 rounded-xl mb-5 border"
+              style={{
+                backgroundColor: isDark ? '#141416' : '#F9FAFB',
+                borderColor: colors.border,
+              }}
+            >
+              <Ionicons name="images-outline" size={20} color={colors.primary} />
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: colors.textPrimary,
+                  marginLeft: 12,
+                }}
+              >
+                Choose from Gallery
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={closeUploadOptionModal}
+              ref={chooserCancelOptionRef}
+              focusable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel upload"
+              accessibilityHint="Closes image upload options and returns to the composer."
+              className="items-center py-3.5 px-4 rounded-xl"
+              style={{
+                backgroundColor: isDark ? '#222227' : '#E5E7EB',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: colors.textPrimary,
+                }}
+              >
+                Cancel
+              </Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={attachmentMenuOpen && screenMode !== 'image-to-video' && screenMode !== 'edit-image'}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAttachmentMenu}
+        statusBarTranslucent
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.36)',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no"
+            onPress={closeAttachmentMenu}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+
+          <Animated.View
+            entering={FadeInDown.duration(MOTION.duration.normal)}
+            accessibilityViewIsModal
+            accessible
+            accessibilityRole="menu"
+            accessibilityLabel="Upload options"
+            accessibilityHint="Choose image upload or document upload."
+            onAccessibilityEscape={closeAttachmentMenu}
+            style={{
+              backgroundColor: isDark ? '#0C0C0E' : '#FFFFFF',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingHorizontal: 20,
+              paddingTop: 16,
+              paddingBottom: Math.max(insets.bottom + 16, 24),
+              borderTopWidth: 1,
+              borderColor: colors.border,
+              shadowColor: '#000000',
+              shadowOpacity: 0.2,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: -4 },
+              elevation: 18,
+            }}
+          >
+            <View
+              style={{
+                width: 42,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: colors.border,
+                alignSelf: 'center',
+                marginBottom: 16,
+                opacity: 0.6,
+              }}
+            />
+
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: '700',
+                color: colors.textPrimary,
+                marginBottom: 16,
+                textAlign: 'center',
+              }}
+            >
+              Upload
+            </Text>
+
+            <Pressable
+              ref={uploadImageOptionRef}
+              focusable
+              onPress={() => {
+                setAttachmentMenuOpen(false);
+                setUploadOptionModalVisible(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={screenConfig.attachImageLabel}
+              accessibilityHint={screenConfig.attachImageHint}
+              className="flex-row items-center rounded-xl border px-4 py-3.5 mb-3"
+              style={{
+                backgroundColor: isDark ? '#141416' : '#F9FAFB',
+                borderColor: colors.border,
+              }}
+            >
+              <Ionicons name="image-outline" size={18} color={colors.textPrimary} />
+              <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginLeft: 12 }}>
+                {screenConfig.attachImageLabel}
+              </Text>
+            </Pressable>
+
+            {allowDocumentAttachment ? (
+              <Pressable
+                ref={uploadDocumentOptionRef}
+                focusable
+                onPress={pickDocumentAttachment}
+                accessibilityRole="button"
+                accessibilityLabel={screenConfig.attachDocumentLabel}
+                accessibilityHint={screenConfig.attachDocumentHint}
+                className="flex-row items-center rounded-xl border px-4 py-3.5 mb-5"
+                style={{
+                  backgroundColor: isDark ? '#141416' : '#F9FAFB',
+                  borderColor: colors.border,
+                }}
+              >
+                <Ionicons name="document-text-outline" size={18} color={colors.textPrimary} />
+                <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginLeft: 12 }}>
+                  {screenConfig.attachDocumentLabel}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              ref={uploadCancelOptionRef}
+              focusable
+              onPress={closeAttachmentMenu}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel upload menu"
+              accessibilityHint="Closes upload options and returns to the composer."
+              className="items-center rounded-xl px-4 py-3.5"
+              style={{
+                backgroundColor: isDark ? '#222227' : '#E5E7EB',
+              }}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </Modal>
+
       <Modal
         visible={!isAuthenticated && guestUpsellVisible}
         transparent
@@ -5065,7 +5464,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           iconName={item.imageRequirement!.iconName as keyof typeof Ionicons.glyphMap}
                           isDark={isDark}
                           colors={colors}
-                          onPress={() => { void pickAttachment(); }}
+                          onPress={handleUploadImagePress}
                         />
                       ) : null}
 
@@ -5499,6 +5898,25 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             marginBottom: composerBottomInset,
           }}
         >
+          {useCompactComposerPlaceholder && !input.trim() ? (
+            <Text
+              pointerEvents="none"
+              accessible={false}
+              style={{
+                position: 'absolute',
+                top: COMPOSER_VERTICAL_PADDING + 6,
+                left: 12,
+                right: isAuthenticated ? 52 : 16,
+                color: colors.textSecondary,
+                fontSize: 12,
+                lineHeight: 16,
+                zIndex: 1,
+              }}
+            >
+              {composerPlaceholder}
+            </Text>
+          ) : null}
+
           <TextInput
             ref={composerInputRef}
             value={input}
@@ -5510,7 +5928,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 setComposerScrollable(false);
               }
             }}
-            placeholder={composerPlaceholder}
+            placeholder={useCompactComposerPlaceholder ? '' : composerPlaceholder}
             placeholderTextColor={colors.textSecondary}
             editable
             multiline
@@ -5647,68 +6065,59 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   />
                 </Pressable>
 
-                <View
-                  style={{
-                    zIndex: attachmentMenuOpen ? 120 : 1,
-                    elevation: attachmentMenuOpen ? 30 : 0,
-                  }}
-                >
+                <View>
                   <Pressable
+                    ref={uploadTriggerButtonRef}
                     onPress={() => {
                       hapticSelection();
-                      setAttachmentMenuOpen((prev) => !prev);
+                      if (screenMode === 'image-to-video' || screenMode === 'edit-image') {
+                        handleUploadImagePress();
+                      } else {
+                        setAttachmentMenuOpen((prev) => !prev);
+                      }
                     }}
-                    onLongPress={(event) => showTooltip(t('chat.tooltip.attach'), event)}
+                    onLongPress={(event) =>
+                      showTooltip(
+                        screenMode === 'image-to-video' || screenMode === 'edit-image'
+                          ? screenConfig.attachImageLabel
+                          : t('chat.tooltip.attach'),
+                        event
+                      )
+                    }
                     accessibilityRole="button"
-                    accessibilityLabel={screenConfig.uploadTriggerLabel}
-                    accessibilityHint={attachmentMenuOpen ? 'Closes upload options.' : screenConfig.uploadTriggerHint}
-                    accessibilityState={{ expanded: attachmentMenuOpen }}
-                    className="h-8 w-8 items-center justify-center rounded-full border"
+                    accessibilityLabel={
+                      screenMode === 'image-to-video' || screenMode === 'edit-image'
+                        ? screenConfig.attachImageLabel
+                        : screenConfig.uploadTriggerLabel
+                    }
+                    accessibilityHint={
+                      screenMode === 'image-to-video' || screenMode === 'edit-image'
+                        ? screenConfig.attachImageHint
+                        : attachmentMenuOpen
+                        ? 'Closes upload options.'
+                        : screenConfig.uploadTriggerHint
+                    }
+                    accessibilityState={{
+                      expanded: screenMode === 'image-to-video' || screenMode === 'edit-image' ? undefined : attachmentMenuOpen,
+                    }}
+                    className={
+                      screenMode === 'image-to-video' || screenMode === 'edit-image'
+                        ? "h-8 px-3 flex-row items-center justify-center rounded-full border"
+                        : "h-8 w-8 items-center justify-center rounded-full border"
+                    }
                     style={{ borderColor: colors.border }}
-                  >
-                    <Ionicons name="attach-outline" size={14} color={colors.textPrimary} />
-                  </Pressable>
-
-                  {attachmentMenuOpen ? (
-                    <Animated.View
-                      entering={FadeInDown.duration(MOTION.duration.normal)}
-                      className="absolute bottom-9 left-0 z-30 min-w-[190px] rounded-lg border p-1"
-                      style={{
-                        zIndex: 80,
-                        elevation: 24,
-                        borderColor: colors.border,
-                        backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
-                      }}
-                      onTouchStart={() => {
-                        menuTouchRef.current = true;
-                      }}
                     >
-                      <Pressable
-                        ref={uploadImageOptionRef}
-                        onPress={pickAttachment}
-                        accessibilityRole="button"
-                        accessibilityLabel={screenConfig.attachImageLabel}
-                        accessibilityHint={screenConfig.attachImageHint}
-                        className="flex-row items-center rounded-md px-2 py-2"
-                      >
-                        <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
-                        <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{screenConfig.attachImageLabel}</Text>
-                      </Pressable>
-                      {allowDocumentAttachment ? (
-                        <Pressable
-                          ref={uploadDocumentOptionRef}
-                          onPress={pickDocumentAttachment}
-                          accessibilityRole="button"
-                          accessibilityLabel={screenConfig.attachDocumentLabel}
-                          accessibilityHint={screenConfig.attachDocumentHint}
-                          className="flex-row items-center rounded-md px-2 py-2"
-                        >
-                          <Ionicons name="document-text-outline" size={14} color={colors.textPrimary} />
-                          <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>{screenConfig.attachDocumentLabel}</Text>
-                        </Pressable>
-                      ) : null}
-                    </Animated.View>
-                  ) : null}
+                      <Ionicons
+                        name={screenMode === 'image-to-video' || screenMode === 'edit-image' ? 'image-outline' : 'attach-outline'}
+                        size={14}
+                      color={colors.textPrimary}
+                    />
+                    {screenMode === 'image-to-video' || screenMode === 'edit-image' ? (
+                      <Text style={{ color: colors.textPrimary, fontSize: 11, fontWeight: '600', marginLeft: 6 }}>
+                        Upload image
+                      </Text>
+                    ) : null}
+                  </Pressable>
                 </View>
 
               </View>

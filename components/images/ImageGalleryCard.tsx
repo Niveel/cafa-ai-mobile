@@ -12,6 +12,7 @@ type ImageGalleryCardProps = {
   imageUrl: string;
   width: number;
   imageHeaders?: Record<string, string>;
+  onOpen: (item: ImageHistoryItem) => void;
   onDownload: (item: ImageHistoryItem) => void;
   onDelete: (item: ImageHistoryItem) => void;
 };
@@ -24,7 +25,7 @@ function formatDate(value: string) {
   }
 }
 
-function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload, onDelete }: ImageGalleryCardProps) {
+function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onOpen, onDownload, onDelete }: ImageGalleryCardProps) {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const imageHeight = Math.round(width * 1.22);
@@ -40,7 +41,12 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload,
         borderColor: isDark ? 'rgba(95,127,184,0.24)' : 'rgba(32,64,121,0.22)',
       }}
     >
-      <View
+      <TouchableOpacity
+        onPress={() => onOpen(item)}
+        activeOpacity={0.9}
+        accessibilityRole="button"
+        accessibilityLabel={`Open image preview: ${item.prompt}`}
+        accessibilityHint="Opens this image in a larger preview."
         className="overflow-hidden"
         style={{
           width,
@@ -92,8 +98,8 @@ function ImageGalleryCardImpl({ item, imageUrl, width, imageHeaders, onDownload,
               <ActivityIndicator color={colors.primary} />
             </View>
           )
-        ) : null}
-      </View>
+          ) : null}
+      </TouchableOpacity>
 
       <View className="px-3 pb-3 pt-2">
         <Text

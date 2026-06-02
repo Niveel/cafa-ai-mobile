@@ -10,6 +10,7 @@ import { useAppTheme } from '@/hooks';
 type ImageLightboxProps = {
   visible: boolean;
   uri: string | null;
+  headers?: Record<string, string>;
   onClose: () => void;
   accessibilityLabel: string;
 };
@@ -19,7 +20,7 @@ const MIN_SCALE = 1;
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 
-export function ImageLightbox({ visible, uri, onClose, accessibilityLabel }: ImageLightboxProps) {
+export function ImageLightbox({ visible, uri, headers, onClose, accessibilityLabel }: ImageLightboxProps) {
   const { colors } = useAppTheme();
   const { width, height } = Dimensions.get('window');
   const scale = useSharedValue(1);
@@ -100,7 +101,7 @@ export function ImageLightbox({ visible, uri, onClose, accessibilityLabel }: Ima
           <AnimatedView style={[styles.imageContainer, { width, height: Math.round(height * 0.82) }, imageStyle]}>
             {uri ? (
               <ExpoImage
-                source={{ uri }}
+                source={{ uri, headers }}
                 style={styles.image}
                 contentFit="contain"
                 accessibilityLabel={accessibilityLabel}
