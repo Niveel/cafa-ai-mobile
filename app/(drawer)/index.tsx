@@ -735,9 +735,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     // Avoid remounting TextInput on iOS to update placeholder text; remounting can
     // cause focus jitter with keyboard frame callbacks.
     composerInputRef.current?.setNativeProps?.({
-      placeholder: composerPlaceholder,
+      placeholder: useCompactComposerPlaceholder ? '' : composerPlaceholder,
     });
-  }, [composerPlaceholder]);
+  }, [composerPlaceholder, useCompactComposerPlaceholder]);
 
   const openInAppBrowser = useCallback(async (url: string) => {
     const target = url.trim();
