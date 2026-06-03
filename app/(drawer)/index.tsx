@@ -20,7 +20,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
+import type { DedicatedMediaScreen, MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
@@ -99,6 +99,7 @@ import {
   ensureGuestSession,
   editImage,
   generateImage,
+  getDedicatedMediaConversation,
   generateVideoFromImageDirect,
   syncSubscriptionState,
   getSubscriptionOverview,
@@ -115,6 +116,7 @@ import {
   startVideoGenerationFromImage,
   synthesizeVoice,
   toggleAuthenticatedMessageReaction,
+  isDedicatedMediaConversationUnavailable,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
@@ -375,6 +377,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     }),
     [screenConfig.welcome],
   );
+  const isDedicatedMediaScreen = screenMode === 'image-to-video' || screenMode === 'edit-image';
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string; messageId?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -425,6 +428,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     [canUseUltraModel],
   );
   const [starterPrompts, setStarterPrompts] = useState<string[]>([]);
+  const dedicatedComposerHelperText = useMemo(() => {
+    if (!isDedicatedMediaScreen) return '';
+    const hasPrompt = input.trim().length > 0;
+    const hasImage = attachedAssets.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
+
+    if (!hasPrompt && !hasImage) return 'Upload an image and add a prompt to continue.';
+    if (!hasPrompt) {
+      return screenMode === 'image-to-video'
+        ? 'Add a prompt describing the motion, camera movement, or scene you want.'
+        : 'Add a prompt describing the changes you want.';
+    }
+    if (!hasImage) return 'Upload an image to continue.';
+    return '';
+  }, [attachedAssets, input, isDedicatedMediaScreen, screenMode]);
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const lastJumpedMessageKeyRef = useRef<string>('');
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1120,6 +1137,71 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
   }, [resolveBackendAssetUrl]);
 
+  const mapDedicatedMediaConversationToAuthDetail = useCallback((conversation: {
+    id: string;
+    title: string;
+    screen: DedicatedMediaScreen;
+    model: string;
+    updatedAt: string;
+    messages: {
+      _id: string;
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+      createdAt: string;
+      tokens?: number;
+      reactions?: { liked?: boolean; disliked?: boolean };
+      attachments?: {
+        _id?: string;
+        id?: string;
+        type?: string;
+        fileType?: string;
+        mimeType?: string;
+        fileName?: string;
+        originalName?: string;
+        url?: string;
+        thumbnailUrl?: string;
+      }[];
+      reference?: {
+        kind?: 'image' | 'video';
+        url?: string;
+        id?: string;
+      } | null;
+    }[];
+  }) => {
+    return {
+      id: conversation.id,
+      title: conversation.title,
+      model: conversation.model,
+      updatedAt: conversation.updatedAt,
+      messages: conversation.messages.map((message) => ({
+        id: message._id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        tokens: message.tokens,
+        reactions: {
+          liked: Boolean(message.reactions?.liked),
+          disliked: Boolean(message.reactions?.disliked),
+        },
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          id: attachment._id ?? attachment.id,
+          fileType: attachment.fileType ?? attachment.type,
+          mimeType: attachment.mimeType,
+          originalName: attachment.originalName ?? attachment.fileName,
+          url: attachment.url,
+          thumbnailUrl: attachment.thumbnailUrl,
+        })),
+        reference: message.reference?.kind && message.reference?.url
+          ? {
+              kind: message.reference.kind,
+              url: message.reference.url,
+              id: message.reference.id,
+            }
+          : undefined,
+      })),
+    };
+  }, []);
+
   const applyDescriptiveAttachmentNames = useCallback((uiMessages: UiMessage[]) => {
     return uiMessages.map((message, index) => {
       if (!message.attachments?.length) return message;
@@ -1360,6 +1442,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     void hydrateAssistantAttachmentsFromArtifacts(detail.id);
   }, [applyDescriptiveAttachmentNames, hydrateAssistantAttachmentsFromArtifacts, mapAuthMessageToUiMessage]);
 
+  const applyDedicatedMediaConversation = useCallback((conversationPage: Awaited<ReturnType<typeof getDedicatedMediaConversation>>) => {
+    setAuthConversationId(conversationPage.conversation.id);
+    applyAuthConversationDetail(mapDedicatedMediaConversationToAuthDetail(conversationPage.conversation));
+  }, [applyAuthConversationDetail, mapDedicatedMediaConversationToAuthDetail]);
+
   const syncAssistantMessageAfterStream = useCallback(async (
     conversationId: string,
     assistantMessageId: string,
@@ -1442,6 +1529,35 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       await new Promise((resolve) => setTimeout(resolve, 240));
     }
   }, [applyAuthConversationDetail]);
+
+  const hydrateDedicatedMediaConversation = useCallback(async (
+    screen: DedicatedMediaScreen,
+    options?: { attempts?: number; delayMs?: number },
+  ) => {
+    const attempts = options?.attempts ?? 1;
+    const delayMs = options?.delayMs ?? 300;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const conversationPage = await getDedicatedMediaConversation(screen, { limit: 20 });
+        applyDedicatedMediaConversation(conversationPage);
+        return true;
+      } catch (error) {
+        if (isDedicatedMediaConversationUnavailable(error)) {
+          setAuthConversationId(null);
+          setMessages([createWelcomeMessage()]);
+          setMessageReactions({});
+          return false;
+        }
+        if (attempt === attempts - 1) {
+          throw error;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    return false;
+  }, [applyDedicatedMediaConversation, createWelcomeMessage]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -2382,6 +2498,32 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         return;
       }
 
+      if (
+        isDedicatedMediaScreen
+        && !trimmed
+        && attachmentsForSend.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'))
+      ) {
+        setMessages((prev) => {
+          const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+          return [
+            ...withoutSyntheticWelcome,
+            {
+              id: `assistant-prompt-required-${Date.now()}`,
+              role: 'assistant',
+              content:
+                screenMode === 'image-to-video'
+                  ? 'Add a prompt describing the motion, camera movement, or scene you want before sending this image.'
+                  : 'Add a prompt describing the changes you want before sending this image.',
+              createdAt: Date.now(),
+            },
+          ];
+        });
+        autoScrollEnabledRef.current = true;
+        setShowScrollToBottom(false);
+        scrollToBottom();
+        return;
+      }
+
       let effectivePrompt = trimmed;
       let mediaPromptRewriteResult: MediaPromptRewriteResult | null = null;
 
@@ -2891,7 +3033,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               mimeType: imageAttachmentForVideo.mimeType ?? 'image/jpeg',
             },
           });
-          const resolvedVideoUrl = resolveBackendAssetUrl(generatedVideo.videoUrl);
+          if (generatedVideo.conversationId) {
+            setAuthConversationId(generatedVideo.conversationId);
+          }
+
+          let resolvedVideoUrl = resolveBackendAssetUrl(generatedVideo.videoUrl);
+          let resolvedVideoPrompt = effectivePrompt;
+          let resolvedVideoId: string | undefined;
+
+          if (!resolvedVideoUrl && generatedVideo.jobId) {
+            const resolvedVideo = await waitForVideoGeneration(generatedVideo.jobId);
+            resolvedVideoUrl = resolvedVideo.videoUrl;
+            resolvedVideoPrompt = resolvedVideo.videoPrompt || effectivePrompt;
+            resolvedVideoId = resolvedVideo.videoId;
+          }
+
           if (!resolvedVideoUrl) {
             throw new Error('Could not generate video right now.');
           }
@@ -2901,17 +3057,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               item.id === assistantId
                 ? {
                     ...item,
-                    content: effectivePrompt,
-                    videoPrompt: effectivePrompt,
+                    content: resolvedVideoPrompt,
+                    videoId: resolvedVideoId,
+                    videoPrompt: resolvedVideoPrompt,
                     videoUrl: resolvedVideoUrl,
                     isVideoGenerating: false,
                   }
                 : item,
             ),
           );
+          try {
+            await hydrateDedicatedMediaConversation('image-to-video', { attempts: 8, delayMs: 900 });
+          } catch {
+            // Keep the optimistic local media card if dedicated history is not yet reachable.
+          }
           logResponsePayloadForAttempt({
             response: {
-              videoUrl: generatedVideo.videoUrl,
+              videoUrl: generatedVideo.videoUrl ?? resolvedVideoUrl,
+              jobId: generatedVideo.jobId ?? null,
               generationTime: generatedVideo.generationTime ?? null,
               duration: generatedVideo.duration ?? 5,
             },
@@ -2969,6 +3132,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               mimeType: imageAttachmentForEdit.mimeType ?? 'image/jpeg',
             },
           });
+          if (editedImage.conversationId) {
+            setAuthConversationId(editedImage.conversationId);
+          }
           const resolvedImageUrl = resolveBackendAssetUrl(editedImage.imageUrl);
           if (!resolvedImageUrl) {
             throw new Error('Could not edit image right now.');
@@ -2987,6 +3153,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 : item,
             ),
           );
+          try {
+            await hydrateDedicatedMediaConversation('edit-image', { attempts: 5, delayMs: 450 });
+          } catch {
+            // Keep the optimistic local media card if dedicated history is not yet reachable.
+          }
           logResponsePayloadForAttempt({
             response: {
               imageUrl: editedImage.imageUrl,
@@ -4664,6 +4835,45 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [createWelcomeMessage, isAuthenticated, rotateStarterPrompts]);
 
   useEffect(() => {
+    if (!isAuthenticated || !isDedicatedMediaScreen) return;
+
+    let cancelled = false;
+    const hydrate = async () => {
+      setIsHydratingAuthChat(true);
+      setAuthConversationId(null);
+      try {
+        const loaded = await hydrateDedicatedMediaConversation(screenMode, { attempts: 1 });
+        if (!loaded && !cancelled) {
+          rotateStarterPrompts();
+        }
+      } catch {
+        if (!cancelled) {
+          setMessages([createWelcomeMessage()]);
+          setMessageReactions({});
+          rotateStarterPrompts();
+        }
+      } finally {
+        if (!cancelled) {
+          setIsHydratingAuthChat(false);
+        }
+      }
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    createWelcomeMessage,
+    hydrateDedicatedMediaConversation,
+    isAuthenticated,
+    isDedicatedMediaScreen,
+    rotateStarterPrompts,
+    screenMode,
+  ]);
+
+  useEffect(() => {
+    if (isDedicatedMediaScreen) return;
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
     const newChatToken = typeof params.newChat === 'string' ? params.newChat.trim() : '';
     const isHydratingActiveConversationWhileSending = Boolean(
@@ -4760,6 +4970,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     mapAuthMessageToUiMessage,
     params.conversationId,
     params.newChat,
+    isDedicatedMediaScreen,
     rotateStarterPrompts,
   ]);
 
@@ -6216,6 +6427,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   <Ionicons name="close" size={12} color={colors.primary} />
                 </Pressable>
               </View>
+            </View>
+          ) : null}
+
+          {dedicatedComposerHelperText ? (
+            <View
+              className="mx-1 mb-1 mt-1 rounded-xl border px-2.5 py-2"
+              style={{
+                borderColor: `${colors.primary}33`,
+                backgroundColor: isDark ? 'rgba(95,127,184,0.10)' : 'rgba(95,127,184,0.08)',
+              }}
+            >
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{ color: colors.textSecondary, fontSize: 11, lineHeight: 15 }}
+              >
+                {dedicatedComposerHelperText}
+              </Text>
             </View>
           ) : null}
 

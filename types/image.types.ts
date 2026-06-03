@@ -18,6 +18,14 @@ export type EditImageRequest = {
 export type EditImageResult = {
   imageUrl: string;
   generationTime?: number;
+  conversationId?: string;
+  screen?: 'edit-image';
+  userMessageId?: string;
+  assistantMessageId?: string;
+  imageId?: string;
+  prompt?: string;
+  mimeType?: string;
+  createdAt?: string;
 };
 
 export type ImageHistoryItem = {

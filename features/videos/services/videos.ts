@@ -240,8 +240,36 @@ export async function generateVideoFromImageDirect(request: GenerateVideoFromIma
 
   try {
     const response: AxiosResponse<
-      | { success?: boolean; videoUrl?: string; generationTime?: number; duration?: number; message?: string; error?: string; code?: string }
-      | { data?: { videoUrl?: string; generationTime?: number; duration?: number }; success?: boolean; message?: string; error?: string; code?: string }
+      | {
+        success?: boolean;
+        videoUrl?: string;
+        generationTime?: number;
+        duration?: number;
+        jobId?: string;
+        conversationId?: string;
+        assistantMessageId?: string;
+        userMessageId?: string;
+        status?: 'queued' | 'processing' | 'completed' | 'failed';
+        message?: string;
+        error?: string;
+        code?: string;
+      }
+      | {
+        data?: {
+          videoUrl?: string;
+          generationTime?: number;
+          duration?: number;
+          jobId?: string;
+          conversationId?: string;
+          assistantMessageId?: string;
+          userMessageId?: string;
+          status?: 'queued' | 'processing' | 'completed' | 'failed';
+        };
+        success?: boolean;
+        message?: string;
+        error?: string;
+        code?: string;
+      }
     > = await apiClient.post(
       apiEndpoints.media.imageToVideo,
       formData,
@@ -258,14 +286,16 @@ export async function generateVideoFromImageDirect(request: GenerateVideoFromIma
     const rawResult = 'data' in payload && payload.data ? payload.data : payload;
     const result = rawResult as GenerateVideoFromImageDirectResult & { videoUrl?: string };
 
-    if (payload?.success === false || !result?.videoUrl) {
+    if (payload?.success === false || (!result?.videoUrl && !result?.jobId)) {
       const mapped = new Error(payload?.message ?? 'Video generation failed.') as ApiMappedError;
       mapped.code = payload?.code ?? payload?.error;
       mapped.status = response.status;
       throw mapped;
     }
 
-    captureEvent(AnalyticsEvents.videoGenerationFromImageCompleted, { mode: 'direct-image-to-video' });
+    if (result.videoUrl) {
+      captureEvent(AnalyticsEvents.videoGenerationFromImageCompleted, { mode: 'direct-image-to-video' });
+    }
     return result as GenerateVideoFromImageDirectResult;
   } catch (error) {
     const mapped = mapApiError(error) as ApiMappedError;

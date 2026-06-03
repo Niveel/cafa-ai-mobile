@@ -52,6 +52,8 @@ export const apiEndpoints = {
     imageEdit: `${API_BASE_PATH}/media/image/edit`,
     imageToVideo: `${API_BASE_PATH}/media/video/image-to-video`,
     promptRewrite: `${API_BASE_PATH}/media/prompts/rewrite`,
+    conversation: (screen: 'edit-image' | 'image-to-video') => `${API_BASE_PATH}/media/conversations/${screen}`,
+    conversationMessages: (screen: 'edit-image' | 'image-to-video') => `${API_BASE_PATH}/media/conversations/${screen}/messages`,
   },
 
   artifacts: {

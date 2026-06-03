@@ -17,9 +17,15 @@ export type GenerateVideoFromImageDirectRequest = {
 };
 
 export type GenerateVideoFromImageDirectResult = {
-  videoUrl: string;
+  videoUrl?: string;
   generationTime?: number;
   duration?: number;
+  conversationId?: string;
+  screen?: 'image-to-video';
+  jobId?: string;
+  userMessageId?: string;
+  assistantMessageId?: string;
+  status?: 'queued' | 'processing' | 'completed' | 'failed';
 };
 
 export type VideoGenerationJob = {
@@ -27,6 +33,8 @@ export type VideoGenerationJob = {
   status: 'queued' | 'processing' | 'completed' | 'failed';
   message?: string;
   error?: string;
+  conversationId?: string;
+  assistantMessageId?: string;
   videoUrl?: string;
   result?: {
     id?: string;

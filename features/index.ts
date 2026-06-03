@@ -3,6 +3,7 @@ export * from './artifacts';
 export * from './billing';
 export * from './chat';
 export * from './images';
+export * from './mediaConversations';
 export * from './mediaPrompts';
 export * from './settings';
 export * from './videos';
