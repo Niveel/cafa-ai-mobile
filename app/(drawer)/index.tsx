@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import type { DedicatedMediaScreen, MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
 import * as Clipboard from 'expo-clipboard';
+import * as ExpoImagePicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
@@ -241,13 +242,25 @@ async function getImagePickerModule() {
     if (!imagePickerModulePromise) {
       imagePickerModulePromise = import('expo-image-picker') as Promise<ImagePickerModule>;
     }
-    const moduleCandidate = await imagePickerModulePromise;
+    const loaded = await imagePickerModulePromise;
+    const moduleCandidate = ((loaded as { default?: unknown })?.default ?? loaded) as Partial<ImagePickerModule> | null | undefined;
     if (!moduleCandidate || typeof moduleCandidate.launchImageLibraryAsync !== 'function') {
+      const staticCandidate = ExpoImagePicker as Partial<ImagePickerModule>;
+      if (typeof staticCandidate.launchImageLibraryAsync === 'function') {
+        return staticCandidate as ImagePickerModule;
+      }
       throw new Error('Image picker module is not available.');
     }
-    return moduleCandidate;
-  } catch {
+    return moduleCandidate as ImagePickerModule;
+  } catch (error) {
     imagePickerModulePromise = null;
+    const staticCandidate = ExpoImagePicker as Partial<ImagePickerModule>;
+    if (typeof staticCandidate.launchImageLibraryAsync === 'function') {
+      return staticCandidate as ImagePickerModule;
+    }
+    if (__DEV__) {
+      console.log('[image-picker:load-failed]', error);
+    }
     throw new Error('Image picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
