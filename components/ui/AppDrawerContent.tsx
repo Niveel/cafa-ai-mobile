@@ -934,8 +934,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       <View>
         <View className="mb-3 mt-2 gap-2">
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
-          <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
-          <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
+          <AppButton label="Image-to-video" iconName="film-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('image-to-video')} />
+          <AppButton label="Edit image" iconName="color-wand-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('edit-image')} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={showMoreCtas ? 'Show fewer quick actions' : 'Show more quick actions'}
@@ -968,9 +968,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
             style={[moreCtasAnimatedStyle, { overflow: 'hidden' }]}
           >
             <View style={{ paddingTop: 8, gap: 8 }}>
-              <AppButton label="Image-to-video" iconName="film-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('image-to-video')} />
-              <AppButton label="Edit image" iconName="color-wand-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('edit-image')} />
               <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
+              <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
+              <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
             </View>
           </Animated.View>
         </View>
