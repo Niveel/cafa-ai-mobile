@@ -27,6 +27,7 @@ import { getAccessToken } from '@/services';
 import { openIosSubscriptionManagement } from '@/services/revenuecat';
 import type { AuthUser } from '@/types';
 import type { SubscriptionLifecycle, SubscriptionStatus } from '@/types/billing.types';
+import { pickSingleImageFromLibrary } from '@/utils/deviceImagePicker';
 import { AppPromptModal } from '../AppPromptModal';
 
 type AccountSectionProps = {
@@ -231,21 +232,13 @@ export function AccountSection({
     setStatusText('');
     setAvatarBusy(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setStatusText(t('settings.account.avatarPermission'));
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+      const pickedAsset = await pickSingleImageFromLibrary(ImagePicker, {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.85,
       });
 
-      if (result.canceled || !result.assets[0]?.uri) return;
-      const pickedAsset = result.assets[0];
+      if (!pickedAsset?.uri) return;
       const pickedUri = pickedAsset.uri;
       setLocalAvatarUri(pickedUri);
       setAvatarRenderError(false);
