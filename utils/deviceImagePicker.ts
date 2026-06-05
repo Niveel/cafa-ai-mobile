@@ -1,3 +1,5 @@
+import * as ExpoImagePicker from 'expo-image-picker';
+
 type ImagePickerAsset = {
   fileName?: string | null;
   uri: string;
@@ -16,12 +18,7 @@ type ImageLibraryResult = {
 
 export type ImagePickerLike = {
   requestMediaLibraryPermissionsAsync: () => Promise<ImagePickerPermissionResult>;
-  launchImageLibraryAsync: (options: {
-    allowsEditing: boolean;
-    quality: number;
-    mediaTypes: string[];
-    aspect?: [number, number];
-  }) => Promise<ImageLibraryResult>;
+  launchImageLibraryAsync: typeof ExpoImagePicker.launchImageLibraryAsync;
 };
 
 export async function pickSingleImageFromLibrary(
@@ -45,9 +42,9 @@ export async function pickSingleImageFromLibrary(
     const result = await imagePicker.launchImageLibraryAsync({
       allowsEditing: options.allowsEditing ?? false,
       quality: options.quality ?? 0.9,
-      mediaTypes: ['images'],
+      mediaTypes: ['images'] as ExpoImagePicker.MediaType[],
       ...(options.aspect ? { aspect: options.aspect } : {}),
-    });
+    }) as ImageLibraryResult;
 
     if (result.canceled || !result.assets?.length) {
       return null;

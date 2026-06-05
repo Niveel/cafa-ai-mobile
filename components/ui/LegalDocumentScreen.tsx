@@ -41,12 +41,19 @@ export function LegalDocumentScreen({ title, document }: LegalDocumentScreenProp
 
           {document.sections.map((section, sectionIndex) => (
             <View key={section.id} style={{ marginTop: sectionIndex === 0 ? 16 : 18 }}>
-              <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>{section.heading}</Text>
+              {section.heading ? (
+                <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>{section.heading}</Text>
+              ) : null}
 
               {(section.paragraphs ?? []).map((paragraph, paragraphIndex) => (
                 <Text
                   key={`${section.id}-paragraph-${paragraphIndex}`}
-                  style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 8 }}
+                  style={{
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    lineHeight: 20,
+                    marginTop: section.heading || paragraphIndex > 0 || section.lists?.length ? 8 : 0,
+                  }}
                 >
                   {paragraph}
                 </Text>

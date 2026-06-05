@@ -148,22 +148,8 @@ type ExpoAudioModule = {
 };
 
 type ImagePickerModule = {
-  launchImageLibraryAsync: (options: {
-    allowsEditing: boolean;
-    quality: number;
-    mediaTypes: string[];
-  }) => Promise<{
-    canceled: boolean;
-    assets?: { fileName?: string | null; uri: string; mimeType?: string | null }[];
-  }>;
-  launchCameraAsync: (options: {
-    allowsEditing: boolean;
-    quality: number;
-    mediaTypes: string[];
-  }) => Promise<{
-    canceled: boolean;
-    assets?: { fileName?: string | null; uri: string; mimeType?: string | null }[];
-  }>;
+  launchImageLibraryAsync: typeof ExpoImagePicker.launchImageLibraryAsync;
+  launchCameraAsync: typeof ExpoImagePicker.launchCameraAsync;
   requestCameraPermissionsAsync: () => Promise<{ granted: boolean }>;
   requestMediaLibraryPermissionsAsync: () => Promise<{ granted: boolean; canAskAgain?: boolean }>;
 };
@@ -2628,6 +2614,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         let didMutateChats = false;
         let responseLogEmitted = false;
         let assistantResponseBuffer = '';
+        let responseRecoveryStartAt = 0;
+        let assistantId = '';
+        let activeAssistantId = '';
 
         const logResponsePayloadForAttempt = (responsePayload: Record<string, unknown>) => {
           if (!__DEV__ || responseLogEmitted) return;
@@ -2855,7 +2844,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               thumbnailUrl: asset.uri,
             })),
           };
-          const responseRecoveryStartAt = userMessage.createdAt - 1000;
+          responseRecoveryStartAt = userMessage.createdAt - 1000;
           if (composerMediaReference) {
             pendingReferencedUserMessagesRef.current.push({
               sentAt: userMessage.createdAt,
@@ -2864,8 +2853,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             });
           }
 
-          const assistantId = `assistant-${Date.now()}`;
-          let activeAssistantId = assistantId;
+          assistantId = `assistant-${Date.now()}`;
+          activeAssistantId = assistantId;
           const suppressStreamingTextForArtifact = isAuthenticated
             && !attachmentsForSend.length
             && isLikelyArtifactGenerationIntent(trimmed);
