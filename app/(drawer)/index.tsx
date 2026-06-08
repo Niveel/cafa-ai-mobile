@@ -159,7 +159,7 @@ type DocumentPickerModule = {
   getDocumentAsync: (options: {
     copyToCacheDirectory: boolean;
     multiple: boolean;
-    type: string[];
+    type: string | string[];
   }) => Promise<{
     canceled: boolean;
     assets?: { name?: string | null; uri: string; mimeType?: string | null }[];
@@ -4245,20 +4245,32 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return;
     }
 
+    let DocumentPicker: DocumentPickerModule;
+    try {
+      DocumentPicker = await getDocumentPickerModule();
+    } catch (error) {
+      showTransientNotice(error instanceof Error ? error.message : 'Document picker is unavailable in this build.');
+      return;
+    }
+
     let result: Awaited<ReturnType<DocumentPickerModule['getDocumentAsync']>>;
     try {
-      const DocumentPicker = await getDocumentPickerModule();
       result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
-        type: [
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'text/plain',
-        ],
+        type: Platform.OS === 'ios'
+          ? '*/*'
+          : [
+              'application/pdf',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              'text/plain',
+            ],
       });
-    } catch {
-      showTransientNotice('Document picker is unavailable in this build.');
+    } catch (error) {
+      if (__DEV__) {
+        console.log('[document-picker:pick-failed]', error);
+      }
+      showTransientNotice('Unable to open the document picker right now. Please try again.');
       return;
     }
 
