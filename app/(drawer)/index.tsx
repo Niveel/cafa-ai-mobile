@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import type { DedicatedMediaScreen, MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
 import * as Clipboard from 'expo-clipboard';
+import * as ExpoDocumentPicker from 'expo-document-picker';
 import * as ExpoImagePicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
@@ -256,13 +257,26 @@ async function getDocumentPickerModule() {
     if (!documentPickerModulePromise) {
       documentPickerModulePromise = import('expo-document-picker') as Promise<DocumentPickerModule>;
     }
-    const moduleCandidate = await documentPickerModulePromise;
+    const loaded = await documentPickerModulePromise;
+    const moduleCandidate =
+      ((loaded as { default?: unknown })?.default ?? loaded) as Partial<DocumentPickerModule> | null | undefined;
     if (!moduleCandidate || typeof moduleCandidate.getDocumentAsync !== 'function') {
+      const staticCandidate = ExpoDocumentPicker as Partial<DocumentPickerModule>;
+      if (typeof staticCandidate.getDocumentAsync === 'function') {
+        return staticCandidate as DocumentPickerModule;
+      }
       throw new Error('Document picker module is not available.');
     }
-    return moduleCandidate;
-  } catch {
+    return moduleCandidate as DocumentPickerModule;
+  } catch (error) {
     documentPickerModulePromise = null;
+    const staticCandidate = ExpoDocumentPicker as Partial<DocumentPickerModule>;
+    if (typeof staticCandidate.getDocumentAsync === 'function') {
+      return staticCandidate as DocumentPickerModule;
+    }
+    if (__DEV__) {
+      console.log('[document-picker:load-failed]', error);
+    }
     throw new Error('Document picker is unavailable in this build. Rebuild the app or update Expo Go.');
   }
 }
