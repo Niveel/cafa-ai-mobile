@@ -507,6 +507,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const videoGenerationInFlightRef = useRef(false);
   const videoFromImageInFlightRef = useRef(false);
   const videoAutoSyncInFlightRef = useRef(false);
+  const documentPickerInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
   const isSendRunInFlightRef = useRef(false);
   const lastSendAttemptAtRef = useRef(0);
@@ -4239,70 +4240,91 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   };
 
   const pickDocumentAttachment = async () => {
-    setAttachmentMenuOpen(false);
     if (!canAttachDocuments) {
       showTransientNotice('Document upload is available on paid plans only.');
       return;
     }
 
-    let DocumentPicker: DocumentPickerModule;
-    try {
-      DocumentPicker = await getDocumentPickerModule();
-    } catch (error) {
-      showTransientNotice(error instanceof Error ? error.message : 'Document picker is unavailable in this build.');
+    if (documentPickerInFlightRef.current) {
+      showTransientNotice('Document picker is already opening.');
       return;
     }
 
-    let result: Awaited<ReturnType<DocumentPickerModule['getDocumentAsync']>>;
+    documentPickerInFlightRef.current = true;
     try {
-      result = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-        type: Platform.OS === 'ios'
-          ? '*/*'
-          : [
-              'application/pdf',
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-              'text/plain',
-            ],
-      });
-    } catch (error) {
-      if (__DEV__) {
-        console.log('[document-picker:pick-failed]', error);
+      let DocumentPicker: DocumentPickerModule;
+      try {
+        DocumentPicker = await getDocumentPickerModule();
+      } catch (error) {
+        showTransientNotice(error instanceof Error ? error.message : 'Document picker is unavailable in this build.');
+        return;
       }
-      showTransientNotice('Unable to open the document picker right now. Please try again.');
+
+      let result: Awaited<ReturnType<DocumentPickerModule['getDocumentAsync']>>;
+      try {
+        result = await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+          multiple: false,
+          type: Platform.OS === 'ios'
+            ? '*/*'
+            : [
+                'application/pdf',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'text/plain',
+              ],
+        });
+      } catch (error) {
+        if (__DEV__) {
+          console.log('[document-picker:pick-failed]', error);
+        }
+        showTransientNotice('Unable to open the document picker right now. Please try again.');
+        return;
+      }
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      const lowerName = (asset.name ?? '').toLowerCase();
+      const mime = (asset.mimeType ?? '').toLowerCase();
+      const isAllowedMime =
+        mime === 'application/pdf' ||
+        mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        mime === 'text/plain';
+      const isAllowedExtension =
+        lowerName.endsWith('.pdf') ||
+        lowerName.endsWith('.docx') ||
+        lowerName.endsWith('.txt');
+
+      if (!isAllowedMime && !isAllowedExtension) {
+        showTransientNotice('Only document attachments are supported: PDF, DOCX, TXT.');
+        return;
+      }
+
+      setAttachedAssets((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label: asset.name ?? 'document-attachment',
+          uri: asset.uri,
+          fileName: asset.name ?? `document-${Date.now()}`,
+          mimeType: lowerName.endsWith('.pdf') ? 'application/pdf' : (asset.mimeType ?? undefined),
+        },
+      ]);
+    } finally {
+      documentPickerInFlightRef.current = false;
+    }
+  };
+
+  const handleDocumentUploadPress = () => {
+    setAttachmentMenuOpen(false);
+    const openPicker = () => {
+      void pickDocumentAttachment();
+    };
+    if (Platform.OS === 'ios') {
+      setTimeout(openPicker, MOTION.duration.normal);
       return;
     }
-
-    if (result.canceled || !result.assets?.length) return;
-
-    const asset = result.assets[0];
-    const lowerName = (asset.name ?? '').toLowerCase();
-    const mime = (asset.mimeType ?? '').toLowerCase();
-    const isAllowedMime =
-      mime === 'application/pdf' ||
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mime === 'text/plain';
-    const isAllowedExtension =
-      lowerName.endsWith('.pdf') ||
-      lowerName.endsWith('.docx') ||
-      lowerName.endsWith('.txt');
-
-    if (!isAllowedMime && !isAllowedExtension) {
-      showTransientNotice('Only document attachments are supported: PDF, DOCX, TXT.');
-      return;
-    }
-
-    setAttachedAssets((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        label: asset.name ?? 'document-attachment',
-        uri: asset.uri,
-        fileName: asset.name ?? `document-${Date.now()}`,
-        mimeType: lowerName.endsWith('.pdf') ? 'application/pdf' : (asset.mimeType ?? undefined),
-      },
-    ]);
+    openPicker();
   };
 
   const removeAttachment = (id: string) => {
@@ -5559,7 +5581,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               <Pressable
                 ref={uploadDocumentOptionRef}
                 focusable
-                onPress={pickDocumentAttachment}
+                onPress={handleDocumentUploadPress}
                 accessibilityRole="button"
                 accessibilityLabel={screenConfig.attachDocumentLabel}
                 accessibilityHint={screenConfig.attachDocumentHint}
