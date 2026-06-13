@@ -141,7 +141,7 @@ export default function OnboardingScreen() {
         id: 'welcome',
         title: t('onboarding.slide1.title'),
         description: t('onboarding.slide1.body'),
-        icon: 'sparkles-outline',
+        icon: 'color-wand-outline',
         accent: '#5F7FB8',
       },
       {

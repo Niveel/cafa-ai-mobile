@@ -22,7 +22,7 @@ export function SubmitButton({ title, forceEnable = false }: Props) {
         if (!isDisabled) handleSubmit();
       }}
       minWidth={140}
-      iconName={isSubmitting ? 'sparkles-outline' : 'arrow-forward-outline'}
+      iconName={isSubmitting ? 'reload-outline' : 'arrow-forward-outline'}
     />
   );
 }

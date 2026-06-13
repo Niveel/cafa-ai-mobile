@@ -6180,7 +6180,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               >
                 <View className="flex-row items-center">
                   <ActivityIndicator size="small" color={colors.primary} />
-                  <Ionicons name="sparkles-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
+                  <Ionicons name="search-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
                   <Text
                     accessibilityLiveRegion="polite"
                     style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginLeft: 6 }}

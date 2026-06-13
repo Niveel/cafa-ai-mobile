@@ -277,7 +277,7 @@ export function DocumentWizardCard({
           }}
         >
           <ActivityIndicator size="small" color={colors.primary} />
-          <Ionicons name="sparkles-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
+          <Ionicons name="document-text-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
           <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700', marginLeft: 6 }}>
             Generating your document...
           </Text>
