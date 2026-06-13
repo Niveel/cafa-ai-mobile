@@ -3,6 +3,12 @@ export function enhanceDocumentWizardHtml(
   accentColor: string,
   isDark: boolean,
 ) {
+  const sanitizedHtml = html
+    .replace(/<h1\b[^>]*>\s*Resume Builder\s*<\/h1>/gi, '')
+    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your resume\.\s*<\/p>/gi, '')
+    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your cv\.\s*<\/p>/gi, '')
+    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your document\.\s*<\/p>/gi, '');
+
   const css = `
     :root {
       color-scheme: ${isDark ? 'dark' : 'light'};
@@ -32,7 +38,7 @@ export function enhanceDocumentWizardHtml(
     body {
       padding: 2px;
       font-size: 12px;
-      line-height: 1.25;
+      line-height: 1.35;
     }
     form, main, .container, .wrapper, .content, .card, .form-card {
       width: 100%;
@@ -68,16 +74,16 @@ export function enhanceDocumentWizardHtml(
     fieldset, .wizard-panel {
       border: 1px solid var(--wizard-border);
       border-radius: var(--wizard-radius);
-      padding: 1px;
-      margin: 0 0 2px;
+      padding: 4px;
+      margin: 0 0 4px;
       background: var(--wizard-surface);
       box-shadow: var(--wizard-shadow);
     }
     label, legend {
       display: block;
-      margin-bottom: 1px;
+      margin-bottom: 2px;
       color: var(--wizard-text);
-      font-size: 0.7rem;
+      font-size: 0.72rem;
       font-weight: 700;
     }
     input, textarea, select {
@@ -86,23 +92,23 @@ export function enhanceDocumentWizardHtml(
       border-style: solid;
       border-color: var(--wizard-input-border) !important;
       border-radius: 8px;
-      padding: 3px 6px;
+      padding: 6px 8px;
       background: var(--wizard-input-bg);
       color: var(--wizard-text);
       font: inherit;
       font-size: 11px;
-      line-height: 1.2;
-      min-height: 24px;
+      line-height: 1.3;
+      min-height: 34px;
       transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
     }
     textarea {
-      min-height: 44px;
+      min-height: 72px;
       resize: vertical;
       border-color: var(--wizard-input-border) !important;
     }
     select {
-      padding-top: 2px;
-      padding-bottom: 2px;
+      padding-top: 6px;
+      padding-bottom: 6px;
     }
     input:focus, textarea:focus, select:focus {
       outline: none;
@@ -128,30 +134,26 @@ export function enhanceDocumentWizardHtml(
       accent-color: var(--wizard-accent);
     }
     [class*="row"], [class*="grid"], .options, .choices {
-      gap: 3px;
-    }
-    form > *, fieldset > *, .wizard-panel > * {
-      margin-top: 0 !important;
-      margin-bottom: 0 !important;
-      padding-top: 0 !important;
-      padding-bottom: 0 !important;
-    }
-    form > * + *, fieldset > * + *, .wizard-panel > * + * {
-      margin-top: 1px !important;
+      gap: 4px;
     }
     .form-group, .field, .input-group, .question, .section {
-      margin-bottom: 1px !important;
+      margin-bottom: 4px !important;
       padding-top: 0 !important;
       padding-bottom: 0 !important;
-      padding-left: 0 !important;
-      padding-right: 0 !important;
+    }
+    form > label, form > p, form > div, form > input, form > textarea, form > select, form > button {
+      margin-bottom: 4px !important;
+    }
+    label + input, label + textarea, label + select {
+      margin-top: 0 !important;
+      margin-bottom: 5px !important;
     }
     ul, ol {
-      margin: 2px 0;
+      margin: 6px 0;
       padding-left: 14px;
     }
     hr {
-      margin: 4px 0;
+      margin: 10px 0;
       border: 0;
       border-top: 1px solid var(--wizard-border);
     }
@@ -160,9 +162,9 @@ export function enhanceDocumentWizardHtml(
       appearance: none;
       border: none;
       border-radius: 999px;
-      min-height: 26px;
-      padding: 4px 8px;
-      margin-top: 3px;
+      min-height: 34px;
+      padding: 8px 10px;
+      margin-top: 7px;
       background: linear-gradient(135deg, #17365f 0%, var(--wizard-accent) 100%);
       color: #ffffff;
       font: inherit;
@@ -232,6 +234,38 @@ export function enhanceDocumentWizardHtml(
         return !['hidden', 'submit', 'button', 'reset', 'image'].includes(type);
       }
 
+      function hasFormControls(node) {
+        return Boolean(node && node.querySelector && node.querySelector('input, textarea, select, button'));
+      }
+
+      function normalizeText(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      }
+
+      function isIntroCopy(text) {
+        return /(^|\b)resume builder(\b|$)/i.test(text)
+          || /(^|\b)cv builder(\b|$)/i.test(text)
+          || /(^|\b)document builder(\b|$)/i.test(text)
+          || /please\s+fill\s+out\s+the\s+form\s+below/i.test(text)
+          || /fill\s+out\s+the\s+form\s+below\s+to\s+create\s+your\s+(resume|cv|document)/i.test(text)
+          || /create\s+your\s+(resume|cv|document)/i.test(text);
+      }
+
+      function hideIntroNode(node) {
+        if (!node || !node.style) return;
+        node.style.display = 'none';
+        var candidate = node;
+        for (var depth = 0; depth < 3; depth += 1) {
+          if (!candidate.parentElement) break;
+          var parentText = normalizeText(candidate.parentElement.textContent || '');
+          if (hasFormControls(candidate.parentElement)) break;
+          if (!isIntroCopy(parentText)) break;
+          candidate = candidate.parentElement;
+        }
+        if (candidate === node || hasFormControls(candidate)) return;
+        candidate.style.display = 'none';
+      }
+
       ready(function () {
         var form = document.querySelector('form');
         if (!form) return;
@@ -246,18 +280,22 @@ export function enhanceDocumentWizardHtml(
         if (form.parentNode) form.parentNode.insertBefore(banner, form);
 
         Array.prototype.slice.call(document.querySelectorAll('h1, h2, h3, h4, h5, h6, strong, b, span, label, p, div, small')).forEach(function (node) {
-          var text = String(node.textContent || '').trim().toLowerCase();
-          if (
-            text.includes('builder')
-            || text.includes('please fill out the form below')
-            || text.includes('fill out the form below')
-            || text.includes('create your resume')
-            || text.includes('create your cv')
-            || text.includes('create your document')
-          ) {
-            node.style.display = 'none';
+          var text = normalizeText(node.textContent || '');
+          if (isIntroCopy(text)) {
+            hideIntroNode(node);
           }
         });
+
+        if (form.parentElement) {
+          Array.prototype.slice.call(form.parentElement.children).forEach(function (child) {
+            if (child === form || child === banner) return;
+            if (hasFormControls(child)) return;
+            var childText = normalizeText(child.textContent || '');
+            if (isIntroCopy(childText)) {
+              child.style.display = 'none';
+            }
+          });
+        }
 
         var controls = Array.prototype.slice.call(form.querySelectorAll('input, textarea, select')).filter(isEligibleControl);
 
@@ -367,7 +405,7 @@ export function enhanceDocumentWizardHtml(
   const scriptTag = `<script id="cafa-document-wizard-inline-script">${script}</script>`;
   const metaTag = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">';
 
-  let nextHtml = html;
+  let nextHtml = sanitizedHtml;
   if (!/<meta[^>]+name=["']viewport["']/i.test(nextHtml)) {
     nextHtml = nextHtml.replace(/<head([^>]*)>/i, `<head$1>${metaTag}`);
   }

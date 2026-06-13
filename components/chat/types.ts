@@ -18,6 +18,8 @@ export type UiMessageDocumentWizard = {
   documentType: string;
   format: string;
   collapsed?: boolean;
+  userMessageId?: string;
+  assistantMessageId?: string;
 };
 
 export type UiMessage = {

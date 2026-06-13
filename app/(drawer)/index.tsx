@@ -134,6 +134,7 @@ import {
   clearDocumentWizardDraftMessages,
   detectDocumentRequest,
   emitChatMutated,
+  getActiveDocumentWizardDraftKey,
   getDocumentWizardDraftMessages,
   getAccessToken,
   getDefaultVoicePreference,
@@ -1128,6 +1129,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       url: string;
       id?: string;
     };
+    documentWizard?: {
+      html: string;
+      documentType: string;
+      format: string;
+      collapsed?: boolean;
+      userMessageId?: string;
+      assistantMessageId?: string;
+    };
   }): UiMessage => {
     const role = message.role === 'assistant' ? 'assistant' : 'user';
     const createdAtMs = new Date(message.createdAt).getTime();
@@ -1228,6 +1237,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       videoUrl: effectiveVideoUrl,
       videoPrompt: message.videoPrompt,
       videoId: message.videoId,
+      documentWizard: message.documentWizard
+        ? {
+            html: message.documentWizard.html,
+            documentType: message.documentWizard.documentType,
+            format: message.documentWizard.format,
+            collapsed: message.documentWizard.collapsed,
+            userMessageId: message.documentWizard.userMessageId,
+            assistantMessageId: message.documentWizard.assistantMessageId,
+          }
+        : undefined,
     };
   }, [resolveBackendAssetUrl]);
 
@@ -1399,6 +1418,33 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       }
     });
     return source.filter((message) => draftIds.has(message.id));
+  }, []);
+
+  const getDocumentWizardDraftKey = useCallback((conversationId?: string | null) => (
+    conversationId?.trim() ? `conversation:${conversationId.trim()}` : 'standalone'
+  ), []);
+
+  const mergeDocumentWizardDraftMessages = useCallback((baseMessages: UiMessage[], draftMessages: UiMessage[]) => {
+    if (draftMessages.length === 0) return baseMessages;
+    if (baseMessages.some((message) => message.documentWizard)) return baseMessages;
+
+    const existingIds = new Set(baseMessages.map((message) => message.id));
+    const createFingerprint = (message: UiMessage) => (
+      [
+        message.role,
+        message.content.trim(),
+        Math.round(message.createdAt / 1000),
+        message.documentWizard?.documentType ?? '',
+        message.documentWizard?.format ?? '',
+      ].join('|')
+    );
+    const existingFingerprints = new Set(baseMessages.map(createFingerprint));
+    const additions = draftMessages.filter((message) => (
+      !existingIds.has(message.id) && !existingFingerprints.has(createFingerprint(message))
+    ));
+
+    if (additions.length === 0) return baseMessages;
+    return [...baseMessages, ...additions].sort((left, right) => left.createdAt - right.createdAt);
   }, []);
 
   const scrollToBottom = (animated = true) => {
@@ -1602,7 +1648,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         : null;
 
       const next = localAssistantFallback ? [...merged, localAssistantFallback] : merged;
-      return applyDescriptiveAttachmentNames(next);
+      const preservedDrafts = collectDocumentWizardDraftMessages(prev);
+      return applyDescriptiveAttachmentNames(mergeDocumentWizardDraftMessages(next, preservedDrafts));
     });
     setMessageReactions(() =>
       detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
@@ -1616,7 +1663,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       }, {}),
     );
     void hydrateAssistantAttachmentsFromArtifacts(detail.id);
-  }, [applyDescriptiveAttachmentNames, hydrateAssistantAttachmentsFromArtifacts, mapAuthMessageToUiMessage]);
+  }, [
+    applyDescriptiveAttachmentNames,
+    collectDocumentWizardDraftMessages,
+    hydrateAssistantAttachmentsFromArtifacts,
+    mapAuthMessageToUiMessage,
+    mergeDocumentWizardDraftMessages,
+  ]);
 
   const applyDedicatedMediaConversation = useCallback((conversationPage: Awaited<ReturnType<typeof getDedicatedMediaConversation>>) => {
     setAuthConversationId(conversationPage.conversation.id);
@@ -2959,22 +3012,70 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           setIsUnderstandingPrompt(false);
 
           if (screenMode === 'chat' && isAuthenticated && attachmentsForSend.length === 0) {
+            lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
+            logSendPayload({
+              endpoint: lastEndpoint,
+              mode: 'auth-document-detect',
+              conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+              message: trimmed,
+              language,
+              model: activeModel,
+              reference: composerMediaReference ?? null,
+              attachments: [],
+            });
             setStatusNotice('Analyzing your request...');
             const detection = await detectDocumentRequest(trimmed);
 
             if (detection.isDocumentRequest && detection.confidence >= 0.7) {
               try {
+                let wizardConversationId = activeAuthConversationId ?? authConversationId;
+                if (!wizardConversationId) {
+                  lastEndpoint = `${API_BASE_URL}/chat`;
+                  const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
+                  wizardConversationId = created.conversationId;
+                  activeAuthConversationId = wizardConversationId;
+                  setAuthConversationId(wizardConversationId);
+                  didMutateChats = true;
+                }
+                const userMessageId = `user-document-${Date.now()}`;
+                const assistantMessageId = `assistant-document-form-${Date.now()}`;
+                lastEndpoint = `${API_BASE_URL}/documents/wizard/start`;
+                logSendPayload({
+                  endpoint: lastEndpoint,
+                  mode: 'auth-document-start',
+                  conversationId: wizardConversationId ?? activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                  message: trimmed,
+                  language,
+                  model: activeModel,
+                  reference: composerMediaReference ?? null,
+                  attachments: [],
+                  documentType: detection.documentType ?? null,
+                  format: detection.format ?? null,
+                  confidence: detection.confidence,
+                  userRequest: detection.documentType ?? trimmed,
+                  userMessageId,
+                  assistantMessageId,
+                });
                 setStatusNotice('Preparing your form...');
                 const detectedDocumentType = detection.documentType?.trim() || 'document';
-                const html = await startDocumentWizard(detection.documentType ?? trimmed);
+                const html = await startDocumentWizard(detection.documentType ?? trimmed, {
+                  conversationId: wizardConversationId ?? undefined,
+                  userMessageId,
+                  assistantMessageId,
+                });
+                logResponsePayloadForAttempt({
+                  responseType: 'document-wizard-start',
+                  html,
+                  htmlLength: html.length,
+                });
                 const userMessage: UiMessage = {
-                  id: `user-document-${Date.now()}`,
+                  id: userMessageId,
                   role: 'user',
                   content: trimmed,
                   createdAt: Date.now(),
                 };
                 const assistantMessage: UiMessage = {
-                  id: `assistant-document-form-${Date.now()}`,
+                  id: assistantMessageId,
                   role: 'assistant',
                   content: `Fill in the form below and submit it here in chat. I’ll use it to create a stronger ${detectedDocumentType} for you.`,
                   createdAt: Date.now() + 1,
@@ -2983,6 +3084,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     documentType: detectedDocumentType,
                     format: detection.format ?? 'pdf',
                     collapsed: false,
+                    userMessageId,
+                    assistantMessageId,
                   },
                 };
 
@@ -2992,6 +3095,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 setComposerMediaReference(null);
                 setAttachmentMenuOpen(false);
                 setModelMenuOpen(false);
+                const nextMessages = messages
+                  .filter((message) => !isWelcomeMessage(message))
+                  .map((message) => (
+                    message.documentWizard
+                      ? {
+                          ...message,
+                          documentWizard: {
+                            ...message.documentWizard,
+                            collapsed: true,
+                          },
+                        }
+                      : message
+                  ));
+                nextMessages.push(userMessage, assistantMessage);
                 setMessages((prev) => {
                   const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
                   return [
@@ -3010,6 +3127,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     assistantMessage,
                   ];
                 });
+                await setDocumentWizardDraftMessages(
+                  getDocumentWizardDraftKey(wizardConversationId ?? null),
+                  collectDocumentWizardDraftMessages(nextMessages),
+                );
+                if (wizardConversationId && wizardConversationId !== params.conversationId) {
+                  router.setParams({ conversationId: wizardConversationId, newChat: undefined });
+                }
                 autoScrollEnabledRef.current = true;
                 setShowScrollToBottom(false);
                 scrollToBottom();
@@ -5199,8 +5323,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
     let cancelled = false;
     const hydrateDrafts = async () => {
-      const drafts = await getDocumentWizardDraftMessages();
+      const activeDraftKey = await getActiveDocumentWizardDraftKey();
       documentDraftHydratedRef.current = true;
+      if (cancelled || !activeDraftKey) return;
+      if (activeDraftKey.startsWith('conversation:')) {
+        const conversationId = activeDraftKey.replace(/^conversation:/, '').trim();
+        if (conversationId) {
+          router.setParams({ conversationId, newChat: undefined });
+          return;
+        }
+      }
+      const drafts = await getDocumentWizardDraftMessages(activeDraftKey);
       if (cancelled || drafts.length === 0) return;
       setMessages((prev) => {
         const hasExistingDraft = prev.some((message) => message.documentWizard);
@@ -5219,19 +5352,22 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   useEffect(() => {
     if (isDedicatedMediaScreen) return;
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
-    if (targetConversationId) {
-      void clearDocumentWizardDraftMessages();
-      return;
-    }
     if (!documentDraftHydratedRef.current) return;
 
+    const draftKey = getDocumentWizardDraftKey(targetConversationId);
     const drafts = collectDocumentWizardDraftMessages(messages);
     if (drafts.length === 0) {
-      void clearDocumentWizardDraftMessages();
+      void clearDocumentWizardDraftMessages(draftKey);
       return;
     }
-    void setDocumentWizardDraftMessages(drafts);
-  }, [collectDocumentWizardDraftMessages, isDedicatedMediaScreen, messages, params.conversationId]);
+    void setDocumentWizardDraftMessages(draftKey, drafts);
+  }, [
+    collectDocumentWizardDraftMessages,
+    getDocumentWizardDraftKey,
+    isDedicatedMediaScreen,
+    messages,
+    params.conversationId,
+  ]);
 
   useEffect(() => {
     if (isDedicatedMediaScreen) return;
@@ -5277,15 +5413,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         if (isAuthenticated) {
           const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
           setAuthConversationId(targetConversationId);
-          if (!detail.messages.length) {
+          const mappedMessages = applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage));
+          const localDrafts = await getDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
+          const mergedMessages = mergeDocumentWizardDraftMessages(mappedMessages, localDrafts);
+          if (!mergedMessages.length) {
             setMessages([createWelcomeMessage()]);
             rotateStarterPrompts();
             setMessageReactions({});
             return;
           }
-          setMessages(
-            applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage)),
-          );
+          setMessages(mergedMessages);
           setMessageReactions(() =>
             detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
               if (message.role !== 'assistant') return acc;
@@ -5326,7 +5463,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     authConversationId,
     createWelcomeMessage,
     guestConversationId,
+    getDocumentWizardDraftKey,
     isAuthenticated,
+    mergeDocumentWizardDraftMessages,
     mapAuthMessageToUiMessage,
     params.conversationId,
     params.newChat,
@@ -6245,6 +6384,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           html={item.documentWizard!.html}
                           documentType={item.documentWizard!.documentType}
                           format={item.documentWizard!.format}
+                          conversationId={authConversationId ?? params.conversationId ?? null}
+                          userMessageId={item.documentWizard!.userMessageId}
+                          assistantMessageId={item.documentWizard!.assistantMessageId ?? item.id}
                           collapsed={item.documentWizard!.collapsed}
                           isDark={isDark}
                           colors={colors}

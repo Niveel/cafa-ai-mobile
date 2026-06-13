@@ -16,6 +16,12 @@ type HistoryWizardResponse = ApiResponse<DocumentWizardHistoryPage>;
 
 const DOCUMENT_WIZARD_BASE = '/documents/wizard';
 
+type DocumentWizardPersistenceOptions = {
+  conversationId?: string;
+  userMessageId?: string;
+  assistantMessageId?: string;
+};
+
 const DETECT_FALLBACK: DetectDocumentRequestResult = {
   isDocumentRequest: false,
   documentType: null,
@@ -32,9 +38,14 @@ export async function detectDocumentRequest(message: string): Promise<DetectDocu
   }
 }
 
-export async function startDocumentWizard(userRequest: string) {
+export async function startDocumentWizard(userRequest: string, options?: DocumentWizardPersistenceOptions) {
   try {
-    const response: AxiosResponse<StartWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/start`, { userRequest });
+    const response: AxiosResponse<StartWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/start`, {
+      userRequest,
+      conversationId: options?.conversationId,
+      userMessageId: options?.userMessageId,
+      assistantMessageId: options?.assistantMessageId,
+    });
     if (!response.data?.success || !response.data.data?.html) {
       throw new Error(response.data?.message || 'Failed to prepare document form.');
     }
@@ -48,12 +59,16 @@ export async function generateDocumentFromWizard(
   formData: Record<string, string>,
   documentType: string,
   format: string,
+  options?: DocumentWizardPersistenceOptions,
 ) {
   try {
     const response: AxiosResponse<GenerateWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/generate`, {
       formData,
       documentType,
       format,
+      conversationId: options?.conversationId,
+      userMessageId: options?.userMessageId,
+      assistantMessageId: options?.assistantMessageId,
     });
     if (!response.data?.success) {
       throw new Error(response.data?.message || 'Failed to generate document.');

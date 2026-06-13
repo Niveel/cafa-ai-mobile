@@ -40,6 +40,15 @@ type AuthConversationDetailDto = {
       url?: string;
       id?: string;
     } | null;
+    documentWizard?: {
+      html?: string;
+      documentType?: string;
+      format?: string;
+      collapsed?: boolean;
+      state?: 'open' | 'collapsed' | 'completed';
+      userMessageId?: string;
+      assistantMessageId?: string;
+    } | null;
   }[];
   createdAt: string;
   updatedAt: string;
@@ -83,6 +92,14 @@ export type AuthConversationDetail = {
       kind: 'image' | 'video';
       url: string;
       id?: string;
+    };
+    documentWizard?: {
+      html: string;
+      documentType: string;
+      format: string;
+      collapsed?: boolean;
+      userMessageId?: string;
+      assistantMessageId?: string;
     };
   }[];
 };
@@ -243,6 +260,16 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
               id: message.reference.id,
             }
           : undefined,
+        documentWizard: message.documentWizard?.html
+          ? {
+              html: message.documentWizard.html,
+              documentType: message.documentWizard.documentType ?? 'document',
+              format: message.documentWizard.format ?? 'pdf',
+              collapsed: message.documentWizard.collapsed ?? message.documentWizard.state === 'collapsed',
+              userMessageId: message.documentWizard.userMessageId,
+              assistantMessageId: message.documentWizard.assistantMessageId,
+            }
+          : undefined,
       };
     }),
   };
@@ -259,6 +286,7 @@ function cloneDetail(detail: AuthConversationDetail): AuthConversationDetail {
       ...message,
       attachments: message.attachments?.map((attachment) => ({ ...attachment })),
       reactions: message.reactions ? { ...message.reactions } : undefined,
+      documentWizard: message.documentWizard ? { ...message.documentWizard } : undefined,
     })),
   };
 }

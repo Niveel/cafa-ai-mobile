@@ -21,6 +21,9 @@ type DocumentWizardCardProps = {
   html: string;
   documentType: string;
   format: string;
+  conversationId?: string | null;
+  assistantMessageId?: string;
+  userMessageId?: string;
   collapsed?: boolean;
   isDark: boolean;
   colors: {
@@ -39,6 +42,9 @@ export function DocumentWizardCard({
   html,
   documentType,
   format,
+  conversationId,
+  assistantMessageId,
+  userMessageId,
   collapsed = false,
   isDark,
   colors,
@@ -65,7 +71,7 @@ export function DocumentWizardCard({
     if (payload.startsWith(HEIGHT_MESSAGE_PREFIX)) {
       const nextHeight = Number(payload.replace(HEIGHT_MESSAGE_PREFIX, ''));
       if (Number.isFinite(nextHeight) && nextHeight > 0) {
-        setFormHeight(Math.max(260, Math.min(760, Math.ceil(nextHeight))));
+        setFormHeight(Math.max(360, Math.min(1040, Math.ceil(nextHeight))));
       }
       return;
     }
@@ -84,7 +90,11 @@ export function DocumentWizardCard({
     AccessibilityInfo.announceForAccessibility?.('Generating your document.');
 
     try {
-      const artifacts = await generateDocumentFromWizard(formData, documentType, format);
+      const artifacts = await generateDocumentFromWizard(formData, documentType, format, {
+        conversationId: conversationId ?? undefined,
+        assistantMessageId,
+        userMessageId,
+      });
       AccessibilityInfo.announceForAccessibility?.('Document generated successfully.');
       onComplete(artifacts);
     } catch (err) {
@@ -94,7 +104,7 @@ export function DocumentWizardCard({
     } finally {
       setLoading(false);
     }
-  }, [documentType, format, onComplete]);
+  }, [assistantMessageId, conversationId, documentType, format, onComplete, userMessageId]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -244,7 +254,7 @@ export function DocumentWizardCard({
             borderWidth: 1,
             borderColor: isDark ? 'rgba(95,127,184,0.16)' : 'rgba(22,53,95,0.08)',
             backgroundColor: isDark ? '#101821' : '#f8fafc',
-            height: Platform.OS === 'web' ? formHeight : Math.max(320, Math.min(680, formHeight)),
+            height: Platform.OS === 'web' ? formHeight : Math.max(420, Math.min(920, formHeight)),
           }}
         >
           {embeddedForm}
