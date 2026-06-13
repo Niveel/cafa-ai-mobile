@@ -4,10 +4,8 @@ export function enhanceDocumentWizardHtml(
   isDark: boolean,
 ) {
   const sanitizedHtml = html
-    .replace(/<h1\b[^>]*>\s*Resume Builder\s*<\/h1>/gi, '')
-    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your resume\.\s*<\/p>/gi, '')
-    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your cv\.\s*<\/p>/gi, '')
-    .replace(/<p\b[^>]*>\s*Please fill out the form below to create your document\.\s*<\/p>/gi, '');
+    .replace(/<h1\b[^>]*>[\s\S]*?<\/h1>/gi, '')
+    .replace(/<p\b[^>]*>[\s\S]*?<\/p>(?=[\s\S]*<form\b)/i, '');
 
   const css = `
     :root {
