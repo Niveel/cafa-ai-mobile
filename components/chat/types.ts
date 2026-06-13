@@ -13,6 +13,13 @@ export type UiMessageImageRequirement = {
   iconName?: string;
 };
 
+export type UiMessageDocumentWizard = {
+  html: string;
+  documentType: string;
+  format: string;
+  collapsed?: boolean;
+};
+
 export type UiMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -36,6 +43,7 @@ export type UiMessage = {
   isArtifactGenerating?: boolean;
   screenHandoff?: UiMessageScreenHandoff;
   imageRequirement?: UiMessageImageRequirement;
+  documentWizard?: UiMessageDocumentWizard;
 };
 
 export type UiMessageAttachment = {

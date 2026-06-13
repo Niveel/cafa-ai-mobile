@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -21,7 +21,8 @@ import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
 import { apiEndpoints } from '@/services/api';
 import { getAccessToken } from '@/services/storage/session';
-import { ArtifactItem } from '@/types';
+import { getDocumentWizardHistory } from '@/services';
+import { ArtifactItem, DocumentWizardArtifact, DocumentWizardHistoryItem } from '@/types';
 import { hapticError, hapticSelection, hapticSuccess, saveFileToDownloadsCafaFolder } from '@/utils';
 
 const PAGE_SIZE = 20;
@@ -86,20 +87,30 @@ export default function ArtifactsScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
+  const [activeCollection, setActiveCollection] = useState<'artifacts' | 'documents'>('artifacts');
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
+  const [documents, setDocuments] = useState<DocumentWizardHistoryItem[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isDocumentInitialLoading, setIsDocumentInitialLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isLoadingDocumentsMore, setIsLoadingDocumentsMore] = useState(false);
   const [hasNextPage, setHasNextPage] = useState(true);
+  const [documentsHasNextPage, setDocumentsHasNextPage] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
+  const [documentsPage, setDocumentsPage] = useState(0);
   const [statusNotice, setStatusNotice] = useState('');
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
+  const [downloadingDocumentKey, setDownloadingDocumentKey] = useState<string | null>(null);
   const [activeDownloadArtifact, setActiveDownloadArtifact] = useState<ArtifactItem | null>(null);
   const hasBootstrappedRef = useRef(false);
+  const hasDocumentsBootstrappedRef = useRef(false);
   const isLoadingPageRef = useRef(false);
+  const isLoadingDocumentsPageRef = useRef(false);
   const hasNextPageRef = useRef(true);
+  const documentsHasNextPageRef = useRef(true);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipFirstFilterRunRef = useRef(true);
@@ -115,6 +126,10 @@ export default function ArtifactsScreen() {
     hasNextPageRef.current = hasNextPage;
   }, [hasNextPage]);
 
+  useEffect(() => {
+    documentsHasNextPageRef.current = documentsHasNextPage;
+  }, [documentsHasNextPage]);
+
   const showNotice = useCallback((message: string, durationMs = 3200) => {
     setStatusNotice(message);
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
@@ -124,7 +139,7 @@ export default function ArtifactsScreen() {
     }, durationMs);
   }, []);
 
-  const loadPage = useCallback(async (page: number, mode: 'replace' | 'append') => {
+  const loadArtifactsPage = useCallback(async (page: number, mode: 'replace' | 'append') => {
     if (isLoadingPageRef.current) return;
     if (mode === 'append' && !hasNextPageRef.current) return;
     isLoadingPageRef.current = true;
@@ -158,11 +173,41 @@ export default function ArtifactsScreen() {
     }
   }, [debouncedSearchText, showNotice, t]);
 
+  const loadDocumentsPage = useCallback(async (page: number, mode: 'replace' | 'append') => {
+    if (isLoadingDocumentsPageRef.current) return;
+    if (mode === 'append' && !documentsHasNextPageRef.current) return;
+    isLoadingDocumentsPageRef.current = true;
+
+    if (mode === 'append') setIsLoadingDocumentsMore(true);
+    if (mode === 'replace' && page === 1) setIsDocumentInitialLoading(true);
+
+    try {
+      const payload = await getDocumentWizardHistory(page, PAGE_SIZE);
+      setDocuments((prev) => {
+        const source = mode === 'replace' ? payload.documents : [...prev, ...payload.documents];
+        const deduped = new Map<string, DocumentWizardHistoryItem>();
+        source.forEach((item) => deduped.set(item._id, item));
+        return Array.from(deduped.values());
+      });
+      setDocumentsPage(payload.pagination.page);
+      setDocumentsHasNextPage(payload.pagination.hasNextPage);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not load documents.';
+      showNotice(message, 5000);
+      hapticError();
+    } finally {
+      isLoadingDocumentsPageRef.current = false;
+      setIsDocumentInitialLoading(false);
+      setIsLoadingDocumentsMore(false);
+      setIsRefreshing(false);
+    }
+  }, [showNotice]);
+
   useEffect(() => {
     if (hasBootstrappedRef.current) return;
     hasBootstrappedRef.current = true;
-    void loadPage(1, 'replace');
-  }, [loadPage]);
+    void loadArtifactsPage(1, 'replace');
+  }, [loadArtifactsPage]);
 
   useEffect(() => {
     if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
@@ -177,32 +222,82 @@ export default function ArtifactsScreen() {
       skipFirstFilterRunRef.current = false;
       return;
     }
-    setHasNextPage(true);
-    setCurrentPage(0);
-    void loadPage(1, 'replace');
-  }, [debouncedSearchText, loadPage]);
+    if (activeCollection === 'artifacts') {
+      setHasNextPage(true);
+      setCurrentPage(0);
+      void loadArtifactsPage(1, 'replace');
+    }
+  }, [activeCollection, debouncedSearchText, loadArtifactsPage]);
 
   const onRefresh = useCallback(() => {
     setIsRefreshing(true);
+    if (activeCollection === 'documents') {
+      setDocumentsHasNextPage(true);
+      void loadDocumentsPage(1, 'replace');
+      return;
+    }
     setHasNextPage(true);
-    void loadPage(1, 'replace');
-  }, [loadPage]);
+    void loadArtifactsPage(1, 'replace');
+  }, [activeCollection, loadArtifactsPage, loadDocumentsPage]);
 
   const hasActiveFilters = searchText.trim().length > 0;
+
+  const filteredDocuments = useMemo(() => {
+    const query = debouncedSearchText.trim().toLowerCase();
+    if (!query) return documents;
+    return documents.filter((item) => {
+      const haystack = [
+        item.documentType,
+        item.format,
+        item.title,
+        item.source,
+        ...item.artifacts.map((artifact) => `${artifact.fileName} ${artifact.mimeType}`),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [debouncedSearchText, documents]);
+
+  useEffect(() => {
+    if (activeCollection !== 'documents' || hasDocumentsBootstrappedRef.current) return;
+    hasDocumentsBootstrappedRef.current = true;
+    void loadDocumentsPage(1, 'replace');
+  }, [activeCollection, loadDocumentsPage]);
 
   const clearFilters = useCallback(() => {
     hapticSelection();
     setSearchText('');
     setDebouncedSearchText('');
-    setHasNextPage(true);
-    setCurrentPage(0);
-    void loadPage(1, 'replace');
-  }, [loadPage]);
+    if (activeCollection === 'artifacts') {
+      setHasNextPage(true);
+      setCurrentPage(0);
+      void loadArtifactsPage(1, 'replace');
+    }
+  }, [activeCollection, loadArtifactsPage]);
 
   const onLoadMore = useCallback(() => {
+    if (activeCollection === 'documents') {
+      if (isDocumentInitialLoading || isRefreshing || isLoadingDocumentsMore || !documentsHasNextPage) return;
+      void loadDocumentsPage(documentsPage + 1, 'append');
+      return;
+    }
     if (isInitialLoading || isRefreshing || isLoadingMore || !hasNextPage) return;
-    void loadPage(currentPage + 1, 'append');
-  }, [currentPage, hasNextPage, isInitialLoading, isLoadingMore, isRefreshing, loadPage]);
+    void loadArtifactsPage(currentPage + 1, 'append');
+  }, [
+    activeCollection,
+    currentPage,
+    documentsHasNextPage,
+    documentsPage,
+    hasNextPage,
+    isDocumentInitialLoading,
+    isInitialLoading,
+    isLoadingDocumentsMore,
+    isLoadingMore,
+    isRefreshing,
+    loadArtifactsPage,
+    loadDocumentsPage,
+  ]);
 
   const downloadArtifact = useCallback(async (artifact: ArtifactItem) => {
     hapticSelection();
@@ -256,6 +351,68 @@ export default function ArtifactsScreen() {
     }
   }, [showNotice, t]);
 
+  const downloadDocumentArtifact = useCallback(async (documentId: string, artifact: DocumentWizardArtifact) => {
+    if (!artifact.url) {
+      showNotice('This document is missing a download link.', 5000);
+      hapticError();
+      return;
+    }
+
+    const downloadKey = `${documentId}:${artifact.fileName}`;
+    setDownloadingDocumentKey(downloadKey);
+    showNotice('Preparing your document download...');
+    hapticSelection();
+
+    try {
+      const extension = fileExtensionFromNameOrMime(artifact.fileName, artifact.mimeType);
+      const suggestedName = (artifact.fileName?.trim() || `cafa-ai-document-${Date.now()}.${extension}`)
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+      const finalName = /\.[a-z0-9]+$/i.test(suggestedName) ? suggestedName : `${suggestedName}.${extension}`;
+      const target = new File(Paths.cache, finalName);
+      if (target.exists) target.delete();
+
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(artifact.url, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+
+      if (Platform.OS === 'android') {
+        const persisted = await saveFileToDownloadsCafaFolder({
+          localFileUri: downloaded.uri,
+          fileName: finalName,
+          mimeType: artifact.mimeType || 'application/octet-stream',
+        });
+        showNotice(`Document saved: ${persisted.readableFilePath}`, 5000);
+      } else {
+        const Sharing = await getSharingModule();
+        if (Sharing && Sharing.isAvailableAsync && Sharing.shareAsync && await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloaded.uri, {
+            mimeType: artifact.mimeType || 'application/octet-stream',
+            dialogTitle: 'Save or share document',
+          });
+          showNotice('Document ready to share.');
+        } else {
+          await Share.share({ message: finalName, url: downloaded.uri });
+          showNotice('Document ready to share.');
+        }
+      }
+      hapticSuccess();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not download this document.';
+      console.log(`[documents-download:error] url=${artifact.url} message="${message}"`);
+      showNotice('Could not download this document.', 5000);
+      hapticError();
+    } finally {
+      setDownloadingDocumentKey((current) => (current === downloadKey ? null : current));
+    }
+  }, [showNotice]);
+
+  const isShowingDocuments = activeCollection === 'documents';
+  const listData = isShowingDocuments ? filteredDocuments : artifacts;
+  const isListInitialLoading = isShowingDocuments ? isDocumentInitialLoading : isInitialLoading;
+  const isListLoadingMore = isShowingDocuments ? isLoadingDocumentsMore : isLoadingMore;
+
   return (
     <RequireAuthRoute>
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
@@ -279,6 +436,35 @@ export default function ArtifactsScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.artifactsSubtitle')}
           </Text>
+          <View className="mt-3 flex-row rounded-full border p-1" style={{ borderColor: colors.border }}>
+            {(['artifacts', 'documents'] as const).map((collection) => {
+              const active = activeCollection === collection;
+              return (
+                <Pressable
+                  key={collection}
+                  onPress={() => {
+                    hapticSelection();
+                    setActiveCollection(collection);
+                  }}
+                  className="flex-1 rounded-full px-3 py-2"
+                  style={{
+                    backgroundColor: active ? colors.primary : 'transparent',
+                  }}
+                >
+                  <Text
+                    style={{
+                      textAlign: 'center',
+                      color: active ? '#FFFFFF' : colors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {collection === 'artifacts' ? 'Artifacts' : 'Documents'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <View className="mt-2 flex-row items-center">
             <View
               className="flex-1 rounded-full border px-3"
@@ -287,13 +473,17 @@ export default function ArtifactsScreen() {
               <TextInput
                 value={searchText}
                 onChangeText={setSearchText}
-                placeholder="Search artifacts"
+                placeholder={activeCollection === 'documents' ? 'Search documents' : 'Search artifacts'}
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="search"
-                accessibilityLabel="Search artifacts"
-                accessibilityHint="Searches artifacts from backend by filename, MIME type, or URL"
+                accessibilityLabel={activeCollection === 'documents' ? 'Search documents' : 'Search artifacts'}
+                accessibilityHint={
+                  activeCollection === 'documents'
+                    ? 'Searches loaded documents by title, type, format, and filename'
+                    : 'Searches artifacts from backend by filename, MIME type, or URL'
+                }
                 clearButtonMode="while-editing"
                 style={{ color: colors.textPrimary, fontSize: 12 }}
               />
@@ -302,15 +492,80 @@ export default function ArtifactsScreen() {
         </View>
 
         <FlatList
-          data={artifacts}
-          keyExtractor={(item) => item.artifactId}
+          data={listData}
+          keyExtractor={(item) => ('artifactId' in item ? item.artifactId : item._id)}
           onEndReached={onLoadMore}
           onEndReachedThreshold={0.6}
           refreshing={isRefreshing}
           onRefresh={onRefresh}
-          accessibilityLabel="Artifacts list"
+          accessibilityLabel={isShowingDocuments ? 'Documents list' : 'Artifacts list'}
           contentContainerStyle={{ paddingBottom: 36, paddingTop: 2 }}
           renderItem={({ item }) => {
+            if ('_id' in item) {
+              const primaryArtifact = item.artifacts[0];
+              const documentKey = primaryArtifact ? `${item._id}:${primaryArtifact.fileName}` : null;
+              const isDownloading = documentKey ? downloadingDocumentKey === documentKey : false;
+              return (
+                <View
+                  accessible
+                  accessibilityRole="summary"
+                  accessibilityLabel={`Document ${item.title || item.documentType}`}
+                  className="mb-2 rounded-2xl border px-3 py-3"
+                  style={{
+                    borderColor: isDark ? 'rgba(95,127,184,0.28)' : 'rgba(32,64,121,0.22)',
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(32,64,121,0.05)',
+                  }}
+                >
+                  <View className="flex-row items-center">
+                    <Ionicons
+                      name={fileIconForMime(primaryArtifact?.mimeType || item.format) as any}
+                      size={18}
+                      color={colors.primary}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={{ marginLeft: 8, flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}
+                    >
+                      {item.title || item.documentType}
+                    </Text>
+                  </View>
+                  <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
+                    {item.documentType.toUpperCase()} - {item.format.toUpperCase()} - {item.source.toUpperCase()}
+                  </Text>
+                  <Text style={{ marginTop: 4, color: colors.textSecondary, fontSize: 11 }}>
+                    {formatDate(item.createdAt)}
+                    {primaryArtifact?.size_bytes ? ` - ${formatSize(primaryArtifact.size_bytes)}` : ''}
+                  </Text>
+                  <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
+                    {primaryArtifact?.fileName || 'Generated document'}
+                  </Text>
+                  <View className="mt-3 flex-row items-center">
+                    <Pressable
+                      onPress={() => {
+                        if (primaryArtifact) {
+                          void downloadDocumentArtifact(item._id, primaryArtifact);
+                        }
+                      }}
+                      disabled={!primaryArtifact || isDownloading}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Download ${item.title || item.documentType}`}
+                      className="self-start rounded-full px-3 py-2"
+                      style={{
+                        backgroundColor: isDark ? 'rgba(95,127,184,0.2)' : 'rgba(32,64,121,0.12)',
+                        borderWidth: 1,
+                        borderColor: isDark ? 'rgba(95,127,184,0.3)' : 'rgba(32,64,121,0.24)',
+                        opacity: !primaryArtifact || isDownloading ? 0.65 : 1,
+                      }}
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                        {isDownloading ? 'Downloading' : 'Download'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            }
+
             const isDownloading = downloadingArtifactId === item.artifactId;
             const iconName = fileIconForMime(item.mimeType);
             const title = item.fileName || item.artifactId;
@@ -410,12 +665,12 @@ export default function ArtifactsScreen() {
           }}
           ListEmptyComponent={(
             <View className="items-center px-6 py-10">
-              {isInitialLoading ? (
+              {isListInitialLoading ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
                 <View className="items-center">
                   <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
-                    {t('artifacts.empty')}
+                    {isShowingDocuments ? 'No documents found yet.' : t('artifacts.empty')}
                   </Text>
                   {hasActiveFilters ? (
                     <Pressable
@@ -455,7 +710,7 @@ export default function ArtifactsScreen() {
             </View>
           )}
           ListFooterComponent={(
-            isLoadingMore ? (
+            isListLoadingMore ? (
               <View className="py-4">
                 <ActivityIndicator color={colors.primary} />
               </View>

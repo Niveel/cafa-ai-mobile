@@ -20,7 +20,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { DedicatedMediaScreen, MediaPromptRewriteIntent, MediaPromptRewriteResult } from '@/types';
+import type {
+  DedicatedMediaScreen,
+  DocumentWizardArtifact,
+  MediaPromptRewriteIntent,
+  MediaPromptRewriteResult,
+} from '@/types';
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoDocumentPicker from 'expo-document-picker';
 import * as ExpoImagePicker from 'expo-image-picker';
@@ -65,6 +70,7 @@ import {
   AppScreen,
   AppLogo,
   ChatVideoCard,
+  DocumentWizardCard,
   FileGenerationPlaceholder,
   ImageLightbox,
   CHAT_MODEL_OPTIONS,
@@ -93,6 +99,7 @@ import {
   type UiMessage,
   type UiMessageAttachment,
 } from '@/components';
+import { AppPromptModal } from '@/components/ui/AppPromptModal';
 import { useAppContext } from '@/context';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { pickSingleImageFromLibrary } from '@/utils/deviceImagePicker';
@@ -123,7 +130,16 @@ import {
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
-import { emitChatMutated, getAccessToken, getDefaultVoicePreference } from '@/services';
+import {
+  clearDocumentWizardDraftMessages,
+  detectDocumentRequest,
+  emitChatMutated,
+  getDocumentWizardDraftMessages,
+  getAccessToken,
+  getDefaultVoicePreference,
+  setDocumentWizardDraftMessages,
+  startDocumentWizard,
+} from '@/services';
 import {
   IOS_PHOTO_PERMISSION_DENIED_CODE,
   MOTION,
@@ -435,6 +451,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
+  const [documentFormWarningVisible, setDocumentFormWarningVisible] = useState(false);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const allowDocumentAttachment = screenConfig.allowDocumentAttachment && canAttachDocuments;
   const tier = authUser?.subscriptionTier ?? 'free';
@@ -477,6 +494,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     shown: false,
   });
   const menuTouchRef = useRef(false);
+  const documentDraftHydratedRef = useRef(false);
   const uploadTriggerButtonRef = useRef<View | null>(null);
   const uploadImageOptionRef = useRef<View | null>(null);
   const uploadDocumentOptionRef = useRef<View | null>(null);
@@ -529,7 +547,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const composerPlaceholder = useMemo(() => screenConfig.placeholder, [screenConfig.placeholder]);
   const useCompactComposerPlaceholder = screenMode === 'image-to-video' || screenMode === 'edit-image';
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
-  const isSendDisabled = (!input.trim() && attachedAssets.length === 0) || isSending || isUnderstandingPrompt;
+  const isSendDisabled = (!input.trim() && attachedAssets.length === 0) || isSending || isUnderstandingPrompt || !!statusNotice;
   const clearDedicatedMediaValidationMessages = useCallback((options: { clearPromptRequired?: boolean; clearImageRequired?: boolean }) => {
     if (!options.clearPromptRequired && !options.clearImageRequired) return;
 
@@ -1300,6 +1318,88 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return { ...message, attachments: nextAttachments };
     });
   }, [suggestDescriptiveFileName]);
+
+  const handleDocumentWizardComplete = useCallback((messageId: string, documentType: string, artifacts: DocumentWizardArtifact[]) => {
+    const normalizedAttachments: UiMessageAttachment[] = artifacts.map((artifact, index) => {
+      const resolvedUrl = resolveBackendAssetUrl(artifact.url) ?? artifact.url;
+      return {
+        id: `${artifact.fileName}-${index}-${resolvedUrl}`,
+        fileType: artifact.mimeType?.startsWith('image/')
+          ? 'image'
+          : artifact.mimeType?.startsWith('video/')
+            ? 'video'
+            : 'document',
+        mimeType: artifact.mimeType,
+        originalName: artifact.fileName,
+        url: resolvedUrl,
+        thumbnailUrl: artifact.mimeType?.startsWith('image/') ? resolvedUrl : undefined,
+      };
+    });
+
+    setMessages((prev) => prev.map((message) => {
+      if (message.id !== messageId) return message;
+      return {
+        ...message,
+        content: documentType
+          ? `Your ${documentType} is ready. Download it below.`
+          : 'Your document is ready. Download it below.',
+        attachments: normalizedAttachments,
+        documentWizard: undefined,
+      };
+    }));
+    autoScrollEnabledRef.current = true;
+    setShowScrollToBottom(false);
+    scrollToBottom();
+    hapticSuccess();
+  }, [resolveBackendAssetUrl]);
+
+  const collapseAllDocumentWizards = useCallback(() => {
+    setMessages((prev) => prev.map((message) => (
+      message.documentWizard
+        ? {
+            ...message,
+            documentWizard: {
+              ...message.documentWizard,
+              collapsed: true,
+            },
+          }
+        : message
+    )));
+  }, []);
+
+  const expandDocumentWizard = useCallback((messageId: string) => {
+    setMessages((prev) => prev.map((message) => {
+      if (!message.documentWizard) return message;
+      return {
+        ...message,
+        documentWizard: {
+          ...message.documentWizard,
+          collapsed: message.id === messageId ? false : true,
+        },
+      };
+    }));
+    autoScrollEnabledRef.current = true;
+    setShowScrollToBottom(false);
+    scrollToBottom();
+  }, []);
+
+  const hasExpandedDocumentWizard = useCallback(
+    () => messages.some((message) => message.documentWizard && !message.documentWizard.collapsed),
+    [messages],
+  );
+
+  const collectDocumentWizardDraftMessages = useCallback((source: UiMessage[]) => {
+    const draftIds = new Set<string>();
+    source.forEach((message, index) => {
+      if (!message.documentWizard) return;
+      draftIds.add(message.id);
+      const previous = source[index - 1];
+      if (previous?.role === 'user') {
+        draftIds.add(previous.id);
+      }
+    });
+    return source.filter((message) => draftIds.has(message.id));
+  }, []);
 
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
@@ -2561,7 +2661,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
   }, []);
 
-  const handleSend = () => {
+  const handleSend = (options?: { skipDocumentFormWarning?: boolean }) => {
       const run = async () => {
         const trimmed = inputValueRef.current.trim();
         const attachmentsForSend = [...attachedAssets];
@@ -2575,6 +2675,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
         if (!trimmed && attachmentsForSend.length === 0) {
           return;
+        }
+
+        if (
+          !options?.skipDocumentFormWarning
+          && screenMode === 'chat'
+          && trimmed
+          && hasExpandedDocumentWizard()
+        ) {
+          setDocumentFormWarningVisible(true);
+          return;
+        }
+
+        if (screenMode === 'chat' && options?.skipDocumentFormWarning && hasExpandedDocumentWizard()) {
+          collapseAllDocumentWizards();
         }
 
         if (
@@ -2843,6 +2957,72 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           }
 
           setIsUnderstandingPrompt(false);
+
+          if (screenMode === 'chat' && isAuthenticated && attachmentsForSend.length === 0) {
+            setStatusNotice('Analyzing your request...');
+            const detection = await detectDocumentRequest(trimmed);
+
+            if (detection.isDocumentRequest && detection.confidence >= 0.7) {
+              try {
+                setStatusNotice('Preparing your form...');
+                const detectedDocumentType = detection.documentType?.trim() || 'document';
+                const html = await startDocumentWizard(detection.documentType ?? trimmed);
+                const userMessage: UiMessage = {
+                  id: `user-document-${Date.now()}`,
+                  role: 'user',
+                  content: trimmed,
+                  createdAt: Date.now(),
+                };
+                const assistantMessage: UiMessage = {
+                  id: `assistant-document-form-${Date.now()}`,
+                  role: 'assistant',
+                  content: `Fill in the form below and submit it here in chat. I’ll use it to create a stronger ${detectedDocumentType} for you.`,
+                  createdAt: Date.now() + 1,
+                  documentWizard: {
+                    html,
+                    documentType: detectedDocumentType,
+                    format: detection.format ?? 'pdf',
+                    collapsed: false,
+                  },
+                };
+
+                Keyboard.dismiss();
+                inputValueRef.current = '';
+                setInput('');
+                setComposerMediaReference(null);
+                setAttachmentMenuOpen(false);
+                setModelMenuOpen(false);
+                setMessages((prev) => {
+                  const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+                  return [
+                    ...withoutSyntheticWelcome.map((message) => (
+                      message.documentWizard
+                        ? {
+                            ...message,
+                            documentWizard: {
+                              ...message.documentWizard,
+                              collapsed: true,
+                            },
+                          }
+                        : message
+                    )),
+                    userMessage,
+                    assistantMessage,
+                  ];
+                });
+                autoScrollEnabledRef.current = true;
+                setShowScrollToBottom(false);
+                scrollToBottom();
+                return;
+              } catch {
+                // Fall through to standard chat if the form could not be prepared.
+              } finally {
+                setStatusNotice('');
+              }
+            } else {
+              setStatusNotice('');
+            }
+          }
 
           const userMessage: UiMessage = {
             id: `user-${Date.now()}`,
@@ -5015,6 +5195,47 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   useEffect(() => {
     if (isDedicatedMediaScreen) return;
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
+    if (targetConversationId) return;
+
+    let cancelled = false;
+    const hydrateDrafts = async () => {
+      const drafts = await getDocumentWizardDraftMessages();
+      documentDraftHydratedRef.current = true;
+      if (cancelled || drafts.length === 0) return;
+      setMessages((prev) => {
+        const hasExistingDraft = prev.some((message) => message.documentWizard);
+        if (hasExistingDraft) return prev;
+        const base = prev.length === 1 && isWelcomeMessage(prev[0]) ? prev : [createWelcomeMessage()];
+        return [...base, ...drafts];
+      });
+    };
+
+    void hydrateDrafts();
+    return () => {
+      cancelled = true;
+    };
+  }, [createWelcomeMessage, isDedicatedMediaScreen, isWelcomeMessage, params.conversationId]);
+
+  useEffect(() => {
+    if (isDedicatedMediaScreen) return;
+    const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
+    if (targetConversationId) {
+      void clearDocumentWizardDraftMessages();
+      return;
+    }
+    if (!documentDraftHydratedRef.current) return;
+
+    const drafts = collectDocumentWizardDraftMessages(messages);
+    if (drafts.length === 0) {
+      void clearDocumentWizardDraftMessages();
+      return;
+    }
+    void setDocumentWizardDraftMessages(drafts);
+  }, [collectDocumentWizardDraftMessages, isDedicatedMediaScreen, messages, params.conversationId]);
+
+  useEffect(() => {
+    if (isDedicatedMediaScreen) return;
+    const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
     const newChatToken = typeof params.newChat === 'string' ? params.newChat.trim() : '';
     const isHydratingActiveConversationWhileSending = Boolean(
       isSending
@@ -5106,7 +5327,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     createWelcomeMessage,
     guestConversationId,
     isAuthenticated,
-    isSending,
     mapAuthMessageToUiMessage,
     params.conversationId,
     params.newChat,
@@ -5944,6 +6164,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
                 const isScreenHandoffMessage = !isUser && Boolean(item.screenHandoff);
                 const isImageRequirementMessage = !isUser && Boolean(item.imageRequirement);
+                const isDocumentWizardMessage = !isUser && Boolean(item.documentWizard);
                 const isReferencedMediaHighlighted = highlightedReferencedMediaTarget?.messageId === item.id
                   && (
                     (highlightedReferencedMediaTarget.kind === 'image' && isImageMessage)
@@ -5958,7 +6179,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View
-                      className={`${isScreenHandoffMessage || isImageRequirementMessage ? 'w-[96%] max-w-[96%]' : 'max-w-[88%]'} rounded-2xl`}
+                      className={`${isScreenHandoffMessage || isImageRequirementMessage || isDocumentWizardMessage ? 'w-[96%] max-w-[96%]' : 'max-w-[88%]'} rounded-2xl`}
                       style={highlightedMessageId === item.id
                         ? {
                             borderWidth: 1,
@@ -6019,7 +6240,28 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
+                      {isDocumentWizardMessage ? (
+                        <DocumentWizardCard
+                          html={item.documentWizard!.html}
+                          documentType={item.documentWizard!.documentType}
+                          format={item.documentWizard!.format}
+                          collapsed={item.documentWizard!.collapsed}
+                          isDark={isDark}
+                          colors={colors}
+                          onExpand={() => {
+                            expandDocumentWizard(item.id);
+                          }}
+                          onComplete={(artifacts) => {
+                            handleDocumentWizardComplete(
+                              item.id,
+                              item.documentWizard!.documentType,
+                              artifacts,
+                            );
+                          }}
+                        />
+                      ) : null}
+
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isImageMessage ? (
                         <View style={{ position: 'relative' }}>
                           <Pressable
                             onPress={() => {
@@ -6086,7 +6328,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && isVideoMessage ? (
                         <View style={{ position: 'relative' }}>
                           <ChatVideoCard
                             uri={item.videoUrl!}
@@ -6119,7 +6361,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
                         <View className="mb-2 gap-1.5">
                           {!isImageMessage && !isVideoMessage ? imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
@@ -6227,7 +6469,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable
@@ -6262,7 +6504,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isImageGenerating && isImageMessage ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && isImageMessage ? (
                         <ImageMessageActionsRow
                           reaction={reaction}
                           primaryColor={colors.primary}
@@ -6306,7 +6548,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
-                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isVideoGenerating && isVideoMessage ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isVideoGenerating && isVideoMessage ? (
                         <ImageMessageActionsRow
                           reaction={reaction}
                           primaryColor={colors.primary}
@@ -6350,7 +6592,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
-                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
+                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
                         <MessageActionsRow
                           isReading={isReading}
                           reaction={reaction}
@@ -6691,7 +6933,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               </View>
 
               <Pressable
-                onPress={handleSend}
+                onPress={() => handleSend()}
                 onLongPress={(event) => showTooltip(t('chat.send'), event)}
                 disabled={isSendDisabled}
                 accessibilityRole="button"
@@ -6707,17 +6949,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             </View>
           ) : (
             <Pressable
-              onPress={handleSend}
+              onPress={() => handleSend()}
               onLongPress={(event) => showTooltip(t('chat.send'), event)}
               disabled={isSendDisabled}
               accessibilityRole="button"
-              accessibilityLabel={t('chat.send')}
-              accessibilityHint={t('chat.sendHint')}
-              className="absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full"
-              style={{
-                backgroundColor: isSendDisabled ? '#5F7FB8' : colors.primary,
-              }}
-            >
+                accessibilityLabel={t('chat.send')}
+                accessibilityHint={t('chat.sendHint')}
+                className="absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: isSendDisabled ? '#5F7FB8' : colors.primary,
+                }}
+              >
               <Ionicons name="send" size={15} color="#FFFFFF" />
             </Pressable>
           )}
@@ -6853,11 +7095,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   top: Math.max(8, tooltipState.y - 40),
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{tooltipState.text}</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{tooltipState.text}</Text>
               </Animated.View>
             ) : null}
           </View>
       </KeyboardAvoidingView>
+      <AppPromptModal
+        visible={documentFormWarningVisible}
+        title="Unfinished form"
+        message="You still have a document form open. You can continue with your new prompt, and the unfinished form will collapse so you can reopen it later."
+        confirmLabel="Continue anyway"
+        cancelLabel="Keep filling form"
+        iconName="document-text-outline"
+        onCancel={() => setDocumentFormWarningVisible(false)}
+        onConfirm={() => {
+          setDocumentFormWarningVisible(false);
+          handleSend({ skipDocumentFormWarning: true });
+        }}
+      />
     </AppScreen>
   );
 }

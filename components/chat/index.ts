@@ -13,3 +13,4 @@ export * from './followup-media';
 export * from './ImageLightbox';
 export * from './ScreenHandoffCard';
 export * from './ImageRequirementCard';
+export * from './DocumentWizardCard';
