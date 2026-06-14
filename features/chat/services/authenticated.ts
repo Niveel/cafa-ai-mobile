@@ -1013,13 +1013,6 @@ export async function sendAuthenticatedMessageStream(
       xhr.onprogress = () => {
         const next = xhr.responseText.slice(lastOffset);
         if (!next) return;
-        if (__DEV__) {
-          console.log('[chat:raw:auth-stream-xhr-progress]', JSON.stringify({
-            chunkLength: next.length,
-            totalLength: xhr.responseText.length,
-            hasDataPrefix: next.includes('data:'),
-          }));
-        }
         streamStarted = true;
         lastOffset = xhr.responseText.length;
         buffer += next;
@@ -1123,9 +1116,19 @@ export async function sendAuthenticatedMessageStream(
         if (xhr.status < 200 || xhr.status >= 300) {
           try {
             const payload = JSON.parse(xhr.responseText) as { message?: string; error?: string; code?: string };
-            rejectOnce(new Error(payload.message ?? payload.error ?? 'Could not send your message right now.'));
+            logDevRawChatResponse('auth-xhr-non-2xx', payload, {
+              status: xhr.status,
+              contentType: xhr.getResponseHeader('content-type'),
+            });
+            rejectOnce(
+              createAuthSendError(
+                payload.message ?? payload.error ?? 'Could not send your message right now.',
+                xhr.status,
+                payload.code ?? payload.error,
+              ),
+            );
           } catch {
-            rejectOnce(new Error('Could not send your message right now.'));
+            rejectOnce(createAuthSendError('Could not send your message right now.', xhr.status));
           }
           return;
         }

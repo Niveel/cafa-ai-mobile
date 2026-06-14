@@ -106,6 +106,10 @@ export function extractImagePrompt(prompt: string) {
     .replace(/^[\s,.:;!?-]+/, '')
     .replace(/[\s,.:;!?-]+$/, '');
 
+  if (/\b(?:turn|convert|make|transform|animate)\b[\s\S]*\b(?:into|as)\s+(?:a\s+|the\s+)?(?:video|clip|animation|movie|footage|reel|short)\b/i.test(cleaned)) {
+    return null;
+  }
+
   const imageNouns = '(?:image|picture|photo|illustration|artwork|render(?:ing)?|visual|wallpaper|poster)';
   const generationVerbs = '(?:generate|create|make|draw|design|produce|craft|render)';
   const descriptorWords = '(?:(?:[a-z0-9-]+\\s+){0,3})';
@@ -161,8 +165,12 @@ export function extractVideoPrompt(prompt: string) {
     .replace(/^[\s,.:;!?-]+/, '')
     .replace(/[\s,.:;!?-]+$/, '');
 
+  if (/^(?:(?:please|kindly)\s+)?(?:(?:can|could|would)\s+you\s+)?(?:turn|convert|make|transform|animate)\s+(?:this|that|it)(?:\s+(?:image|picture|photo))?\s+(?:into|as)\s+(?:(?:a|the)\s+)?(?:video|clip|animation|movie|footage|reel|short)\s*$/i.test(cleaned)) {
+    return cleaned;
+  }
+
   const videoNouns = '(?:video|clip|animation|movie|footage|reel|short)';
-  const generationVerbs = '(?:generate|create|make|produce|craft|render)';
+  const generationVerbs = '(?:generate|create|make|produce|craft|render|turn|convert|transform|animate)';
   const descriptorWords = '(?:(?:[a-z0-9-]+\\s+){0,3})';
   const politePrefix = '(?:(?:please|kindly)\\s+)?(?:(?:can|could|would)\\s+you\\s+)?';
 
@@ -194,7 +202,7 @@ export function isLikelyVideoGenerationIntent(value: string) {
     .trim();
   if (!normalized) return false;
   const hasVideoNoun = /\b(video|clip|animation|movie|footage|reel|short)\b/.test(normalized);
-  const hasGenerationVerb = /\b(generate|create|make|produce|craft|render|animate)\b/.test(normalized);
+  const hasGenerationVerb = /\b(generate|create|make|produce|craft|render|animate|turn|convert|transform)\b/.test(normalized);
   return hasVideoNoun && hasGenerationVerb;
 }
 

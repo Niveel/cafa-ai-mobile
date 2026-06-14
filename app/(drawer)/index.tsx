@@ -730,26 +730,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return null;
     }
 
-    if (hasImageAttachment && isVideoIntent) {
-      return {
-        target: 'image-to-video',
-        title: 'Better in Image-to-Video',
-        description: 'This request looks like turning an uploaded image into a video. Use the dedicated image-to-video screen. For this task.',
-        ctaLabel: 'Open Image-to-Video',
-        iconName: 'film-outline',
-      };
-    }
-
-    if (hasImageAttachment && isEditIntent) {
-      return {
-        target: 'edit-image',
-        title: 'Better in Edit Image',
-        description: 'This request looks like editing an uploaded image. Use the Edit Image screen. For this task.',
-        ctaLabel: 'Open Edit Image',
-        iconName: 'color-wand-outline',
-      };
-    }
-
     return null;
   }, [isLikelyImageEditIntent, screenMode]);
 
@@ -802,6 +782,57 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
     return null;
   }, [screenMode]);
+
+  const getScreenHandoffConfigFromAssistantText = useCallback((
+    content: string,
+  ): ScreenHandoffConfig | null => {
+    const normalized = content
+      .toLowerCase()
+      .replace(/\*\*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!normalized) return null;
+
+    if (
+      normalized.includes('/image-to-video')
+      || normalized.includes('image to video screen')
+      || normalized.includes('image-to-video screen')
+    ) {
+      return {
+        target: 'image-to-video',
+        title: 'Better in Image-to-Video',
+        description: 'This request is better handled in the dedicated Image-to-Video screen.',
+        ctaLabel: 'Open Image-to-Video',
+        iconName: 'film-outline',
+      };
+    }
+
+    if (
+      normalized.includes('/edit-image')
+      || normalized.includes('edit image screen')
+    ) {
+      return {
+        target: 'edit-image',
+        title: 'Better in Edit Image',
+        description: 'This request is better handled in the dedicated Edit Image screen.',
+        ctaLabel: 'Open Edit Image',
+        iconName: 'color-wand-outline',
+      };
+    }
+
+    if (normalized.includes('continue in the main chat') || normalized.includes('open main chat')) {
+      return {
+        target: 'index',
+        title: 'Use main chat for this',
+        description: 'This request is better handled in the main chat.',
+        ctaLabel: 'Open main chat',
+        iconName: 'chatbubble-ellipses-outline',
+      };
+    }
+
+    return null;
+  }, []);
 
   const jumpToReferencedMedia = (reference: ComposerMediaReference) => {
     const index = messages.findIndex((message) => {
@@ -1226,7 +1257,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return {
       id: message.id,
       role,
-      content: message.content,
+      content: getScreenHandoffConfigFromAssistantText(message.content) ? '' : message.content,
       createdAt: createdAtMs,
       referencedMedia,
       tokens: message.tokens,
@@ -1237,6 +1268,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       videoUrl: effectiveVideoUrl,
       videoPrompt: message.videoPrompt,
       videoId: message.videoId,
+      screenHandoff: role === 'assistant' ? getScreenHandoffConfigFromAssistantText(message.content) ?? undefined : undefined,
       documentWizard: message.documentWizard
         ? {
             html: message.documentWizard.html,
@@ -1248,7 +1280,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           }
         : undefined,
     };
-  }, [resolveBackendAssetUrl]);
+  }, [getScreenHandoffConfigFromAssistantText, resolveBackendAssetUrl]);
 
   const mapDedicatedMediaConversationToAuthDetail = useCallback((conversation: {
     id: string;
@@ -1887,9 +1919,25 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     const code = (typed?.code ?? '').toUpperCase();
     const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
     const isModelUnavailableUpgrade = code === 'UPGRADE_REQUIRED' && message.includes('not available on your current plan');
+    const isUsageLimitMessage =
+      message.includes('monthly limit')
+      || message.includes('daily limit')
+      || message.includes('usage limit')
+      || message.includes('quota')
+      || message.includes('upgrade your plan')
+      || message.includes('upgrade required');
     if (isModelUnavailableUpgrade) return false;
-    if (code === 'DAILY_LIMIT_EXCEEDED' || code === 'GUEST_DAILY_LIMIT_EXCEEDED' || code === 'UPGRADE_REQUIRED') {
+    if (
+      code === 'USAGE_LIMIT_EXCEEDED'
+      || code === 'DAILY_LIMIT_EXCEEDED'
+      || code === 'GUEST_DAILY_LIMIT_EXCEEDED'
+      || code === 'UPGRADE_REQUIRED'
+      || isUsageLimitMessage
+    ) {
       return true;
+    }
+    if (typed?.status === 429 || code.includes('RATE_LIMIT')) {
+      return false;
     }
     return message.includes('limit') || message.includes('quota') || message.includes('upgrade required');
   };
@@ -1898,6 +1946,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     const typed = error as { code?: string; status?: number; message?: string } | undefined;
     const code = (typed?.code ?? '').toUpperCase();
     const message = (typed?.message ?? (error instanceof Error ? error.message : '')).toLowerCase();
+    if (isLimitOrUpgradeError(error)) return false;
     return typed?.status === 429 || code.includes('RATE_LIMIT') || message.includes('too many');
   };
 
@@ -1998,6 +2047,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return 'This model is not available on your current plan.';
     }
 
+    if (code === 'USAGE_LIMIT_EXCEEDED') {
+      return getLimitNoticeMessage(kind);
+    }
+
+    if (typed?.status === 429 || code.includes('RATE_LIMIT')) {
+      return 'Too many requests right now. Please wait a moment and try again.';
+    }
+
     if (isLimitOrUpgradeError(error)) {
       return getLimitNoticeMessage(kind);
     }
@@ -2023,8 +2080,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return 'You do not have permission for this action on your current plan.';
     }
     if (
-      typed?.status === 429
-      || code.includes('RATE_LIMIT')
+      code === 'USAGE_LIMIT_EXCEEDED'
       || code === 'DAILY_LIMIT_EXCEEDED'
       || code === 'GUEST_DAILY_LIMIT_EXCEEDED'
     ) {
@@ -2939,7 +2995,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             return;
           }
 
-          const screenHandoff = getScreenHandoffConfig(effectivePrompt, attachmentsForSend);
+          const screenHandoff = screenMode === 'chat'
+            ? null
+            : getScreenHandoffConfig(effectivePrompt, attachmentsForSend);
           if (screenHandoff) {
             lastEndpoint = `${API_BASE_URL}/chat/intent-handoff`;
             const hasImageAttachment = attachmentsForSend.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
@@ -3317,10 +3375,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         const extractedImagePrompt = extractImagePrompt(trimmed);
+        const hasAnyAttachment = attachmentsForSend.length > 0;
         const inferredImagePrompt = !extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
           ? trimmed
           : null;
-        const effectiveImagePrompt = extractedImagePrompt ?? inferredImagePrompt;
+        const effectiveImagePrompt = screenMode === 'chat' && hasAnyAttachment
+          ? null
+          : (extractedImagePrompt ?? inferredImagePrompt);
         const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
           (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
         );
@@ -3328,7 +3389,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           !extractedVideoPrompt && imageAttachmentForVideoIntent && isLikelyVideoGenerationIntent(trimmed)
             ? trimmed
             : null;
-        const effectiveVideoPrompt = extractedVideoPrompt ?? inferredVideoFromImagePrompt;
+        const effectiveVideoPrompt = screenMode === 'chat' && hasAnyAttachment
+          ? null
+          : (extractedVideoPrompt ?? inferredVideoFromImagePrompt);
         const referencedKind = composerMediaReference?.kind;
         const isReferencedMediaQuestion = Boolean(composerMediaReference)
           && isLikelyReferencedMediaQuestionPrompt(trimmed);
@@ -3917,6 +3980,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 hapticSuccess();
                 setStreamingModelLabel(null);
                 logParsedResponseForAttempt(assistantResponseBuffer);
+                const handoffFromAssistantText = getScreenHandoffConfigFromAssistantText(assistantResponseBuffer);
                 const streamedAttachments = event.attachments ?? [];
                 if (event.messageId) {
                   const previousAssistantId = activeAssistantId;
@@ -3927,8 +3991,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         ? {
                           ...message,
                           id: event.messageId!,
+                          content: handoffFromAssistantText ? '' : message.content,
                           tokens: event.tokens,
                           attachments: streamedAttachments.length ? streamedAttachments : message.attachments,
+                          screenHandoff: handoffFromAssistantText ?? message.screenHandoff,
                         }
                         : message,
                     ),
@@ -3945,7 +4011,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   setMessages((prev) =>
                     prev.map((message) =>
                       message.id === activeAssistantId
-                        ? { ...message, attachments: streamedAttachments }
+                        ? {
+                            ...message,
+                            content: handoffFromAssistantText ? '' : message.content,
+                            attachments: streamedAttachments,
+                            screenHandoff: handoffFromAssistantText ?? message.screenHandoff,
+                          }
+                        : message,
+                    ),
+                  );
+                } else if (handoffFromAssistantText) {
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === activeAssistantId
+                        ? {
+                            ...message,
+                            content: '',
+                            screenHandoff: handoffFromAssistantText,
+                          }
                         : message,
                     ),
                   );
@@ -4029,6 +4112,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           isAuthenticated
           && requestKind === 'chat'
           && code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';
+        const idempotencyVisibleMessage = 'Your previous request is still processing. Please wait a moment and try again.';
+        const fastFailVisibleMessage = isIdempotencyInProgress
+          ? idempotencyVisibleMessage
+          : friendlyMessage;
         const bufferedAssistantText = assistantResponseBuffer.trim();
         if (isAuthenticated && attachmentsForSend.length) {
           setAttachedAssets(attachmentsForSend);
@@ -4069,6 +4156,39 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             return next;
           });
           hapticSuccess();
+          didMutateChats = true;
+          return;
+        }
+        if (isAuthenticated && requestKind === 'chat' && !isLimitError && (isRateLimited || isIdempotencyInProgress)) {
+          setStreamingModelLabel(null);
+          hapticError();
+          setMessages((prev) => {
+            let matched = false;
+            const next = prev.map((item) => {
+              if (item.id !== assistantMessageIdForRecovery) return item;
+              matched = true;
+              return {
+                ...item,
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+                content: fastFailVisibleMessage,
+              };
+            });
+            if (!matched) {
+              next.push({
+                id: assistantMessageIdForRecovery || `assistant-error-${Date.now()}`,
+                role: 'assistant',
+                content: fastFailVisibleMessage,
+                createdAt: Date.now(),
+                isImageGenerating: false,
+                isVideoGenerating: false,
+                isArtifactGenerating: false,
+              });
+            }
+            return next;
+          });
+          showTransientNotice(fastFailVisibleMessage, isIdempotencyInProgress ? 5000 : 4000);
           didMutateChats = true;
           return;
         }
@@ -4283,7 +4403,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             rawErrorMessage,
           });
         }
-        const idempotencyVisibleMessage = 'Your previous request is still processing. Please wait a moment and try again.';
         if (delayedVideoError) {
           const delayedMessage = t('chat.videoGenerationDelayed');
           if (requestedVideoConversationId) {
@@ -4427,6 +4546,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     });
   };
 
+  const focusComposerInputSoon = useCallback(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        composerInputRef.current?.focus();
+      }, 60);
+    });
+  }, []);
+
   const toggleRecording = async () => {
     if (isRecordingRef.current) {
       hapticSelection();
@@ -4492,6 +4619,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         mimeType: asset.mimeType ?? 'image/jpeg',
       },
     ]);
+    focusComposerInputSoon();
   };
 
   const handleUploadImagePress = () => {
@@ -4541,6 +4669,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         mimeType: asset.mimeType ?? 'image/jpeg',
       },
     ]);
+    focusComposerInputSoon();
   };
 
   const pickDocumentAttachment = async () => {
