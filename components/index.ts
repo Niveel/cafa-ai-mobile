@@ -12,5 +12,6 @@ export * from './ui/BlankRouteScreen';
 export * from './ui/LegalDocumentScreen';
 export * from './ui/SettingsModal';
 export * from './ui/AppLogo';
+export * from './ui/PromptSuggestionsModal';
 export * from './chat';
 export * from './form';

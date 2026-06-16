@@ -25,6 +25,7 @@ import type {
   DocumentWizardArtifact,
   MediaPromptRewriteIntent,
   MediaPromptRewriteResult,
+  PromptSuggestionContext,
 } from '@/types';
 import * as Clipboard from 'expo-clipboard';
 import * as ExpoDocumentPicker from 'expo-document-picker';
@@ -73,6 +74,7 @@ import {
   DocumentWizardCard,
   FileGenerationPlaceholder,
   ImageLightbox,
+  PromptSuggestionsModal,
   CHAT_MODEL_OPTIONS,
   GUEST_TTS_RATE,
   ImageRequirementCard,
@@ -108,6 +110,7 @@ import {
   createGuestConversation,
   ensureGuestSession,
   editImage,
+  fetchPromptSuggestions,
   generateImage,
   getDedicatedMediaConversation,
   generateVideoFromImageDirect,
@@ -452,6 +455,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
+  const [promptSuggestionsVisible, setPromptSuggestionsVisible] = useState(false);
+  const [promptSuggestions, setPromptSuggestions] = useState<string[]>([]);
+  const [isPromptSuggestionsLoading, setIsPromptSuggestionsLoading] = useState(false);
   const [documentFormWarningVisible, setDocumentFormWarningVisible] = useState(false);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const allowDocumentAttachment = screenConfig.allowDocumentAttachment && canAttachDocuments;
@@ -476,12 +482,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (!hasImage) return 'Upload an image to continue.';
     return '';
   }, [attachedAssets, input, isDedicatedMediaScreen, screenMode]);
+  const hasPromptSuggestionTrigger = input.trim().length > 0;
   const messagesListRef = useRef<FlashListRef<UiMessage>>(null);
   const lastJumpedMessageKeyRef = useRef<string>('');
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
+  const promptSuggestionAbortRef = useRef<AbortController | null>(null);
+  const promptSuggestionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -579,6 +588,99 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (!isUnderstandingPrompt) return;
     announceForA11y('Understanding your prompt.');
   }, [announceForA11y, isUnderstandingPrompt]);
+
+  const promptSuggestionContext = useMemo<PromptSuggestionContext>(() => {
+    if (screenMode === 'edit-image') return 'edit-image';
+    if (screenMode === 'image-to-video') return 'video';
+    return 'chat';
+  }, [screenMode]);
+
+  const clearPromptSuggestions = useCallback((options?: { keepModalOpen?: boolean }) => {
+    if (promptSuggestionDebounceRef.current) {
+      clearTimeout(promptSuggestionDebounceRef.current);
+      promptSuggestionDebounceRef.current = null;
+    }
+    if (promptSuggestionAbortRef.current) {
+      promptSuggestionAbortRef.current.abort();
+      promptSuggestionAbortRef.current = null;
+    }
+    setIsPromptSuggestionsLoading(false);
+    setPromptSuggestions([]);
+    if (!options?.keepModalOpen) {
+      setPromptSuggestionsVisible(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const trimmed = input.trim();
+    if (trimmed.length < 3) {
+      clearPromptSuggestions({ keepModalOpen: trimmed.length > 0 });
+      return;
+    }
+
+    if (promptSuggestionDebounceRef.current) {
+      clearTimeout(promptSuggestionDebounceRef.current);
+    }
+
+    promptSuggestionDebounceRef.current = setTimeout(() => {
+      promptSuggestionAbortRef.current?.abort();
+      const controller = new AbortController();
+      promptSuggestionAbortRef.current = controller;
+      setIsPromptSuggestionsLoading(true);
+
+      void (async () => {
+        const authToken = isAuthenticated ? undefined : (await ensureGuestSession()).guestSessionToken;
+        return fetchPromptSuggestions({
+          partialText: trimmed,
+          context: promptSuggestionContext,
+          authToken,
+          signal: controller.signal,
+        });
+      })()
+        .then((nextSuggestions) => {
+          if (controller.signal.aborted) return;
+          if (__DEV__) {
+            console.log('[prompt-suggestions]', {
+              screenMode,
+              partialText: trimmed,
+              suggestions: nextSuggestions,
+            });
+          }
+          setPromptSuggestions(nextSuggestions);
+        })
+        .catch((error: unknown) => {
+          const maybeError = error as { code?: string; name?: string };
+          if (controller.signal.aborted || maybeError?.code === 'ERR_CANCELED' || maybeError?.name === 'CanceledError') {
+            return;
+          }
+          if (__DEV__) {
+            console.log('[prompt-suggestions:error]', {
+              screenMode,
+              partialText: trimmed,
+              error,
+            });
+          }
+          setPromptSuggestions([]);
+        })
+        .finally(() => {
+          if (promptSuggestionAbortRef.current === controller) {
+            promptSuggestionAbortRef.current = null;
+          }
+          if (!controller.signal.aborted) {
+            setIsPromptSuggestionsLoading(false);
+          }
+        });
+    }, 500);
+
+    return () => {
+      if (promptSuggestionDebounceRef.current) {
+        clearTimeout(promptSuggestionDebounceRef.current);
+        promptSuggestionDebounceRef.current = null;
+      }
+      promptSuggestionAbortRef.current?.abort();
+      promptSuggestionAbortRef.current = null;
+    };
+  }, [clearPromptSuggestions, input, isAuthenticated, promptSuggestionContext, screenMode]);
 
   useEffect(() => {
     if (!isDedicatedMediaScreen) return;
@@ -2774,6 +2876,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       const run = async () => {
         const trimmed = inputValueRef.current.trim();
         const attachmentsForSend = [...attachedAssets];
+        clearPromptSuggestions();
         ++sendAttemptSeqRef.current;
         const now = Date.now();
         const sinceLastAttemptMs = now - lastSendAttemptAtRef.current;
@@ -4545,6 +4648,30 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       composerInputRef.current?.focus();
     });
   };
+
+  const openPromptSuggestions = useCallback(() => {
+    if (!input.trim()) return;
+    hapticSelection();
+    setPromptSuggestionsVisible(true);
+  }, [input]);
+
+  const closePromptSuggestions = useCallback(() => {
+    setPromptSuggestionsVisible(false);
+    requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
+  }, []);
+
+  const applyPromptSuggestion = useCallback((suggestion: string) => {
+    const value = suggestion.trim();
+    inputValueRef.current = value;
+    setInput(value);
+    setPromptSuggestionsVisible(false);
+    announceForA11y('Prompt suggestion added to the message input.');
+    requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
+  }, [announceForA11y]);
 
   const focusComposerInputSoon = useCallback(() => {
     requestAnimationFrame(() => {
@@ -6962,6 +7089,44 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             marginBottom: composerBottomInset,
           }}
         >
+          {hasPromptSuggestionTrigger ? (
+            <Animated.View
+              entering={FadeInUp.duration(MOTION.duration.quick)}
+              exiting={FadeOutDown.duration(MOTION.duration.quick)}
+              style={{
+                position: 'absolute',
+                top: -56,
+                right: 10,
+                zIndex: 30,
+                elevation: 30,
+              }}
+            >
+              <Pressable
+                onPress={openPromptSuggestions}
+                accessibilityRole="button"
+                accessibilityLabel="Open prompt suggestions"
+                accessibilityHint="Shows AI-suggested prompts based on what you have typed."
+                accessibilityState={{ busy: isPromptSuggestionsLoading }}
+                className="h-12 w-12 items-center justify-center rounded-full border"
+                style={{
+                  borderColor: colors.primary,
+                  backgroundColor: isDark ? '#101826' : '#FFFFFF',
+                  shadowColor: '#000000',
+                  shadowOpacity: isDark ? 0.28 : 0.14,
+                  shadowRadius: 14,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 12,
+                }}
+              >
+                <Ionicons
+                  name={isPromptSuggestionsLoading ? 'sync-outline' : 'chatbubble-ellipses-outline'}
+                  size={20}
+                  color={colors.primary}
+                />
+              </Pressable>
+            </Animated.View>
+          ) : null}
+
           {useCompactComposerPlaceholder && !input.trim() ? (
             <Text
               pointerEvents="none"
@@ -6988,6 +7153,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               inputValueRef.current = text;
               setInput(text);
               if (!text) {
+                clearPromptSuggestions();
                 setComposerHeight(COMPOSER_MIN_HEIGHT);
                 setComposerScrollable(false);
               }
@@ -7039,6 +7205,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               textAlignVertical: 'top',
               paddingRight: isAuthenticated ? 8 : 46,
             }}
+          />
+
+          <PromptSuggestionsModal
+            visible={promptSuggestionsVisible}
+            suggestions={promptSuggestions}
+            loading={isPromptSuggestionsLoading}
+            onClose={closePromptSuggestions}
+            onSelectSuggestion={applyPromptSuggestion}
           />
 
           {isAuthenticated && attachedAssets.length ? (

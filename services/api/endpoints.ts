@@ -25,6 +25,10 @@ export const apiEndpoints = {
       `${API_BASE_PATH}/chat/${conversationId}/export?format=${format}`,
   },
 
+  prompts: {
+    suggest: `${API_BASE_PATH}/prompts/suggest`,
+  },
+
   images: {
     generate: `${API_BASE_PATH}/images/generate`,
     history: `${API_BASE_PATH}/images/history`,
