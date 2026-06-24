@@ -90,4 +90,11 @@ export const apiEndpoints = {
   support: {
     contact: `${API_BASE_PATH}/support/contact`,
   },
+
+  tools: {
+    detectAi: `${API_BASE_PATH}/tools/detect-ai`,
+    detectAiQuota: `${API_BASE_PATH}/tools/detect-ai/quota`,
+    humanize: `${API_BASE_PATH}/tools/humanize`,
+    humanizeQuota: `${API_BASE_PATH}/tools/humanize/quota`,
+  },
 };

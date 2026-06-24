@@ -73,6 +73,10 @@ export type UsageSnapshot = {
   imageLimit: number | null;
   videoUsed?: number;
   videoLimit?: number | null;
+  aiDetectionWordsUsed?: number;
+  aiDetectionWordsLimit?: number | null;
+  humanizeWordsUsed?: number;
+  humanizeWordsLimit?: number | null;
   maxUploadSizeMB?: number | null;
   maxPdfPages?: number | null;
   maxDocxPages?: number | null;
@@ -113,6 +117,14 @@ export type DailyUsagePayload = {
       limit?: number | null;
     };
     videos?: {
+      used?: number;
+      limit?: number | null;
+    };
+    aiDetectionWords?: {
+      used?: number;
+      limit?: number | null;
+    };
+    humanizeWords?: {
       used?: number;
       limit?: number | null;
     };

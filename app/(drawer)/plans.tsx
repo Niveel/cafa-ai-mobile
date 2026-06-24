@@ -201,6 +201,10 @@ function normalizeUsageAndLimits(
     imageLimit: usageSnapshot?.imageLimit ?? limits?.imageGenerationsPerDay ?? 5,
     videoUsed: videoUsedFromOverview ?? usageSnapshot?.videoUsed ?? 0,
     videoLimit: usageSnapshot?.videoLimit ?? limits?.videoGenerationsPerDay ?? 1,
+    aiDetectionWordsUsed: usageSnapshot?.aiDetectionWordsUsed ?? 0,
+    aiDetectionWordsLimit: usageSnapshot?.aiDetectionWordsLimit ?? null,
+    humanizeWordsUsed: usageSnapshot?.humanizeWordsUsed ?? 0,
+    humanizeWordsLimit: usageSnapshot?.humanizeWordsLimit ?? null,
     maxUploadSizeMB: usageSnapshot?.maxUploadSizeMB ?? null,
     maxPdfPages: usageSnapshot?.maxPdfPages ?? null,
     maxDocxPages: usageSnapshot?.maxDocxPages ?? null,
@@ -581,6 +585,8 @@ export default function PlansScreen() {
   const chatLimitState = getLimitState(stats.chatUsed, stats.chatLimit);
   const imageLimitState = getLimitState(stats.imageUsed, stats.imageLimit);
   const videoLimitState = getLimitState(stats.videoUsed, stats.videoLimit);
+  const aiDetectionLimitState = getLimitState(stats.aiDetectionWordsUsed, stats.aiDetectionWordsLimit);
+  const humanizeLimitState = getLimitState(stats.humanizeWordsUsed, stats.humanizeWordsLimit);
   const docAnalysesLimitState = getLimitState(stats.docAnalysesUsed, stats.docAnalysesPerMonth);
   const exportsLimitState = getLimitState(stats.exportsUsed, stats.exportsPerMonth);
   const openCheckoutUrl = async (
@@ -1067,6 +1073,32 @@ export default function PlansScreen() {
               />
             </View>
           ) : null}
+          {typeof stats.aiDetectionWordsLimit === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              AI detection words: {stats.aiDetectionWordsUsed} / {formatLimit(stats.aiDetectionWordsLimit)} this month
+            </Text>
+          ) : null}
+          {typeof stats.aiDetectionWordsLimit === 'number' && !isUnlimitedLimit(stats.aiDetectionWordsLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${aiDetectionLimitState.percent}%`, backgroundColor: aiDetectionLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          {typeof stats.humanizeWordsLimit === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Humanize words: {stats.humanizeWordsUsed} / {formatLimit(stats.humanizeWordsLimit)} this month
+            </Text>
+          ) : null}
+          {typeof stats.humanizeWordsLimit === 'number' && !isUnlimitedLimit(stats.humanizeWordsLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${humanizeLimitState.percent}%`, backgroundColor: humanizeLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
           {typeof stats.docAnalysesPerMonth === 'number' ? (
             <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
               Doc analyses: {stats.docAnalysesUsed} / {formatLimit(stats.docAnalysesPerMonth)} this month
@@ -1107,15 +1139,15 @@ export default function PlansScreen() {
               ].filter(Boolean).join(' | ')}
             </Text>
           ) : null}
-          {chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached ? (
+          {chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || aiDetectionLimitState.reached || humanizeLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached ? (
             <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
               One or more monthly limits reached. Some features are blocked until next month or plan upgrade.
             </Text>
           ) : null}
           {!(
-            chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached
+            chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || aiDetectionLimitState.reached || humanizeLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached
           ) && (
-            chatLimitState.nearLimit || imageLimitState.nearLimit || videoLimitState.nearLimit || docAnalysesLimitState.nearLimit || exportsLimitState.nearLimit
+            chatLimitState.nearLimit || imageLimitState.nearLimit || videoLimitState.nearLimit || aiDetectionLimitState.nearLimit || humanizeLimitState.nearLimit || docAnalysesLimitState.nearLimit || exportsLimitState.nearLimit
           ) ? (
             <Text style={{ color: '#B45309', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
               You have used at least 80% of a monthly limit. Upgrade to avoid interruptions.

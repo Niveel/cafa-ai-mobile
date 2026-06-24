@@ -10,3 +10,4 @@ export * from './videos';
 export * from './voice';
 export * from './support';
 export * from './appUpdate';
+export * from './writingTools';

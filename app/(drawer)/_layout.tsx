@@ -14,6 +14,7 @@ const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   'edit-image': 'color-wand-outline',
   artifacts: 'document-attach-outline',
   voice: 'mic-outline',
+  'writing-tools': 'create-outline',
   plans: 'card-outline',
   help: 'help-circle-outline',
   'privacy-policy': 'shield-checkmark-outline',
@@ -89,6 +90,7 @@ export default function DrawerLayout() {
       />
       <Drawer.Screen name="artifacts" options={{ title: t('drawer.artifacts') }} />
       <Drawer.Screen name="voice" options={{ title: t('drawer.voice') }} />
+      <Drawer.Screen name="writing-tools" options={{ title: t('drawer.writingTools') }} />
       <Drawer.Screen name="plans" options={{ title: t('drawer.userMenu.upgrade') }} />
       <Drawer.Screen
         name="help"

@@ -647,7 +647,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [chats, customTitles, pinnedIds, searchQuery]);
 
   const openRoute = useCallback(
-    (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
+    (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'writing-tools' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
       markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
@@ -936,6 +936,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
           <AppButton label="Image-to-video" iconName="film-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('image-to-video')} />
           <AppButton label="Edit image" iconName="color-wand-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('edit-image')} />
+          <AppButton label={t('drawer.writingTools')} iconName="create-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('writing-tools')} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={showMoreCtas ? 'Show fewer quick actions' : 'Show more quick actions'}
@@ -967,11 +968,11 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
             pointerEvents={showMoreCtas ? 'auto' : 'none'}
             style={[moreCtasAnimatedStyle, { overflow: 'hidden' }]}
           >
-            <View style={{ paddingTop: 8, gap: 8 }}>
-              <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
-              <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
-              <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
-            </View>
+              <View style={{ paddingTop: 8, gap: 8 }}>
+                <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
+                <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
+                <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
+              </View>
           </Animated.View>
         </View>
 

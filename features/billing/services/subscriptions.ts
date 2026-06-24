@@ -334,6 +334,14 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsToday)
         ?? 0;
+      const aiDetectionWordsUsed =
+        asNumber(usage?.aiDetectionWords?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.aiDetectionWordsUsed)
+        ?? 0;
+      const humanizeWordsUsed =
+        asNumber(usage?.humanizeWords?.used)
+        ?? asNumber((usage as Record<string, unknown> | undefined)?.humanizeWordsUsed)
+        ?? 0;
       const videoUsed =
         asNumber(videosUsage?.used)
         ??
@@ -342,6 +350,8 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         ?? 0;
       const chatLimitRaw = usage?.chat?.limit;
       const imageLimitRaw = usage?.images?.limit;
+      const aiDetectionWordsLimitRaw = usage?.aiDetectionWords?.limit;
+      const humanizeWordsLimitRaw = usage?.humanizeWords?.limit;
       const videoLimitRaw =
         asNumber((usage as Record<string, unknown> | undefined)?.videoLimit)
         ?? asNumber(videosUsage?.limit);
@@ -357,6 +367,16 @@ export async function getDailyUsage(options?: { force?: boolean }) {
           imageLimitRaw === null
             ? null
             : asNumber(imageLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.imageLimit),
+        aiDetectionWordsUsed,
+        aiDetectionWordsLimit:
+          aiDetectionWordsLimitRaw === null
+            ? null
+            : asNumber(aiDetectionWordsLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.aiDetectionWordsLimit),
+        humanizeWordsUsed,
+        humanizeWordsLimit:
+          humanizeWordsLimitRaw === null
+            ? null
+            : asNumber(humanizeWordsLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.humanizeWordsLimit),
         videoUsed,
         videoLimit: videoLimitRaw,
         maxUploadSizeMB: asNumber((usage as Record<string, unknown> | undefined)?.maxUploadSizeMB),
@@ -374,6 +394,10 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         chatLimit: snapshot.chatLimit,
         imageUsed,
         imageLimit: snapshot.imageLimit,
+        aiDetectionWordsUsed,
+        aiDetectionWordsLimit: snapshot.aiDetectionWordsLimit,
+        humanizeWordsUsed,
+        humanizeWordsLimit: snapshot.humanizeWordsLimit,
       });
       usageCache = { data: snapshot, fetchedAt: Date.now() };
       return snapshot;

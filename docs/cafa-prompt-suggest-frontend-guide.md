@@ -103,7 +103,7 @@ const fetchSuggestions = async (text: string) => {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`
-      },
+      }, 
       body: JSON.stringify({
         partialText: text,
         context: 'image' // change based on current screen
