@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 
 import { AppButton, AppPromptModal, AppScreen, RequireAuthRoute } from '@/components';
@@ -75,6 +76,7 @@ export default function WritingToolsScreen() {
   const [isRefreshingQuota, setIsRefreshingQuota] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
   const [upgradePrompt, setUpgradePrompt] = useState<{
     visible: boolean;
     title: string;
@@ -99,6 +101,7 @@ export default function WritingToolsScreen() {
       setDetectQuota(nextDetectQuota);
       setHumanizeQuota(nextHumanizeQuota);
       setErrorMessage('');
+      setStatusMessage('');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not load your quota right now.';
       setErrorMessage(message);
@@ -130,15 +133,18 @@ export default function WritingToolsScreen() {
     const trimmed = detectText.trim();
     if (!trimmed) {
       setErrorMessage('Paste text to analyze first.');
+      setStatusMessage('');
       return;
     }
     if (trimmed.length < 50) {
       setErrorMessage('Text must be at least 50 characters for accurate detection.');
+      setStatusMessage('');
       return;
     }
 
     setIsSubmitting(true);
     setErrorMessage('');
+    setStatusMessage('');
     try {
       const result = await detectAi({ text: trimmed });
       setDetectResult(result);
@@ -162,11 +168,13 @@ export default function WritingToolsScreen() {
     const trimmed = humanizeTextInput.trim();
     if (!trimmed) {
       setErrorMessage('Paste text to rewrite first.');
+      setStatusMessage('');
       return;
     }
 
     setIsSubmitting(true);
     setErrorMessage('');
+    setStatusMessage('');
     try {
       const result = await humanizeText({
         text: trimmed,
@@ -189,6 +197,41 @@ export default function WritingToolsScreen() {
       setIsSubmitting(false);
     }
   }, [humanizeIntensity, humanizeStyle, humanizeTextInput, openUpgradePrompt]);
+
+  const handleClearDetectText = useCallback(() => {
+    setDetectText('');
+    setDetectResult(null);
+    setErrorMessage('');
+    setStatusMessage('AI Detection text cleared.');
+  }, []);
+
+  const handleClearHumanizeText = useCallback(() => {
+    setHumanizeTextInput('');
+    setHumanizeResult(null);
+    setErrorMessage('');
+    setStatusMessage('Humanize text cleared.');
+  }, []);
+
+  const handleCopyHumanizeResult = useCallback(async () => {
+    const output = humanizeResult?.result?.trim();
+    if (!output) return;
+    await Clipboard.setStringAsync(output);
+    setErrorMessage('');
+    setStatusMessage('Humanized text copied to clipboard.');
+  }, [humanizeResult?.result]);
+
+  const handleSendToHumanize = useCallback(() => {
+    const trimmed = detectText.trim();
+    if (!trimmed) {
+      setErrorMessage('Paste text to analyze first.');
+      setStatusMessage('');
+      return;
+    }
+    setHumanizeTextInput(trimmed);
+    setMode('humanize');
+    setErrorMessage('');
+    setStatusMessage('Moved detection text into Humanize.');
+  }, [detectText]);
 
   const renderOptionChip = (
     value: string,
@@ -247,9 +290,12 @@ export default function WritingToolsScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open AI Detection"
+                accessibilityHint="Switches to the AI Detection tool."
+                accessibilityState={{ selected: mode === 'detect' }}
                 onPress={() => {
                   setMode('detect');
                   setErrorMessage('');
+                  setStatusMessage('');
                 }}
                 className="mr-2 flex-1 rounded-full px-4 py-3"
                 style={{
@@ -265,9 +311,12 @@ export default function WritingToolsScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open Humanize"
+                accessibilityHint="Switches to the Humanize tool."
+                accessibilityState={{ selected: mode === 'humanize' }}
                 onPress={() => {
                   setMode('humanize');
                   setErrorMessage('');
+                  setStatusMessage('');
                 }}
                 className="flex-1 rounded-full px-4 py-3"
                 style={{
@@ -342,6 +391,22 @@ export default function WritingToolsScreen() {
             </View>
           </View>
 
+          {!!statusMessage ? (
+            <View
+              className="mb-4 rounded-2xl border px-3 py-3"
+              accessible
+              accessibilityLiveRegion="polite"
+              style={{
+                borderColor: colors.border,
+                backgroundColor: isDark ? '#0B1220' : '#F8FAFC',
+              }}
+            >
+              <Text style={{ color: colors.textPrimary, fontSize: 12 }}>
+                {statusMessage}
+              </Text>
+            </View>
+          ) : null}
+
           {mode === 'detect' ? (
             <View
               className="mb-4 rounded-3xl border p-4"
@@ -357,6 +422,29 @@ export default function WritingToolsScreen() {
                 The backend checks whether the pasted text reads as AI-generated and returns human/AI probability with confidence.
               </Text>
 
+              <View className="mt-4 flex-row items-center justify-between">
+                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                  Text to analyze
+                </Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear AI Detection text"
+                  accessibilityHint="Clears all pasted text and detection results."
+                  disabled={!detectText.trim()}
+                  onPress={handleClearDetectText}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: colors.border,
+                    opacity: detectText.trim() ? 1 : 0.45,
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                    Clear
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <TextInput
                 value={detectText}
                 onChangeText={setDetectText}
@@ -364,14 +452,16 @@ export default function WritingToolsScreen() {
                 textAlignVertical="top"
                 placeholder="Paste text to analyze..."
                 placeholderTextColor={colors.textSecondary}
+                accessibilityLabel="AI Detection input"
+                accessibilityHint="Paste or type text to check whether it appears AI-generated."
                 style={{
                   minHeight: 180,
-                  marginTop: 14,
+                  marginTop: 10,
                   borderWidth: 1.2,
                   borderColor: colors.border,
                   borderRadius: 22,
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
                   color: colors.textPrimary,
                   backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
                 }}
@@ -382,18 +472,25 @@ export default function WritingToolsScreen() {
               </Text>
 
               {!!errorMessage && mode === 'detect' ? (
-                <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>
+                <Text accessibilityLiveRegion="polite" style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>
                   {errorMessage}
                 </Text>
               ) : null}
 
-              <View className="mt-4 flex-row">
+              <View className="mt-4 flex-row flex-wrap items-start">
                 <AppButton
                   label={isSubmitting ? 'Checking...' : 'Run AI Detection'}
                   iconName="search-outline"
                   onPress={() => {
                     if (!isSubmitting) void handleDetect();
                   }}
+                />
+                <View style={{ width: '100%', height: 10 }} />
+                <AppButton
+                  label="Humanize This"
+                  iconName="arrow-forward-outline"
+                  variant="outline"
+                  onPress={handleSendToHumanize}
                 />
               </View>
 
@@ -438,6 +535,22 @@ export default function WritingToolsScreen() {
                       Completely generated probability: {detectResult.details.completelyGeneratedProb.toFixed(4)}
                     </Text>
                   ) : null}
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Humanize detected text"
+                    accessibilityHint="Switches to the Humanize tab and pastes this detection text there."
+                    onPress={handleSendToHumanize}
+                    className="mt-4 self-start rounded-full px-4 py-2.5"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.primary,
+                      backgroundColor: `${colors.primary}14`,
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                      Send to Humanize
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
             </View>
@@ -456,6 +569,29 @@ export default function WritingToolsScreen() {
                 Rewrite for more natural flow without changing the facts you care about.
               </Text>
 
+              <View className="mt-4 flex-row items-center justify-between">
+                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                  Text to rewrite
+                </Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear Humanize text"
+                  accessibilityHint="Clears the pasted text and any humanize result."
+                  disabled={!humanizeTextInput.trim()}
+                  onPress={handleClearHumanizeText}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: colors.border,
+                    opacity: humanizeTextInput.trim() ? 1 : 0.45,
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                    Clear
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <TextInput
                 value={humanizeTextInput}
                 onChangeText={setHumanizeTextInput}
@@ -463,14 +599,16 @@ export default function WritingToolsScreen() {
                 textAlignVertical="top"
                 placeholder="Paste text to rewrite..."
                 placeholderTextColor={colors.textSecondary}
+                accessibilityLabel="Humanize input"
+                accessibilityHint="Paste or type text to rewrite for more natural flow."
                 style={{
                   minHeight: 180,
-                  marginTop: 14,
+                  marginTop: 10,
                   borderWidth: 1.2,
                   borderColor: colors.border,
                   borderRadius: 22,
-                  paddingHorizontal: 16,
-                  paddingVertical: 14,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
                   color: colors.textPrimary,
                   backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
                 }}
@@ -491,7 +629,7 @@ export default function WritingToolsScreen() {
               </View>
 
               {!!errorMessage && mode === 'humanize' ? (
-                <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>
+                <Text accessibilityLiveRegion="polite" style={{ color: '#DC2626', fontSize: 12, marginTop: 10 }}>
                   {errorMessage}
                 </Text>
               ) : null}
@@ -541,6 +679,24 @@ export default function WritingToolsScreen() {
                   <Text style={{ color: colors.textPrimary, fontSize: 14, lineHeight: 22, marginTop: 12 }}>
                     {humanizeResult.result}
                   </Text>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Copy humanized text"
+                    accessibilityHint="Copies the rewritten result to the clipboard."
+                    onPress={() => {
+                      void handleCopyHumanizeResult();
+                    }}
+                    className="mt-4 self-start rounded-full px-4 py-2.5"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.primary,
+                      backgroundColor: `${colors.primary}14`,
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                      Copy Result
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
             </View>
