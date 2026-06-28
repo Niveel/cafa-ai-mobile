@@ -3,6 +3,7 @@ export * from './app';
 export * from './artifact.types';
 export * from './auth.types';
 export * from './billing.types';
+export * from './cafaLife.types';
 export * from './chat.types';
 export * from './documentWizard.types';
 export * from './form.types';

@@ -91,6 +91,11 @@ export const apiEndpoints = {
     contact: `${API_BASE_PATH}/support/contact`,
   },
 
+  cafaLife: {
+    token: `${API_BASE_PATH}/cafa-life/token`,
+    history: `${API_BASE_PATH}/cafa-life/history`,
+  },
+
   tools: {
     detectAi: `${API_BASE_PATH}/tools/detect-ai`,
     detectAiQuota: `${API_BASE_PATH}/tools/detect-ai/quota`,

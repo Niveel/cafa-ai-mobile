@@ -393,7 +393,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     () => ({
       maxHeight: moreCtasAnimation.interpolate({
         inputRange: [0, 1],
-        outputRange: [0, 132],
+        outputRange: [0, 184],
       }),
       opacity: moreCtasAnimation.interpolate({
         inputRange: [0, 1],
@@ -647,7 +647,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [chats, customTitles, pinnedIds, searchQuery]);
 
   const openRoute = useCallback(
-    (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'writing-tools' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
+    (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'cafa-life' | 'writing-tools' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
       markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
@@ -972,6 +972,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
                 <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
                 <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
                 <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
+                <AppButton label={t('drawer.cafaLife')} iconName="radio-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('cafa-life')} />
               </View>
           </Animated.View>
         </View>

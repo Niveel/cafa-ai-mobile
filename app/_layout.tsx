@@ -12,7 +12,7 @@ import '../global.css';
 import { AppPromptModal } from '@/components';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
-import { checkStoreUpdate } from '@/features';
+import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
 
@@ -94,6 +94,12 @@ function AppNavigator() {
 
   useEffect(() => {
     if (!appIsReady) return;
+
+    try {
+      ensureCafaLifeGlobalsRegistered();
+    } catch {
+      // Safe no-op: Cafa Live can still surface a native-build requirement on its own screen.
+    }
 
     const runCheck = async () => {
       if (isCheckingForStoreUpdateRef.current) return;

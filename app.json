@@ -150,6 +150,18 @@
           "iCloudContainerEnvironment": "Production"
         }
       ],
+      [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication"
+          },
+          "ios": {
+            "enableMultitaskingCameraAccess": false
+          }
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
       "expo-video",
       "expo-audio",
       "expo-localization",

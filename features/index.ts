@@ -1,6 +1,7 @@
 export * from './auth';
 export * from './artifacts';
 export * from './billing';
+export * from './cafaLife';
 export * from './chat';
 export * from './images';
 export * from './mediaConversations';
