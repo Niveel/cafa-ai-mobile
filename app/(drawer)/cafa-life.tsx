@@ -516,7 +516,7 @@ export default function CafaLifeScreen() {
                   {elapsedLabel}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                  {roomName ? `Room: ${roomName}` : 'Your private room appears here once connected.'}
+                  {isActive ? 'Your private voice session is live.' : 'Start a session when you are ready.'}
                 </Text>
               </View>
 
