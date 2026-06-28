@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { AppPromptModal, AppScreen, RequireAuthRoute } from '@/components';
 import { useAppTheme, useI18n, useReducedMotionPreference } from '@/hooks';
@@ -304,6 +305,15 @@ export default function CafaLifeScreen() {
     hapticSelection();
     void loadHistory(true);
   }, [loadHistory]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setShowEndPrompt(false);
+        void endSession();
+      };
+    }, [endSession]),
+  );
 
   const assistantLabel = assistantName || 'Cafa';
 
