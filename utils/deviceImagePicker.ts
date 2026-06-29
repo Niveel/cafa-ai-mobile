@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as ExpoImagePicker from 'expo-image-picker';
 
 type ImagePickerAsset = {
@@ -29,13 +30,15 @@ export async function pickSingleImageFromLibrary(
     aspect?: [number, number];
   } = {},
 ) {
-  const permission = await imagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    throw new Error(
-      permission.canAskAgain === false
-        ? 'Photo library access is disabled. Please enable Photos access for Cafa AI in Settings and try again.'
-        : 'Photo library permission is required to choose an image from your device.',
-    );
+  if (Platform.OS !== 'android') {
+    const permission = await imagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      throw new Error(
+        permission.canAskAgain === false
+          ? 'Photo library access is disabled. Please enable Photos access for Cafa AI in Settings and try again.'
+          : 'Photo library permission is required to choose an image from your device.',
+      );
+    }
   }
 
   try {
