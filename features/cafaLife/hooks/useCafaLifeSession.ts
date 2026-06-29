@@ -251,7 +251,7 @@ export function useCafaLifeSession() {
               remoteAudioTracksRef.current.add(track);
               activeRemoteAudioTrackRef.current = track;
               syncRemoteAudioPlayback(track);
-              setAssistantName(participant.name || participant.identity || 'Cafa');
+              setAssistantName(participant.name || 'Cafa');
               setState((prev) => (prev === 'muted' ? 'muted' : 'speaking'));
             }
           }
@@ -281,7 +281,7 @@ export function useCafaLifeSession() {
           const remoteSpeaker = speakers.find((speaker) => speaker.identity && speaker.identity !== room.localParticipant.identity && speaker.isSpeaking);
           if (remoteSpeaker) {
             syncRemoteAudioPlayback(activeRemoteAudioTrackRef.current);
-            setAssistantName(remoteSpeaker.name || remoteSpeaker.identity || 'Cafa');
+            setAssistantName(remoteSpeaker.name || 'Cafa');
             setState((prev) => (prev === 'muted' ? 'muted' : 'speaking'));
             return;
           }
