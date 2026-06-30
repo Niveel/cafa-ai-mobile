@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -28,6 +29,8 @@ type StatusPresentation = {
   chipBg: string;
   chipText: string;
 };
+
+const CAFA_LIVE_KEEP_AWAKE_TAG = 'cafa-live-screen';
 
 function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation {
   switch (state) {
@@ -308,8 +311,11 @@ export default function CafaLifeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      void activateKeepAwakeAsync(CAFA_LIVE_KEEP_AWAKE_TAG);
+
       return () => {
         setShowEndPrompt(false);
+        void deactivateKeepAwake(CAFA_LIVE_KEEP_AWAKE_TAG).catch(() => undefined);
         void endSession();
       };
     }, [endSession]),
