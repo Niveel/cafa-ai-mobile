@@ -9,7 +9,7 @@
 
 ## What Changed in Version 2.0
 
-- **New `/detect` endpoint** — AI-powered detection replaces keyword matching. Use this instead of `isDocumentRequest()`.
+- **New `/detect` endpoint** — AI-powered detection replaces keyword matching. Use this instead of `isDocumentRequest()`, and use its response type hint to drive text, image, video, or artifact loading animations.
 - **New `/history` endpoint** — Retrieve user's previously generated documents.
 - **Sandbox error handling** — `/generate` now returns a proper HTTP 500 on failure instead of empty artifacts.
 - **Artifact response shape updated** — `fileName` (not `filename`), `size_bytes` (not `size`).
@@ -24,7 +24,7 @@ User types message in chat
          ↓
 Frontend calls /wizard/detect (Groq AI — ~0.3 seconds)
          ↓
-{ isDocumentRequest: true, documentType: "resume", format: "pdf", confidence: 0.95 }
+{ isDocumentRequest: true, documentType: "resume", format: "pdf", confidence: 0.95, expectedResponseType: "artifact" }
          ↓
 If isDocumentRequest === true AND confidence >= 0.7:
   Call /wizard/start → get HTML form string
@@ -53,6 +53,7 @@ Else:
 **Endpoint:** `POST /api/v1/documents/wizard/detect`
 
 **Purpose:** Use this on EVERY user message before deciding whether to show the wizard or send to normal chat. AI-powered — works for any document type in any language. Never hardcode document keywords.
+It also tells the frontend what kind of response is expected so chat can show the correct loading animation without regex guessing.
 
 **Headers:**
 ```
@@ -73,7 +74,8 @@ Authorization: Bearer <user_access_token>
     "isDocumentRequest": true,
     "documentType": "court affidavit",
     "format": "pdf",
-    "confidence": 0.9
+    "confidence": 0.9,
+    "expectedResponseType": "artifact"
   }
 }
 ```
@@ -86,10 +88,17 @@ Authorization: Bearer <user_access_token>
     "isDocumentRequest": false,
     "documentType": null,
     "format": null,
-    "confidence": 0
+    "confidence": 0,
+    "expectedResponseType": "text"
   }
 }
 ```
+
+**`expectedResponseType` values:**
+- `text` — normal assistant text reply
+- `image` — image generation loading animation
+- `video` — video generation loading animation
+- `artifact` — file/document/artifact generation loading animation
 
 **Important:** This endpoint NEVER returns an error. If Groq times out or fails, it returns `isDocumentRequest: false` safely — the message falls through to normal chat. Always handle the response, never catch errors from this endpoint.
 
@@ -285,11 +294,14 @@ const BASE_URL = 'https://cafaapi.niveel.com/api/v1';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type ExpectedResponseType = 'text' | 'image' | 'video' | 'artifact';
+
 export interface DetectResult {
   isDocumentRequest: boolean;
   documentType: string | null;
   format: 'pdf' | 'docx' | 'pptx' | 'xlsx' | null;
   confidence: number;
+  expectedResponseType: ExpectedResponseType;
 }
 
 export interface DocumentArtifact {
@@ -332,10 +344,10 @@ export async function detectDocumentRequest(
     });
 
     const data = await response.json();
-    return data.data ?? { isDocumentRequest: false, documentType: null, format: null, confidence: 0 };
+    return data.data ?? { isDocumentRequest: false, documentType: null, format: null, confidence: 0, expectedResponseType: 'text' };
   } catch {
     // Network error — fall back to normal chat
-    return { isDocumentRequest: false, documentType: null, format: null, confidence: 0 };
+    return { isDocumentRequest: false, documentType: null, format: null, confidence: 0, expectedResponseType: 'text' };
   }
 }
 

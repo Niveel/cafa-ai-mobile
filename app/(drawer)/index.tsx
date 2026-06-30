@@ -3172,6 +3172,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
           setIsUnderstandingPrompt(false);
 
+          let detectedExpectedResponseType: 'text' | 'image' | 'video' = 'text';
           if (screenMode === 'chat' && isAuthenticated && attachmentsForSend.length === 0) {
             lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
             logSendPayload({
@@ -3186,6 +3187,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             });
             setStatusNotice('Analyzing your request...');
             const detection = await detectDocumentRequest(trimmed);
+            detectedExpectedResponseType = detection.expectedResponseType;
 
             if (detection.isDocumentRequest && detection.confidence >= 0.7) {
               try {
@@ -3338,6 +3340,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           const suppressStreamingTextForArtifact = isAuthenticated
             && !attachmentsForSend.length
             && isLikelyArtifactGenerationIntent(trimmed);
+          const shouldShowBackendImageLoading = !suppressStreamingTextForArtifact
+            && screenMode === 'chat'
+            && isAuthenticated
+            && attachmentsForSend.length === 0
+            && detectedExpectedResponseType === 'image';
+          const shouldShowBackendVideoLoading = !suppressStreamingTextForArtifact
+            && screenMode === 'chat'
+            && isAuthenticated
+            && attachmentsForSend.length === 0
+            && detectedExpectedResponseType === 'video';
 
           hapticImpact();
           assistantFirstDeltaRef.current = false;
@@ -3368,6 +3380,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 content: '',
                 createdAt: Date.now(),
                 isArtifactGenerating: suppressStreamingTextForArtifact,
+                isImageGenerating: shouldShowBackendImageLoading,
+                isVideoGenerating: shouldShowBackendVideoLoading,
               },
             ];
           });
@@ -3479,19 +3493,28 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const extractedVideoPrompt = extractVideoPrompt(trimmed);
         const extractedImagePrompt = extractImagePrompt(trimmed);
         const hasAnyAttachment = attachmentsForSend.length > 0;
-        const inferredImagePrompt = !extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
-          ? trimmed
-          : null;
+        const shouldUseBackendResponseTypeForMediaIntent = screenMode === 'chat'
+          && isAuthenticated
+          && !hasAnyAttachment
+          && !composerMediaReference;
+        const inferredImagePrompt = shouldUseBackendResponseTypeForMediaIntent
+          ? (detectedExpectedResponseType === 'image' ? trimmed : null)
+          : (!extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
+            ? trimmed
+            : null);
         const effectiveImagePrompt = screenMode === 'chat' && hasAnyAttachment
           ? null
           : (extractedImagePrompt ?? inferredImagePrompt);
         const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
           (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
         );
-        const inferredVideoFromImagePrompt =
-          !extractedVideoPrompt && imageAttachmentForVideoIntent && isLikelyVideoGenerationIntent(trimmed)
-            ? trimmed
-            : null;
+        const inferredVideoFromImagePrompt = shouldUseBackendResponseTypeForMediaIntent
+          ? (detectedExpectedResponseType === 'video' ? trimmed : null)
+          : (
+            !extractedVideoPrompt && imageAttachmentForVideoIntent && isLikelyVideoGenerationIntent(trimmed)
+              ? trimmed
+              : null
+          );
         const effectiveVideoPrompt = screenMode === 'chat' && hasAnyAttachment
           ? null
           : (extractedVideoPrompt ?? inferredVideoFromImagePrompt);

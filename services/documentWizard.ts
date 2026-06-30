@@ -9,7 +9,12 @@ import {
   DocumentWizardHistoryPage,
 } from '@/types';
 
-type DetectResponse = ApiResponse<DetectDocumentRequestResult>;
+type DetectResponsePayload = Omit<DetectDocumentRequestResult, 'expectedResponseType'> & {
+  expectedResponseType?: DetectDocumentRequestResult['expectedResponseType'];
+  responseType?: DetectDocumentRequestResult['expectedResponseType'];
+};
+
+type DetectResponse = ApiResponse<DetectResponsePayload>;
 type StartWizardResponse = ApiResponse<{ html: string }>;
 type GenerateWizardResponse = ApiResponse<{ artifacts: DocumentWizardArtifact[] }>;
 type HistoryWizardResponse = ApiResponse<DocumentWizardHistoryPage>;
@@ -27,12 +32,21 @@ const DETECT_FALLBACK: DetectDocumentRequestResult = {
   documentType: null,
   format: null,
   confidence: 0,
+  expectedResponseType: 'text',
 };
 
 export async function detectDocumentRequest(message: string): Promise<DetectDocumentRequestResult> {
   try {
     const response: AxiosResponse<DetectResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/detect`, { message });
-    return response.data?.data ?? DETECT_FALLBACK;
+    const payload = response.data?.data;
+    if (!payload) {
+      return DETECT_FALLBACK;
+    }
+    return {
+      ...DETECT_FALLBACK,
+      ...payload,
+      expectedResponseType: payload.expectedResponseType ?? payload.responseType ?? 'text',
+    };
   } catch {
     return DETECT_FALLBACK;
   }

@@ -1,10 +1,12 @@
 export type DocumentWizardFormat = 'pdf' | 'docx' | 'pptx' | 'xlsx';
+export type ExpectedResponseType = 'text' | 'image' | 'video';
 
 export type DetectDocumentRequestResult = {
   isDocumentRequest: boolean;
   documentType: string | null;
   format: DocumentWizardFormat | null;
   confidence: number;
+  expectedResponseType: ExpectedResponseType;
 };
 
 export type DocumentWizardArtifact = {
