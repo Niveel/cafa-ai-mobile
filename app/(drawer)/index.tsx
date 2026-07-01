@@ -3172,7 +3172,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
           setIsUnderstandingPrompt(false);
 
-          let detectedExpectedResponseType: 'text' | 'image' | 'video' = 'text';
+          let detectedExpectedResponseType: 'text' | 'image' | 'video' | 'artifact' = 'text';
           if (screenMode === 'chat' && isAuthenticated && attachmentsForSend.length === 0) {
             lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
             logSendPayload({
@@ -3337,18 +3337,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
           assistantId = `assistant-${Date.now()}`;
           activeAssistantId = assistantId;
-          const suppressStreamingTextForArtifact = isAuthenticated
-            && !attachmentsForSend.length
-            && isLikelyArtifactGenerationIntent(trimmed);
-          const shouldShowBackendImageLoading = !suppressStreamingTextForArtifact
-            && screenMode === 'chat'
+          const shouldUseBackendResponseTypeForLoading = screenMode === 'chat'
             && isAuthenticated
-            && attachmentsForSend.length === 0
+            && attachmentsForSend.length === 0;
+          const shouldShowBackendArtifactLoading = shouldUseBackendResponseTypeForLoading
+            && detectedExpectedResponseType === 'artifact';
+          const suppressStreamingTextForArtifact = shouldShowBackendArtifactLoading
+            || (
+              !shouldUseBackendResponseTypeForLoading
+              && isAuthenticated
+              && !attachmentsForSend.length
+              && isLikelyArtifactGenerationIntent(trimmed)
+            );
+          const shouldShowBackendImageLoading = !suppressStreamingTextForArtifact
+            && shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'image';
           const shouldShowBackendVideoLoading = !suppressStreamingTextForArtifact
-            && screenMode === 'chat'
-            && isAuthenticated
-            && attachmentsForSend.length === 0
+            && shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'video';
 
           hapticImpact();
@@ -3379,7 +3384,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 role: 'assistant',
                 content: '',
                 createdAt: Date.now(),
-                isArtifactGenerating: suppressStreamingTextForArtifact,
+                isArtifactGenerating: shouldShowBackendArtifactLoading || suppressStreamingTextForArtifact,
                 isImageGenerating: shouldShowBackendImageLoading,
                 isVideoGenerating: shouldShowBackendVideoLoading,
               },
@@ -3504,7 +3509,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             : null);
         const effectiveImagePrompt = screenMode === 'chat' && hasAnyAttachment
           ? null
-          : (extractedImagePrompt ?? inferredImagePrompt);
+          : (
+            shouldUseBackendResponseTypeForMediaIntent
+              ? inferredImagePrompt
+              : (extractedImagePrompt ?? inferredImagePrompt)
+          );
         const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
           (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
         );
@@ -3517,7 +3526,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           );
         const effectiveVideoPrompt = screenMode === 'chat' && hasAnyAttachment
           ? null
-          : (extractedVideoPrompt ?? inferredVideoFromImagePrompt);
+          : (
+            shouldUseBackendResponseTypeForMediaIntent
+              ? inferredVideoFromImagePrompt
+              : (extractedVideoPrompt ?? inferredVideoFromImagePrompt)
+          );
         const referencedKind = composerMediaReference?.kind;
         const isReferencedMediaQuestion = Boolean(composerMediaReference)
           && isLikelyReferencedMediaQuestionPrompt(trimmed);

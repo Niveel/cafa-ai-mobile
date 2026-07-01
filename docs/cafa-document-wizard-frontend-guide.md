@@ -95,11 +95,11 @@ Authorization: Bearer <user_access_token>
 ```
 
 **`expectedResponseType` values:**
+
 - `text` — normal assistant text reply
 - `image` — image generation loading animation
 - `video` — video generation loading animation
 - `artifact` — file/document/artifact generation loading animation
-
 **Important:** This endpoint NEVER returns an error. If Groq times out or fails, it returns `isDocumentRequest: false` safely — the message falls through to normal chat. Always handle the response, never catch errors from this endpoint.
 
 **Confidence threshold:** Only show wizard if `confidence >= 0.7`. Below that, let normal chat handle it.
