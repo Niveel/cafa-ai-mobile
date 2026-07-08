@@ -8,6 +8,9 @@ import { consumeDrawerShouldReopenOnFocus } from '@/services/navigation/drawerRe
 
 const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'chatbubble-ellipses-outline',
+  tools: 'grid-outline',
+  repo: 'folder-open-outline',
+  'avatar-video': 'person-circle-outline',
   images: 'images-outline',
   videos: 'videocam-outline',
   'image-to-video': 'film-outline',
@@ -73,8 +76,29 @@ export default function DrawerLayout() {
       })}
     >
       <Drawer.Screen name="index" options={{ title: t('drawer.newChat') }} />
-      <Drawer.Screen name="images" options={{ title: t('drawer.images') }} />
-      <Drawer.Screen name="videos" options={{ title: t('drawer.videos') }} />
+      <Drawer.Screen name="tools" options={{ title: 'Tools' }} />
+      <Drawer.Screen name="repo" options={{ title: 'Repo' }} />
+      <Drawer.Screen
+        name="images"
+        options={{
+          title: t('drawer.images'),
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="videos"
+        options={{
+          title: t('drawer.videos'),
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="avatar-video"
+        options={{
+          title: 'Avatar Video',
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
       <Drawer.Screen
         name="image-to-video"
         options={{
@@ -89,16 +113,33 @@ export default function DrawerLayout() {
           drawerItemStyle: { display: 'none' },
         }}
       />
-      <Drawer.Screen name="artifacts" options={{ title: t('drawer.artifacts') }} />
-      <Drawer.Screen name="voice" options={{ title: t('drawer.voice') }} />
+      <Drawer.Screen
+        name="artifacts"
+        options={{
+          title: t('drawer.artifacts'),
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="voice"
+        options={{
+          title: t('drawer.voice'),
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
       <Drawer.Screen
         name="cafa-life"
         options={{
           title: t('drawer.cafaLife'),
+        }}
+      />
+      <Drawer.Screen
+        name="writing-tools"
+        options={{
+          title: t('drawer.writingTools'),
           drawerItemStyle: { display: 'none' },
         }}
       />
-      <Drawer.Screen name="writing-tools" options={{ title: t('drawer.writingTools') }} />
       <Drawer.Screen name="plans" options={{ title: t('drawer.userMenu.upgrade') }} />
       <Drawer.Screen
         name="help"

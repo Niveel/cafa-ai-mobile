@@ -212,6 +212,22 @@ export default function WritingToolsScreen() {
     setStatusMessage('Humanize text cleared.');
   }, []);
 
+  const handleCopyDetectText = useCallback(async () => {
+    const input = detectText.trim();
+    if (!input) return;
+    await Clipboard.setStringAsync(input);
+    setErrorMessage('');
+    setStatusMessage('AI Detection text copied to clipboard.');
+  }, [detectText]);
+
+  const handleCopyHumanizeTextInput = useCallback(async () => {
+    const input = humanizeTextInput.trim();
+    if (!input) return;
+    await Clipboard.setStringAsync(input);
+    setErrorMessage('');
+    setStatusMessage('Humanize text copied to clipboard.');
+  }, [humanizeTextInput]);
+
   const handleCopyHumanizeResult = useCallback(async () => {
     const output = humanizeResult?.result?.trim();
     if (!output) return;
@@ -426,23 +442,44 @@ export default function WritingToolsScreen() {
                 <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
                   Text to analyze
                 </Text>
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear AI Detection text"
-                  accessibilityHint="Clears all pasted text and detection results."
-                  disabled={!detectText.trim()}
-                  onPress={handleClearDetectText}
-                  className="rounded-full px-3 py-2"
-                  style={{
-                    borderWidth: 1.2,
-                    borderColor: colors.border,
-                    opacity: detectText.trim() ? 1 : 0.45,
-                  }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                    Clear
-                  </Text>
-                </TouchableOpacity>
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Copy AI Detection text"
+                    accessibilityHint="Copies the text in the AI Detection input to the clipboard."
+                    disabled={!detectText.trim()}
+                    onPress={() => {
+                      void handleCopyDetectText();
+                    }}
+                    className="rounded-full px-3 py-2"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.border,
+                      opacity: detectText.trim() ? 1 : 0.45,
+                    }}
+                  >
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                      Copy
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear AI Detection text"
+                    accessibilityHint="Clears all pasted text and detection results."
+                    disabled={!detectText.trim()}
+                    onPress={handleClearDetectText}
+                    className="ml-2 rounded-full px-3 py-2"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.border,
+                      opacity: detectText.trim() ? 1 : 0.45,
+                    }}
+                  >
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                      Clear
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <TextInput
@@ -573,23 +610,44 @@ export default function WritingToolsScreen() {
                 <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
                   Text to rewrite
                 </Text>
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear Humanize text"
-                  accessibilityHint="Clears the pasted text and any humanize result."
-                  disabled={!humanizeTextInput.trim()}
-                  onPress={handleClearHumanizeText}
-                  className="rounded-full px-3 py-2"
-                  style={{
-                    borderWidth: 1.2,
-                    borderColor: colors.border,
-                    opacity: humanizeTextInput.trim() ? 1 : 0.45,
-                  }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                    Clear
-                  </Text>
-                </TouchableOpacity>
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Copy Humanize text"
+                    accessibilityHint="Copies the text in the Humanize input to the clipboard."
+                    disabled={!humanizeTextInput.trim()}
+                    onPress={() => {
+                      void handleCopyHumanizeTextInput();
+                    }}
+                    className="rounded-full px-3 py-2"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.border,
+                      opacity: humanizeTextInput.trim() ? 1 : 0.45,
+                    }}
+                  >
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                      Copy
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear Humanize text"
+                    accessibilityHint="Clears the pasted text and any humanize result."
+                    disabled={!humanizeTextInput.trim()}
+                    onPress={handleClearHumanizeText}
+                    className="ml-2 rounded-full px-3 py-2"
+                    style={{
+                      borderWidth: 1.2,
+                      borderColor: colors.border,
+                      opacity: humanizeTextInput.trim() ? 1 : 0.45,
+                    }}
+                  >
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+                      Clear
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <TextInput

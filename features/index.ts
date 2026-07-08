@@ -1,4 +1,5 @@
 export * from './auth';
+export * from './avatar';
 export * from './artifacts';
 export * from './billing';
 export * from './cafaLife';

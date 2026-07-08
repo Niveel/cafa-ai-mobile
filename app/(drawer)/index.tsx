@@ -3188,6 +3188,29 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             setStatusNotice('Analyzing your request...');
             const detection = await detectDocumentRequest(trimmed);
             detectedExpectedResponseType = detection.expectedResponseType;
+            if (__DEV__) {
+              try {
+                console.log('[document-detect:result]', JSON.stringify({
+                  endpoint: lastEndpoint,
+                  conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                  isDocumentRequest: detection.isDocumentRequest,
+                  documentType: detection.documentType,
+                  format: detection.format,
+                  confidence: detection.confidence,
+                  expectedResponseType: detection.expectedResponseType,
+                }));
+              } catch {
+                console.log('[document-detect:result]', {
+                  endpoint: lastEndpoint,
+                  conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                  isDocumentRequest: detection.isDocumentRequest,
+                  documentType: detection.documentType,
+                  format: detection.format,
+                  confidence: detection.confidence,
+                  expectedResponseType: detection.expectedResponseType,
+                });
+              }
+            }
 
             if (detection.isDocumentRequest && detection.confidence >= 0.7) {
               try {

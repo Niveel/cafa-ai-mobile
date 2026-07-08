@@ -94,6 +94,8 @@ export const apiEndpoints = {
   cafaLife: {
     token: `${API_BASE_PATH}/cafa-life/token`,
     history: `${API_BASE_PATH}/cafa-life/history`,
+    voices: `${API_BASE_PATH}/cafa-life/voices`,
+    voicePreview: `${API_BASE_PATH}/cafa-life/voice-preview`,
   },
 
   tools: {
@@ -101,5 +103,18 @@ export const apiEndpoints = {
     detectAiQuota: `${API_BASE_PATH}/tools/detect-ai/quota`,
     humanize: `${API_BASE_PATH}/tools/humanize`,
     humanizeQuota: `${API_BASE_PATH}/tools/humanize/quota`,
+  },
+
+  avatar: {
+    gallery: `${API_BASE_PATH}/avatar/gallery`,
+    upload: `${API_BASE_PATH}/avatar/upload`,
+    voices: `${API_BASE_PATH}/avatar/voices`,
+    voicePreview: `${API_BASE_PATH}/avatar/voices/preview`,
+    voiceClone: `${API_BASE_PATH}/avatar/voices/clone`,
+    voiceClones: `${API_BASE_PATH}/avatar/voices/clones`,
+    scriptGenerate: `${API_BASE_PATH}/avatar/script/generate`,
+    videoGenerate: `${API_BASE_PATH}/avatar/video/generate`,
+    videoStatus: (id: string) => `${API_BASE_PATH}/avatar/video/${id}/status`,
+    history: `${API_BASE_PATH}/avatar/history`,
   },
 };

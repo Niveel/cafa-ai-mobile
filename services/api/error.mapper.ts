@@ -5,6 +5,8 @@ import { ApiErrorPayload } from '@/types';
 type ApiMappedError = Error & {
   code?: string;
   status?: number;
+  details?: ApiErrorPayload['errors'];
+  payload?: ApiErrorPayload;
 };
 
 export function mapApiError(error: unknown): Error {
@@ -14,6 +16,8 @@ export function mapApiError(error: unknown): Error {
     const fallbackCode = error.response ? undefined : (error.code ?? 'NETWORK_ERROR');
     mapped.code = payload?.code ?? payload?.error ?? fallbackCode;
     mapped.status = error.response?.status;
+    mapped.details = payload?.errors;
+    mapped.payload = payload;
     return mapped;
   }
 

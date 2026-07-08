@@ -337,10 +337,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   const [customTitles, setCustomTitles] = useState<Record<string, string>>({});
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [avatarAccessToken, setAvatarAccessToken] = useState<string | null>(null);
-  const [showMoreCtas, setShowMoreCtas] = useState(false);
   const menuTouchRef = useRef(false);
   const userMenuChevronRotation = useRef(new Animated.Value(0)).current;
-  const moreCtasAnimation = useRef(new Animated.Value(0)).current;
   const chatsRef = useRef<DrawerChatItem[]>([]);
   const activeChatIdRef = useRef('');
   const hasInitializedRef = useRef(false);
@@ -367,14 +365,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     }).start();
   }, [menuOpen, userMenuChevronRotation]);
 
-  useEffect(() => {
-    Animated.timing(moreCtasAnimation, {
-      toValue: showMoreCtas ? 1 : 0,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [moreCtasAnimation, showMoreCtas]);
-
   const userMenuChevronStyle = useMemo(
     () => ({
       transform: [
@@ -387,28 +377,6 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       ],
     }),
     [userMenuChevronRotation],
-  );
-
-  const moreCtasAnimatedStyle = useMemo(
-    () => ({
-      maxHeight: moreCtasAnimation.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 184],
-      }),
-      opacity: moreCtasAnimation.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1],
-      }),
-      transform: [
-        {
-          translateY: moreCtasAnimation.interpolate({
-            inputRange: [0, 1],
-            outputRange: [-8, 0],
-          }),
-        },
-      ],
-    }),
-    [moreCtasAnimation],
   );
 
   const userName = useMemo(() => {
@@ -647,7 +615,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
   }, [chats, customTitles, pinnedIds, searchQuery]);
 
   const openRoute = useCallback(
-    (routeName: 'index' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'cafa-life' | 'writing-tools' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
+    (routeName: 'index' | 'tools' | 'repo' | 'avatar-video' | 'images' | 'videos' | 'image-to-video' | 'edit-image' | 'artifacts' | 'voice' | 'cafa-life' | 'writing-tools' | 'plans' | 'help' | 'privacy-policy' | 'terms-of-service') => {
       markDrawerShouldReopenOnFocus(getCurrentDrawerRouteName());
       navigation.navigate(routeName as never);
       navigation.closeDrawer();
@@ -934,47 +902,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
       <View>
         <View className="mb-3 mt-2 gap-2">
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
-          <AppButton label="Image-to-video" iconName="film-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('image-to-video')} />
-          <AppButton label="Edit image" iconName="color-wand-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('edit-image')} />
-          <AppButton label={t('drawer.writingTools')} iconName="create-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('writing-tools')} />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={showMoreCtas ? 'Show fewer quick actions' : 'Show more quick actions'}
-            accessibilityHint={showMoreCtas ? 'Collapses the extra drawer actions.' : 'Reveals additional drawer actions.'}
-            accessibilityState={{ expanded: showMoreCtas }}
-            onPress={() => {
-              hapticSelection();
-              setShowMoreCtas((prev) => !prev);
-            }}
-            className="h-8 flex-row items-center justify-center self-start rounded-full px-3"
-            style={{
-              minWidth: 92,
-              borderWidth: 2,
-              borderColor: '#204079',
-              backgroundColor: isDark ? 'rgba(10, 10, 10, 0.9)' : 'rgba(255, 255, 255, 0.94)',
-            }}
-          >
-            <Ionicons
-              name={showMoreCtas ? 'chevron-up-outline' : 'chevron-down-outline'}
-              size={13}
-              color={colors.textPrimary}
-              style={{ marginRight: 4 }}
-            />
-            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textPrimary }}>
-              {showMoreCtas ? 'Show less' : 'Show more'}
-            </Text>
-          </Pressable>
-          <Animated.View
-            pointerEvents={showMoreCtas ? 'auto' : 'none'}
-            style={[moreCtasAnimatedStyle, { overflow: 'hidden' }]}
-          >
-              <View style={{ paddingTop: 8, gap: 8 }}>
-                <AppButton label={t('drawer.artifacts')} iconName="document-attach-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('artifacts')} />
-                <AppButton label={t('drawer.videos')} iconName="videocam-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('videos')} />
-                <AppButton label={t('drawer.images')} iconName="images-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('images')} />
-                <AppButton label={t('drawer.cafaLife')} iconName="radio-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('cafa-life')} />
-              </View>
-          </Animated.View>
+          <AppButton label={t('drawer.cafaLife')} iconName="radio-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('cafa-life')} />
+          <AppButton label="Tools" iconName="grid-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('tools')} />
+          <AppButton label="Repo" iconName="folder-open-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('repo')} />
         </View>
 
         <View
