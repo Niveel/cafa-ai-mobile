@@ -111,7 +111,7 @@ const TONE_OPTIONS: { value: AvatarScriptTone; label: string }[] = [
   { value: 'educational', label: 'Educational' },
 ];
 
-const DURATION_OPTIONS: AvatarDurationSeconds[] = [15, 30, 45, 60];
+const FIXED_DURATION_SECONDS: AvatarDurationSeconds = 15;
 
 const USE_CASE_OPTIONS: { value: AvatarUseCaseTemplate; label: string }[] = [
   { value: 'product ad', label: 'Product ad' },
@@ -420,7 +420,7 @@ export default function AvatarVideoScreen() {
   const [userGoal, setUserGoal] = useState('');
   const [targetAudience, setTargetAudience] = useState('');
   const [tone, setTone] = useState<AvatarScriptTone>('friendly');
-  const [durationSeconds, setDurationSeconds] = useState<AvatarDurationSeconds>(30);
+  const [durationSeconds] = useState<AvatarDurationSeconds>(FIXED_DURATION_SECONDS);
   const [useCaseTemplate, setUseCaseTemplate] = useState<AvatarUseCaseTemplate>('product ad');
   const [scriptText, setScriptText] = useState('');
   const [scriptTitle, setScriptTitle] = useState('');
@@ -444,6 +444,8 @@ export default function AvatarVideoScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [isDownloadingCurrent, setIsDownloadingCurrent] = useState(false);
   const [downloadingHistoryId, setDownloadingHistoryId] = useState<string | null>(null);
+  const [isSharingCurrent, setIsSharingCurrent] = useState(false);
+  const [sharingHistoryId, setSharingHistoryId] = useState<string | null>(null);
 
   const playerRef = useRef<AudioPlayer | null>(null);
   const playerSubRef = useRef<{ remove: () => void } | null>(null);
@@ -1036,18 +1038,39 @@ export default function AvatarVideoScreen() {
     }
   }, [announce]);
 
-  const shareVideo = useCallback(async (videoUrl: string) => {
+  const shareVideo = useCallback(async (videoUrl: string, fileStem: string, historyId?: string) => {
+    if (historyId) {
+      setSharingHistoryId(historyId);
+    } else {
+      setIsSharingCurrent(true);
+    }
     try {
+      const safeStem = fileStem.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 48) || `avatar-share-${Date.now()}`;
+      setStatusNotice('Preparing your video for sharing...');
+      announce('Preparing your video for sharing.');
+      const target = new File(Paths.cache, `${safeStem}.mp4`);
+      target.create({ intermediates: true, overwrite: true });
+      const downloaded = await File.downloadFileAsync(videoUrl, target, { idempotent: true });
       await Share.share({
-        message: videoUrl,
-        url: videoUrl,
+        url: downloaded.uri,
+        message: 'Avatar video',
       });
+      setStatusNotice('');
+      announce('Share sheet opened.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not share this avatar video.';
       setErrorMessage(message);
+      setStatusNotice('');
+      announce(message);
       hapticError();
+    } finally {
+      if (historyId) {
+        setSharingHistoryId(null);
+      } else {
+        setIsSharingCurrent(false);
+      }
     }
-  }, []);
+  }, [announce]);
 
   const resetComposer = useCallback(() => {
     setCurrentResult(null);
@@ -1056,6 +1079,10 @@ export default function AvatarVideoScreen() {
     setActiveJobStatus(null);
     setStatusNotice('');
     setErrorMessage('');
+    setScriptText('');
+    setScriptTitle('');
+    setScriptKeyPoints([]);
+    setEstimatedDuration(null);
     announce('Ready to create another avatar video.');
   }, [announce]);
 
@@ -1457,22 +1484,6 @@ export default function AvatarVideoScreen() {
                   label={entry.label}
                   selected={tone === entry.value}
                   onPress={() => setTone(entry.value)}
-                  colors={colors}
-                  isDark={isDark}
-                />
-              ))}
-            </View>
-
-            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 8 }}>
-              Duration
-            </Text>
-            <View className="mt-2 flex-row flex-wrap">
-              {DURATION_OPTIONS.map((entry) => (
-                <FilterChip
-                  key={entry}
-                  label={`${entry}s`}
-                  selected={durationSeconds === entry}
-                  onPress={() => setDurationSeconds(entry)}
                   colors={colors}
                   isDark={isDark}
                 />
@@ -2038,17 +2049,18 @@ export default function AvatarVideoScreen() {
                 />
                 <View style={{ width: 8, height: 8 }} />
                 <AppButton
-                  label="Share"
+                  label={isSharingCurrent ? 'Preparing Share...' : 'Share'}
                   iconName="share-social-outline"
                   compact
                   variant="outline"
                   onPress={() => {
-                    if (currentResult.status.videoUrl) {
-                      void shareVideo(currentResult.status.videoUrl);
+                    if (currentResult.status.videoUrl && !isSharingCurrent) {
+                      void shareVideo(currentResult.status.videoUrl, currentResult.meta.userGoal || currentResult.meta.jobId);
                     }
                   }}
                 />
-                <View style={{ width: 8, height: 8 }} />
+              </View>
+              <View style={{ marginTop: 12 }}>
                 <AppButton
                   label="Create Another"
                   iconName="refresh-outline"
@@ -2151,13 +2163,13 @@ export default function AvatarVideoScreen() {
                     />
                     <View style={{ width: 8, height: 8 }} />
                     <AppButton
-                      label="Share"
+                      label={sharingHistoryId === item.id ? 'Preparing Share...' : 'Share'}
                       iconName="share-social-outline"
                       compact
                       variant="outline"
                       onPress={() => {
-                        if (item.videoUrl) {
-                          void shareVideo(item.videoUrl);
+                        if (item.videoUrl && sharingHistoryId !== item.id) {
+                          void shareVideo(item.videoUrl, item.id, item.id);
                         }
                       }}
                     />
