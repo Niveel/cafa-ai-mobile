@@ -23,6 +23,7 @@ import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
 
 import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute } from '@/components';
+import { pickRandomAvatarScriptPreset } from '@/features/avatar/data/avatarRandomScriptPool';
 import {
   cloneAvatarVoice,
   generateAvatarScript,
@@ -215,6 +216,32 @@ function logAvatarUiError(scope: string, error: unknown) {
 function logAvatarUiState(label: string, payload: unknown) {
   if (!__DEV__) return;
   console.log(label, payload);
+}
+
+function pickRandomItem<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)] ?? null;
+}
+
+function normalizeGalleryGender(value?: string | null): AvatarGalleryGender | '' {
+  return value === 'female' || value === 'male' || value === 'neutral' ? value : '';
+}
+
+function normalizeGalleryStyle(value?: string | null): AvatarGalleryStyle | '' {
+  return value === 'professional' || value === 'casual' || value === 'creative' ? value : '';
+}
+
+function normalizeVoiceGender(value?: string | null): '' | 'male' | 'female' {
+  return value === 'female' || value === 'male' ? value : '';
+}
+
+function normalizeVoiceCategory(value?: string | null): '' | AvatarVoiceCategory {
+  return value === 'professional' || value === 'african' || value === 'creative' || value === 'entertainment' ? value : '';
+}
+
+function estimateScriptDurationSeconds(script: string) {
+  const wordCount = script.trim().split(/\s+/).filter(Boolean).length;
+  if (!wordCount) return null;
+  return Math.min(15, Math.max(10, Math.round(wordCount / 2.6)));
 }
 
 function SectionCard({
@@ -427,6 +454,7 @@ export default function AvatarVideoScreen() {
   const [scriptKeyPoints, setScriptKeyPoints] = useState<string[]>([]);
   const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isRandomizingSetup, setIsRandomizingSetup] = useState(false);
 
   const [activeJobMeta, setActiveJobMeta] = useState<PendingAvatarVideoJob | null>(null);
   const [activeJobStatus, setActiveJobStatus] = useState<AvatarVideoStatus | null>(null);
@@ -756,6 +784,82 @@ export default function AvatarVideoScreen() {
       if (isMountedRef.current) setIsUploadingAvatar(false);
     }
   }, [announce]);
+
+  const randomizeSetup = useCallback(async () => {
+    if (isRandomizingSetup || isStartingGeneration || activeJobMeta) return;
+
+    setIsRandomizingSetup(true);
+    setErrorMessage('');
+    setStatusNotice('Picking a ready-to-use setup for you...');
+    stopPreview();
+
+    try {
+      const [avatars, voiceCatalog] = await Promise.all([
+        getAvatarGallery({ limit: 20 }),
+        getAvatarVoiceCatalog({}),
+      ]);
+
+      if (!isMountedRef.current) return;
+
+      const randomAvatar = pickRandomItem(avatars);
+      const randomVoice = pickRandomItem(voiceCatalog.voices ?? []);
+      const randomPreset = pickRandomAvatarScriptPreset();
+
+      if (!randomAvatar) {
+        throw new Error('No avatars are available right now.');
+      }
+
+      if (!randomVoice) {
+        throw new Error('No built-in voices are available right now.');
+      }
+
+      setGallery(avatars);
+      setVoices(voiceCatalog.voices ?? []);
+      setGalleryGender(normalizeGalleryGender(randomAvatar.gender));
+      setGalleryStyle(normalizeGalleryStyle(randomAvatar.style));
+      setVoiceGenderFilter(normalizeVoiceGender(randomVoice.gender));
+      setVoiceCategoryFilter(normalizeVoiceCategory(randomVoice.category));
+      setPopularOnly(Boolean(randomVoice.popular));
+      setSelectedAvatarType('gallery');
+      setSelectedGalleryAvatarId(randomAvatar.id);
+      setSelectedVoice({
+        kind: 'library',
+        voiceId: randomVoice.id,
+        label: randomVoice.name,
+      });
+      setUserGoal(randomPreset.userGoal);
+      setTargetAudience(randomPreset.targetAudience);
+      setTone(randomPreset.tone);
+      setUseCaseTemplate(randomPreset.useCaseTemplate);
+      setScriptText(randomPreset.scriptText);
+      setScriptTitle(randomPreset.title);
+      setScriptKeyPoints(randomPreset.keyPoints);
+      setEstimatedDuration(estimateScriptDurationSeconds(randomPreset.scriptText));
+      setStatusNotice(`Ready to generate: ${randomPreset.title}.`);
+      announce('A complete avatar setup is ready. You can generate your video now.');
+      logAvatarUiState('[avatar-ui:randomized-setup]', {
+        presetTitle: randomPreset.title,
+        topic: randomPreset.topic,
+        avatarId: randomAvatar.id,
+        avatarName: randomAvatar.name,
+        voiceId: randomVoice.id,
+        voiceName: randomVoice.name,
+        tone: randomPreset.tone,
+        useCaseTemplate: randomPreset.useCaseTemplate,
+      });
+      hapticSuccess();
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      logAvatarUiError('randomize-setup', error);
+      const message = error instanceof Error ? error.message : 'Could not build a random setup right now.';
+      setErrorMessage(message);
+      setStatusNotice('');
+      announce(message);
+      hapticError();
+    } finally {
+      if (isMountedRef.current) setIsRandomizingSetup(false);
+    }
+  }, [activeJobMeta, announce, isRandomizingSetup, isStartingGeneration, stopPreview]);
 
   const generateScript = useCallback(async () => {
     if (!canGenerateScript || isGeneratingScript) return;
@@ -1205,6 +1309,40 @@ export default function AvatarVideoScreen() {
               </View>
             </View>
           </Modal>
+
+          <SectionCard
+            title="Quick start"
+            subtitle="Want a ready-made setup? We can instantly choose an avatar, voice, topic, and full script for you."
+            colors={colors}
+            isDark={isDark}
+          >
+            <View
+              className="rounded-[22px] border p-4"
+              style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
+            >
+              <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '800' }}>
+                Randomize everything
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
+                We will pull from a large topic pool and set a gallery avatar, built-in voice, tone, use case, and ready-to-use script.
+              </Text>
+              <View style={{ marginTop: 14 }}>
+                <AppButton
+                  label={isRandomizingSetup ? 'Randomizing...' : 'Randomize Setup'}
+                  iconName="shuffle-outline"
+                  compact
+                  onPress={() => {
+                    if (!isRandomizingSetup) {
+                      void randomizeSetup();
+                    }
+                  }}
+                />
+              </View>
+              <Text style={{ color: colors.textSecondary, fontSize: 11, lineHeight: 17, marginTop: 10 }}>
+                After that, all you need to do is tap Generate Video.
+              </Text>
+            </View>
+          </SectionCard>
 
           <SectionCard
             title="1. Choose your avatar"
