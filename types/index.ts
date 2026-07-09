@@ -15,6 +15,7 @@ export * from './mediaConversation.types';
 export * from './personalization.types';
 export * from './promptSuggestion.types';
 export * from './revenuecat.types';
+export * from './tts.types';
 export * from './user.types';
 export * from './video.types';
 export * from './voice.types';

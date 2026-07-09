@@ -1177,9 +1177,6 @@ export default function CafaLifeScreen() {
                 <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '700' }}>
                   Recent conversation
                 </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 }}>
-                  Live transcript streaming is not exposed yet, so the recap refreshes from the server after sessions end.
-                </Text>
               </View>
               <TouchableOpacity
                 accessibilityRole="button"

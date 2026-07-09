@@ -13,5 +13,6 @@ export * from './ui/LegalDocumentScreen';
 export * from './ui/SettingsModal';
 export * from './ui/AppLogo';
 export * from './ui/PromptSuggestionsModal';
+export * from './ui/VoiceCloneRecorderModal';
 export * from './chat';
 export * from './form';

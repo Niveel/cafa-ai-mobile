@@ -123,7 +123,7 @@ export default function DrawerLayout() {
       <Drawer.Screen
         name="voice"
         options={{
-          title: t('drawer.voice'),
+          title: 'Text to Speech',
           drawerItemStyle: { display: 'none' },
         }}
       />

@@ -16,13 +16,12 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as ExpoDocumentPicker from 'expo-document-picker';
 import * as ExpoImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
 
-import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute } from '@/components';
+import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { pickRandomAvatarScriptPreset } from '@/features/avatar/data/avatarRandomScriptPool';
 import {
   cloneAvatarVoice,
@@ -443,6 +442,7 @@ export default function AvatarVideoScreen() {
   const [cloneVoiceName, setCloneVoiceName] = useState('');
   const [isCloningVoice, setIsCloningVoice] = useState(false);
   const [isSaveVoiceExpanded, setIsSaveVoiceExpanded] = useState(false);
+  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
 
   const [userGoal, setUserGoal] = useState('');
   const [targetAudience, setTargetAudience] = useState('');
@@ -940,48 +940,18 @@ export default function AvatarVideoScreen() {
     }
   }, [previewState, previewVoiceId, stopPreview]);
 
-  const cloneVoice = useCallback(async () => {
-    const trimmedName = cloneVoiceName.trim();
-    if (!trimmedName) {
-      setErrorMessage('Give your saved voice a short name first.');
-      return;
-    }
-
+  const cloneVoice = useCallback(async (recording: { uri: string; fileName: string; mimeType: string }) => {
     setIsCloningVoice(true);
+    setIsVoiceRecorderOpen(false);
     setErrorMessage('');
-    setStatusNotice('Choose an audio file for voice cloning...');
+    setStatusNotice('Cloning your voice...');
     try {
-      const result = await ExpoDocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: true,
-        multiple: false,
-        type: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/mp4', 'audio/ogg', 'audio/ogg; codecs=opus'],
-      });
-      if (result.canceled || !result.assets?.length) {
-        setStatusNotice('');
-        return;
-      }
-
-      const asset = result.assets[0];
-      if (!asset.uri) {
-        throw new Error('The selected audio file could not be opened.');
-      }
-      if (asset.uri.startsWith('file://')) {
-        const info = await LegacyFileSystem.getInfoAsync(asset.uri);
-        if (!info.exists) {
-          throw new Error('The selected audio file is no longer available.');
-        }
-        if (typeof info.size === 'number' && info.size > 50 * 1024 * 1024) {
-          throw new Error('Please choose an audio file smaller than 50MB.');
-        }
-      }
-
-      setStatusNotice('Cloning your voice...');
       const clone = await cloneAvatarVoice({
-        name: trimmedName,
+        name: cloneVoiceName.trim(),
         audio: {
-          uri: asset.uri,
-          fileName: asset.name ?? `voice-clone-${Date.now()}.m4a`,
-          mimeType: asset.mimeType ?? 'audio/m4a',
+          uri: recording.uri,
+          fileName: recording.fileName,
+          mimeType: recording.mimeType,
         },
       });
       if (!isMountedRef.current) return;
@@ -1920,7 +1890,7 @@ export default function AvatarVideoScreen() {
               {isSaveVoiceExpanded ? (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18 }}>
-                    Upload an MP3, WAV, M4A, or OGG sample. For the best result, use at least 10 seconds of clear audio and keep the file under 50MB.
+                    Record your voice live in the app. We will stop automatically after 30 seconds, then you can confirm the take or re-record it.
                   </Text>
                   <TextInput
                     value={cloneVoiceName}
@@ -1928,7 +1898,7 @@ export default function AvatarVideoScreen() {
                     placeholder="Example: My work voice"
                     placeholderTextColor={colors.textSecondary}
                     accessibilityLabel="Saved voice name"
-                    accessibilityHint="Give your saved voice a short name before uploading the sample audio."
+                    accessibilityHint="Give your saved voice a short name before recording the sample audio."
                     style={{
                       marginTop: 10,
                       borderWidth: 1.2,
@@ -1942,12 +1912,14 @@ export default function AvatarVideoScreen() {
                   />
                   <View className="mt-3 flex-row">
                     <AppButton
-                      label={isCloningVoice ? 'Saving...' : 'Save My Voice'}
+                      label={isCloningVoice ? 'Saving...' : 'Record My Voice'}
                       iconName="mic-outline"
                       compact
                       onPress={() => {
                         if (!isCloningVoice) {
-                          void cloneVoice();
+                          setErrorMessage('');
+                          setStatusNotice('');
+                          setIsVoiceRecorderOpen(true);
                         }
                       }}
                     />
@@ -1955,6 +1927,23 @@ export default function AvatarVideoScreen() {
                 </View>
               ) : null}
             </View>
+
+            <VoiceCloneRecorderModal
+              visible={isVoiceRecorderOpen}
+              title="Save my voice"
+              description="Record your voice live for cloning. Recording cannot be dismissed once it starts, and it stops automatically after 30 seconds."
+              voiceName={cloneVoiceName}
+              voiceNameLabel="Saved voice name"
+              voiceNamePlaceholder="Example: My work voice"
+              voiceNameHint="Give your saved voice a short name before recording."
+              submitLabel="Use recording"
+              submittingLabel="Saving voice..."
+              isSubmitting={isCloningVoice}
+              onChangeVoiceName={setCloneVoiceName}
+              onClose={() => setIsVoiceRecorderOpen(false)}
+              onSubmitRecording={cloneVoice}
+              onAnnounce={announce}
+            />
 
             <SelectionModal
               visible={isClonedVoicePickerOpen}

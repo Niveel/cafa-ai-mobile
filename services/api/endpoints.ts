@@ -98,6 +98,13 @@ export const apiEndpoints = {
     voicePreview: `${API_BASE_PATH}/cafa-life/voice-preview`,
   },
 
+  tts: {
+    convert: `${API_BASE_PATH}/tts/convert`,
+    history: `${API_BASE_PATH}/tts/history`,
+    voices: `${API_BASE_PATH}/tts/voices`,
+    preview: `${API_BASE_PATH}/tts/preview`,
+  },
+
   tools: {
     detectAi: `${API_BASE_PATH}/tools/detect-ai`,
     detectAiQuota: `${API_BASE_PATH}/tools/detect-ai/quota`,

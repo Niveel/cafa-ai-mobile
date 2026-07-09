@@ -9,7 +9,7 @@ import { useAppTheme } from '@/hooks';
 type ToolCard = {
   title: string;
   description: string;
-  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools';
+  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice';
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
   eyebrow: string;
@@ -47,6 +47,14 @@ const TOOL_CARDS: ToolCard[] = [
     icon: 'create-outline',
     accent: '#059669',
     eyebrow: 'Text Studio',
+  },
+  {
+    title: 'Text to Speech',
+    description: 'Turn text into downloadable speech with library voices, cloned voices, previews, and recent history.',
+    route: '/(drawer)/voice',
+    icon: 'volume-high-outline',
+    accent: '#7C3AED',
+    eyebrow: 'Voice Lab',
   },
 ];
 

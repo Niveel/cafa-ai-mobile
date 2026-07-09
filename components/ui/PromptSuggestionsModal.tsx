@@ -206,7 +206,7 @@ export function PromptSuggestionsModal({
 
           {loading ? (
             <View className="flex-1 items-center justify-center px-8">
-              <Ionicons name="sparkles-outline" size={28} color={colors.primary} />
+              <Ionicons name="bulb-outline" size={28} color={colors.primary} />
               <Text
                 accessibilityRole="text"
                 accessibilityLiveRegion="polite"

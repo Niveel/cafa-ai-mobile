@@ -5,7 +5,12 @@ import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
 import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
 import { getAccessToken } from '@/services/storage/session';
-import { TranscriptionResult, VoiceDescriptor } from '@/types';
+import { TranscriptionResult, TtsConversionResult, TtsConvertRequest, TtsHistoryPage, VoiceDescriptor } from '@/types';
+import { getAvatarVoiceCatalog, getAvatarVoiceClones, previewAvatarVoice } from '@/features/avatar/services/avatar';
+
+type VoiceRequestOptions = {
+  forceRefresh?: boolean;
+};
 
 export async function getVoiceCatalog() {
   try {
@@ -95,4 +100,39 @@ export async function synthesizeVoice(payload: { text: string; voice?: string; s
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function convertTextToSpeech(payload: TtsConvertRequest) {
+  try {
+    const response: AxiosResponse<{ data: TtsConversionResult }> = await apiClient.post(
+      apiEndpoints.tts.convert,
+      payload,
+    );
+    return response.data.data;
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function getTextToSpeechHistory(params: { page?: number; limit?: number } = {}) {
+  try {
+    const response: AxiosResponse<{ data: TtsHistoryPage }> = await apiClient.get(apiEndpoints.tts.history, {
+      params,
+    });
+    return response.data.data;
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function getTextToSpeechVoiceCatalog(options: VoiceRequestOptions = {}) {
+  return getAvatarVoiceCatalog({}, options);
+}
+
+export async function getTextToSpeechVoiceClones(options: VoiceRequestOptions = {}) {
+  return getAvatarVoiceClones(options);
+}
+
+export async function previewTextToSpeechVoice(payload: { voiceId?: string; fishAudioId?: string }) {
+  return previewAvatarVoice(payload);
 }
