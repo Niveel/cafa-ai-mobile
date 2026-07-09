@@ -6,6 +6,19 @@ export type CafaLifeTokenPayload = {
   roomName: string;
 };
 
+export type CafaLifeVoiceOption = {
+  id: string;
+  name: string;
+  gender: string;
+  description?: string;
+  default?: boolean;
+};
+
+export type CafaLifeVoicesPayload = {
+  voices: CafaLifeVoiceOption[];
+  defaultVoice?: string;
+};
+
 export type CafaLifeHistoryTurn = {
   role: 'user' | 'assistant';
   content: string;

@@ -1,0 +1,79 @@
+What Changed
+Three new endpoints have been added to support voice selection in Cafa Life. Users can now choose their preferred voice before starting a session.
+ 
+1. Get Available Voices
+GET /api/v1/cafa-life/voices
+No authentication required. Call this to populate the voice selector UI.
+Copy to clipboard
+json
+{
+  "success": true,
+  "data": {
+    "voices": [
+      { "id": "james", "name": "James", "gender": "male", "description": "Deep and authoritative", "default": true },
+      { "id": "marcus", "name": "Marcus", "gender": "male", "description": "Clear and calm" },
+      { "id": "amara", "name": "Amara", "gender": "female", "description": "Warm and friendly" },
+      { "id": "sofia", "name": "Sofia", "gender": "female", "description": "Soft and gentle" }
+    ],
+    "defaultVoice": "james"
+  }
+}
+ 
+2. Preview a Voice
+POST /api/v1/cafa-life/voice-preview
+Requires authentication. Returns audio so the user can hear the voice before selecting it. Response is streamed audio/mpeg — play it directly in an <audio> element or React Native Audio component.
+Request body:
+Copy to clipboard
+json
+{ "voice": "amara" }
+The response streams audio of the phrase: "Hi, I'm Amara, your Cafa Life assistant. How can I help you today?"
+Previews are cached for 24 hours so repeated calls for the same voice are instant.
+ 
+3. Start Session with Selected Voice
+POST /api/v1/cafa-life/token
+This endpoint already existed. It now accepts an optional voice field. Pass the voice id from the voices list.
+Copy to clipboard
+json
+{
+  "voice": "amara"
+}
+If voice is not provided or is invalid, defaults to "james". Response shape is unchanged:
+Copy to clipboard
+json
+{
+  "data": {
+    "token": "...",
+    "livekitUrl": "wss://...",
+    "roomName": "..."
+  }
+}
+ 
+Recommended UI Flow
+1. On the Cafa Life screen, before the user starts a session, call GET /voices to load the voice list
+2. Show a voice selector with the 4 voices — display name, gender, and a preview button
+3. Preview button calls POST /voice-preview and plays the returned audio
+4. When the user taps "Start Session", call POST /token with the selected voice id
+5. Connect to LiveKit as normal using the returned token
+Important: The voice selector should show before the session starts, not during an active session. Voice cannot be changed mid-session.
+ 
+Voice IDs Reference
+ID
+Name
+Gender
+Character
+james
+James
+Male
+Deep and authoritative (default)
+marcus
+Marcus
+Male
+Clear and calm
+amara
+Amara
+Female
+Warm and friendly
+sofia
+Sofia
+Female
+Soft and gentle

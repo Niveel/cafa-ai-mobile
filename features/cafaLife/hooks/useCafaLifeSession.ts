@@ -97,14 +97,15 @@ export function useCafaLifeSession() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
   useEffect(() => {
+    const remoteAudioTracks = remoteAudioTracksRef.current;
     return () => {
       const room = roomRef.current;
       sessionTokenRef.current += 1;
       roomRef.current = null;
-      remoteAudioTracksRef.current.forEach((track) => {
+      remoteAudioTracks.forEach((track) => {
         track.setVolume?.(0);
       });
-      remoteAudioTracksRef.current.clear();
+      remoteAudioTracks.clear();
       activeRemoteAudioTrackRef.current = null;
       if (room) {
         void room.disconnect();
@@ -176,7 +177,7 @@ export function useCafaLifeSession() {
     }
   }, [clearSessionMeta, silenceRemoteAudioPlayback]);
 
-  const startSession = useCallback(async () => {
+  const startSession = useCallback(async (selectedVoice?: string) => {
     if (!runtime.supported) {
       const unsupported = createSessionError(runtime.message ?? 'Unsupported runtime.', 'UNSUPPORTED_RUNTIME');
       setError(unsupported);
@@ -203,7 +204,7 @@ export function useCafaLifeSession() {
 
       setState('connecting');
 
-      const { token, livekitUrl, roomName: nextRoomName } = await getCafaLifeToken();
+      const { token, livekitUrl, roomName: nextRoomName } = await getCafaLifeToken(selectedVoice);
       const { Room, RoomEvent, Track } = getLiveKitRuntime();
       const sessionToken = sessionTokenRef.current + 1;
       sessionTokenRef.current = sessionToken;
@@ -276,7 +277,7 @@ export function useCafaLifeSession() {
             });
           }
         })
-        .on(RoomEvent.ActiveSpeakersChanged, (speakers: Array<{ identity?: string; isSpeaking?: boolean; name?: string }>) => {
+        .on(RoomEvent.ActiveSpeakersChanged, (speakers: { identity?: string; isSpeaking?: boolean; name?: string }[]) => {
           if (!isCurrentSession()) return;
           const remoteSpeaker = speakers.find((speaker) => speaker.identity && speaker.identity !== room.localParticipant.identity && speaker.isSpeaking);
           if (remoteSpeaker) {
