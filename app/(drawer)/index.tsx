@@ -2065,9 +2065,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return 'Free';
   }, []);
 
-  const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video') => {
+  const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video', message?: string) => {
     setUpgradeNoticeKind(kind);
-    setStatusNotice(getLimitNoticeMessage(kind));
+    setStatusNotice(message?.trim() || getLimitNoticeMessage(kind));
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = null;
   }, [getLimitNoticeMessage]);
@@ -4252,6 +4252,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const normalizedErrorMessage = rawErrorMessage.toLowerCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
+        const limitRequestKind = normalizedErrorMessage.includes('video limit') ? 'video' : requestKind;
+        const limitVisibleMessage = rawErrorMessage.trim() || getLimitNoticeMessage(limitRequestKind);
         const isAuthStreamTransportError = code.startsWith('AUTH_STREAM_');
         const isIdempotencyInProgress =
           code === 'IDEMPOTENCY_IN_PROGRESS'
@@ -4605,7 +4607,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
         if (isLimitError) {
-          showLimitNotice(requestKind);
+          showLimitNotice(limitRequestKind, limitVisibleMessage);
         }
         hapticError();
         setStreamingModelLabel(null);
@@ -4660,14 +4662,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   isImageGenerating: false,
                   isVideoGenerating: false,
                   isArtifactGenerating: false,
-                  content: isLimitError ? getLimitNoticeMessage(requestKind) : visibleErrorMessage,
+                  content: isLimitError ? limitVisibleMessage : visibleErrorMessage,
                 };
             });
             if (!matched) {
               next.push({
                 id: `send-error-${Date.now()}`,
                 role: 'assistant',
-                content: isLimitError ? getLimitNoticeMessage(requestKind) : visibleErrorMessage,
+                content: isLimitError ? limitVisibleMessage : visibleErrorMessage,
                 createdAt: Date.now(),
                 isImageGenerating: false,
                 isVideoGenerating: false,
@@ -4677,6 +4679,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             return next;
           },
         );
+        didMutateChats = true;
         } finally {
           flushPendingAssistantDelta();
           if (deltaFlushTimerRef.current) {

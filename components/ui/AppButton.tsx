@@ -1,4 +1,4 @@
-import { Text, TouchableOpacity } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -16,6 +16,7 @@ type AppButtonProps = {
   iconName?: keyof typeof Ionicons.glyphMap;
   iconSize?: number;
   compact?: boolean;
+  loading?: boolean;
 };
 
 export function AppButton({
@@ -27,6 +28,7 @@ export function AppButton({
   iconName,
   iconSize = 14,
   compact = false,
+  loading = false,
 }: AppButtonProps) {
   const { colors, isDark } = useAppTheme();
   const resolvedIconName = iconName && Ionicons.glyphMap[iconName] ? iconName : undefined;
@@ -36,6 +38,7 @@ export function AppButton({
   const resolvedIconSize = compact ? Math.max(12, iconSize - 1) : iconSize;
   const iconGap = compact ? 4 : 6;
   const onPressWithHaptic = () => {
+    if (loading) return;
     hapticSelection();
     onPress();
   };
@@ -44,7 +47,9 @@ export function AppButton({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={label}
+        accessibilityLabel={loading ? `${label}, loading` : label}
+        accessibilityState={{ disabled: loading, busy: loading }}
+        disabled={loading}
         onPress={onPressWithHaptic}
         activeOpacity={0.86}
         style={{
@@ -59,7 +64,9 @@ export function AppButton({
           backgroundColor: '#E11D48',
         }}
       >
-        {resolvedIconName ? (
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : resolvedIconName ? (
           <Ionicons
             name={resolvedIconName}
             size={resolvedIconSize}
@@ -67,7 +74,7 @@ export function AppButton({
             style={{ marginRight: iconGap }}
           />
         ) : null}
-        <Text style={{ fontSize: textSize, fontWeight: '600', color: '#FFFFFF' }}>{label}</Text>
+        {loading ? null : <Text style={{ fontSize: textSize, fontWeight: '600', color: '#FFFFFF' }}>{label}</Text>}
       </TouchableOpacity>
     );
   }
@@ -79,7 +86,9 @@ export function AppButton({
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={label}
+        accessibilityLabel={loading ? `${label}, loading` : label}
+        accessibilityState={{ disabled: loading, busy: loading }}
+        disabled={loading}
         onPress={onPressWithHaptic}
         activeOpacity={0.86}
         style={{
@@ -104,7 +113,9 @@ export function AppButton({
             paddingHorizontal: horizontalPadding,
           }}
         >
-          {resolvedIconName ? (
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : resolvedIconName ? (
             <Ionicons
               name={resolvedIconName}
               size={resolvedIconSize}
@@ -112,7 +123,7 @@ export function AppButton({
               style={{ marginRight: iconGap }}
             />
           ) : null}
-          <Text style={{ fontSize: textSize, fontWeight: '600', color: '#FFFFFF' }}>{label}</Text>
+          {loading ? null : <Text style={{ fontSize: textSize, fontWeight: '600', color: '#FFFFFF' }}>{label}</Text>}
         </LinearGradient>
       </TouchableOpacity>
     );
@@ -121,7 +132,9 @@ export function AppButton({
   return (
     <TouchableOpacity
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={loading ? `${label}, loading` : label}
+      accessibilityState={{ disabled: loading, busy: loading }}
+      disabled={loading}
       onPress={onPressWithHaptic}
       activeOpacity={0.86}
       style={{
@@ -138,7 +151,9 @@ export function AppButton({
         backgroundColor: isDark ? 'rgba(10, 10, 10, 0.9)' : 'rgba(255, 255, 255, 0.94)',
       }}
     >
-      {resolvedIconName ? (
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.textPrimary} />
+      ) : resolvedIconName ? (
         <Ionicons
           name={resolvedIconName}
           size={resolvedIconSize}
@@ -146,9 +161,11 @@ export function AppButton({
           style={{ marginRight: iconGap }}
         />
       ) : null}
-      <Text style={{ fontSize: textSize, fontWeight: '600', color: colors.textPrimary }}>
-        {label}
-      </Text>
+      {loading ? null : (
+        <Text style={{ fontSize: textSize, fontWeight: '600', color: colors.textPrimary }}>
+          {label}
+        </Text>
+      )}
     </TouchableOpacity>
   );
 }

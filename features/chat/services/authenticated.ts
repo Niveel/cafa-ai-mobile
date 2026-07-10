@@ -1360,6 +1360,18 @@ export async function sendAuthenticatedMessageStream(
       return;
     } catch (error) {
       const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
+      const status = (error as { status?: number } | undefined)?.status;
+      if (typeof status === 'number' && status >= 400) {
+        authStreamLog('native:xhr-http-error-no-replay', `status=${status} code=${code || 'unknown'}`);
+        onDebug?.({
+          stage: 'error',
+          endpoint,
+          idempotencyKey,
+          message: error instanceof Error ? error.message : 'Authenticated send failed.',
+          transport: 'xhr',
+        });
+        throw error;
+      }
       const shouldAvoidReplayPost =
         code === 'AUTH_STREAM_DROPPED_AFTER_START'
         || code === 'AUTH_STREAM_ACTIVE_SERVER_ERROR';

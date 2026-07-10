@@ -475,6 +475,7 @@ export default function AvatarVideoScreen() {
   const [isSharingCurrent, setIsSharingCurrent] = useState(false);
   const [sharingHistoryId, setSharingHistoryId] = useState<string | null>(null);
 
+  const mainScrollRef = useRef<ScrollView | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   const playerSubRef = useRef<{ remove: () => void } | null>(null);
   const previewFileByVoiceIdRef = useRef<Record<string, File>>({});
@@ -492,13 +493,15 @@ export default function AvatarVideoScreen() {
     : selectedGalleryAvatar?.imageUrl ?? null;
 
   const selectedGalleryAvatarName = selectedGalleryAvatar?.name?.trim() || 'No avatar selected yet';
-  const selectedVoiceSummary = selectedVoice?.kind === 'clone'
-    ? `Saved voice: ${selectedVoice.label}`
-    : selectedVoice?.label
-      ? `Built-in voice: ${selectedVoice.label}`
-      : 'No voice selected yet';
   const canGenerateScript = userGoal.trim().length > 0 && Boolean(selectedAvatarImageUrl);
   const canGenerateVideo = Boolean(selectedAvatarImageUrl) && userGoal.trim().length > 0 && scriptText.trim().length > 0 && Boolean(selectedVoice) && !activeJobMeta;
+
+  useEffect(() => {
+    if (!errorMessage) return;
+    requestAnimationFrame(() => {
+      mainScrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }, [errorMessage]);
 
   const stopPreview = useCallback(() => {
     playerSubRef.current?.remove();
@@ -1164,6 +1167,7 @@ export default function AvatarVideoScreen() {
     <RequireAuthRoute>
       <AppScreen title="Avatar Video">
         <ScrollView
+          ref={mainScrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 18 }}
           refreshControl={(
@@ -1347,6 +1351,24 @@ export default function AvatarVideoScreen() {
                     </Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
                       {[selectedGalleryAvatar.gender, selectedGalleryAvatar.style, selectedGalleryAvatar.setting].filter(Boolean).join(' • ') || 'Gallery avatar'}
+                    </Text>
+                  </View>
+                </View>
+              ) : selectedAvatarType === 'upload' && uploadedAvatar ? (
+                <View className="mt-3 flex-row items-center">
+                  <ExpoImage
+                    source={{ uri: uploadedAvatar.localUri || uploadedAvatar.imageUrl }}
+                    style={{ width: 64, height: 80, borderRadius: 16, backgroundColor: isDark ? '#0C0E13' : '#FFFFFF' }}
+                    contentFit="cover"
+                    accessible
+                    accessibilityLabel="Uploaded selected avatar preview"
+                  />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
+                      Your uploaded photo
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
+                      Custom avatar
                     </Text>
                   </View>
                 </View>
@@ -1704,9 +1726,32 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
                 Current selection
               </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                {selectedVoiceSummary}
-              </Text>
+              {selectedVoice?.kind === 'library' ? (
+                <View
+                  className="mt-3 flex-row items-center"
+                  accessible
+                  accessibilityLabel={`Built-in voice selected: ${selectedVoice.label}`}
+                >
+                  <View
+                    className="items-center justify-center rounded-full"
+                    style={{ width: 40, height: 40, backgroundColor: `${colors.primary}18` }}
+                  >
+                    <Ionicons name="mic" size={21} color={colors.primary} />
+                  </View>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
+                      Built-in voice
+                    </Text>
+                    <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '800', marginTop: 2 }}>
+                      {selectedVoice.label}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
+                  {selectedVoice?.kind === 'clone' ? `Saved voice: ${selectedVoice.label}` : 'No voice selected yet'}
+                </Text>
+              )}
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
                 {isVoicesLoading ? 'Loading voice options...' : `${voices.length} built-in voices available`} · {isClonesLoading ? 'Loading saved voices...' : `${clonedVoices.length} saved voices available`}
               </Text>
@@ -2176,10 +2221,11 @@ export default function AvatarVideoScreen() {
                 />
                 <View style={{ width: 8, height: 8 }} />
                 <AppButton
-                  label={isSharingCurrent ? 'Preparing Share...' : 'Share'}
+                  label="Share"
                   iconName="share-social-outline"
                   compact
                   variant="outline"
+                  loading={isSharingCurrent}
                   onPress={() => {
                     if (currentResult.status.videoUrl && !isSharingCurrent) {
                       void shareVideo(currentResult.status.videoUrl, currentResult.meta.userGoal || currentResult.meta.jobId);
@@ -2290,10 +2336,11 @@ export default function AvatarVideoScreen() {
                     />
                     <View style={{ width: 8, height: 8 }} />
                     <AppButton
-                      label={sharingHistoryId === item.id ? 'Preparing Share...' : 'Share'}
+                      label="Share"
                       iconName="share-social-outline"
                       compact
                       variant="outline"
+                      loading={sharingHistoryId === item.id}
                       onPress={() => {
                         if (item.videoUrl && sharingHistoryId !== item.id) {
                           void shareVideo(item.videoUrl, item.id, item.id);
