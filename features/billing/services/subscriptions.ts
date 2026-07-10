@@ -323,14 +323,16 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         getNoCacheConfig(force),
       );
       const usage = response.data.data?.usage as (DailyUsagePayload['usage'] & Record<string, unknown>) | undefined;
-      const videosUsage = (usage?.videos as Record<string, unknown> | undefined);
+      const imagesUsage = (usage?.image ?? usage?.images) as Record<string, unknown> | undefined;
+      const videosUsage = (usage?.video ?? usage?.videos) as Record<string, unknown> | undefined;
+      const ttsUsage = usage?.tts as Record<string, unknown> | undefined;
       const chatUsed =
         asNumber(usage?.chat?.used)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.chatMessagesThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.chatMessagesToday)
         ?? 0;
       const imageUsed =
-        asNumber(usage?.images?.used)
+        asNumber(imagesUsage?.used)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.imageGenerationsToday)
         ?? 0;
@@ -348,13 +350,15 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         asNumber((usage as Record<string, unknown> | undefined)?.videoGenerationsThisMonth)
         ?? asNumber((usage as Record<string, unknown> | undefined)?.videoGenerationsToday)
         ?? 0;
+      const ttsUsed = asNumber(ttsUsage?.used) ?? 0;
       const chatLimitRaw = usage?.chat?.limit;
-      const imageLimitRaw = usage?.images?.limit;
+      const imageLimitRaw = imagesUsage?.limit;
       const aiDetectionWordsLimitRaw = usage?.aiDetectionWords?.limit;
       const humanizeWordsLimitRaw = usage?.humanizeWords?.limit;
       const videoLimitRaw =
         asNumber((usage as Record<string, unknown> | undefined)?.videoLimit)
         ?? asNumber(videosUsage?.limit);
+      const ttsLimitRaw = asNumber(ttsUsage?.limit);
       const snapshot: UsageSnapshot = {
         bucketDate: typeof usage?.bucketDate === 'string' ? usage.bucketDate : null,
         chatUsed,
@@ -379,6 +383,8 @@ export async function getDailyUsage(options?: { force?: boolean }) {
             : asNumber(humanizeWordsLimitRaw) ?? asNumber((usage as Record<string, unknown> | undefined)?.humanizeWordsLimit),
         videoUsed,
         videoLimit: videoLimitRaw,
+        ttsUsed,
+        ttsLimit: ttsLimitRaw,
         maxUploadSizeMB: asNumber((usage as Record<string, unknown> | undefined)?.maxUploadSizeMB),
         maxPdfPages: asNumber((usage as Record<string, unknown> | undefined)?.maxPdfPages),
         maxDocxPages: asNumber((usage as Record<string, unknown> | undefined)?.maxDocxPages),
@@ -398,6 +404,8 @@ export async function getDailyUsage(options?: { force?: boolean }) {
         aiDetectionWordsLimit: snapshot.aiDetectionWordsLimit,
         humanizeWordsUsed,
         humanizeWordsLimit: snapshot.humanizeWordsLimit,
+        ttsUsed,
+        ttsLimit: snapshot.ttsLimit,
       });
       usageCache = { data: snapshot, fetchedAt: Date.now() };
       return snapshot;

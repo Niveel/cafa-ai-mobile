@@ -162,7 +162,7 @@ function isPaymentProblemStatus(status?: string | null) {
 
 function resolveOverviewUsageCount(
   usage: SubscriptionOverview['usage'] | Record<string, unknown> | undefined,
-  key: 'chat' | 'images' | 'videos',
+  key: 'chat' | 'images' | 'videos' | 'tts',
 ) {
   if (!usage || typeof usage !== 'object') return null;
 
@@ -172,14 +172,33 @@ function resolveOverviewUsageCount(
       ? asNumber(record.chatMessagesThisMonth) ?? asNumber(record.chatMessagesToday)
       : key === 'images'
         ? asNumber(record.imageGenerationsThisMonth) ?? asNumber(record.imageGenerationsToday)
-        : asNumber(record.videoGenerationsThisMonth) ?? asNumber(record.videoGenerationsToday);
+        : key === 'videos'
+          ? asNumber(record.videoGenerationsThisMonth) ?? asNumber(record.videoGenerationsToday)
+          : asNumber(record.ttsConversionsThisMonth);
   if (direct != null) return direct;
 
-  const nested = key === 'chat' ? record.chat : key === 'images' ? record.images : record.videos;
+  const nested = key === 'chat'
+    ? record.chat
+    : key === 'images'
+      ? record.image ?? record.images
+      : key === 'videos'
+        ? record.video ?? record.videos
+        : record.tts;
   if (nested && typeof nested === 'object') {
     return asNumber((nested as Record<string, unknown>).used);
   }
   return null;
+}
+
+function resolveOverviewUsageLimit(
+  usage: SubscriptionOverview['usage'] | Record<string, unknown> | undefined,
+  key: 'tts',
+) {
+  if (!usage || typeof usage !== 'object') return null;
+  const nested = (usage as Record<string, unknown>)[key];
+  return nested && typeof nested === 'object'
+    ? asNumber((nested as Record<string, unknown>).limit)
+    : null;
 }
 
 function normalizeUsageAndLimits(
@@ -192,6 +211,8 @@ function normalizeUsageAndLimits(
   const chatUsedFromOverview = resolveOverviewUsageCount(usage, 'chat');
   const imageUsedFromOverview = resolveOverviewUsageCount(usage, 'images');
   const videoUsedFromOverview = resolveOverviewUsageCount(usage, 'videos');
+  const ttsUsedFromOverview = resolveOverviewUsageCount(usage, 'tts');
+  const ttsLimitFromOverview = resolveOverviewUsageLimit(usage, 'tts');
 
   return {
     usageBucketDate: usageSnapshot?.bucketDate ?? null,
@@ -201,6 +222,8 @@ function normalizeUsageAndLimits(
     imageLimit: usageSnapshot?.imageLimit ?? limits?.imageGenerationsPerDay ?? 5,
     videoUsed: videoUsedFromOverview ?? usageSnapshot?.videoUsed ?? 0,
     videoLimit: usageSnapshot?.videoLimit ?? limits?.videoGenerationsPerDay ?? 1,
+    ttsUsed: ttsUsedFromOverview ?? usageSnapshot?.ttsUsed ?? 0,
+    ttsLimit: usageSnapshot?.ttsLimit ?? ttsLimitFromOverview,
     aiDetectionWordsUsed: usageSnapshot?.aiDetectionWordsUsed ?? 0,
     aiDetectionWordsLimit: usageSnapshot?.aiDetectionWordsLimit ?? null,
     humanizeWordsUsed: usageSnapshot?.humanizeWordsUsed ?? 0,
@@ -585,6 +608,7 @@ export default function PlansScreen() {
   const chatLimitState = getLimitState(stats.chatUsed, stats.chatLimit);
   const imageLimitState = getLimitState(stats.imageUsed, stats.imageLimit);
   const videoLimitState = getLimitState(stats.videoUsed, stats.videoLimit);
+  const ttsLimitState = getLimitState(stats.ttsUsed, stats.ttsLimit);
   const aiDetectionLimitState = getLimitState(stats.aiDetectionWordsUsed, stats.aiDetectionWordsLimit);
   const humanizeLimitState = getLimitState(stats.humanizeWordsUsed, stats.humanizeWordsLimit);
   const docAnalysesLimitState = getLimitState(stats.docAnalysesUsed, stats.docAnalysesPerMonth);
@@ -1063,13 +1087,26 @@ export default function PlansScreen() {
             </View>
           ) : null}
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            {t('plans.videosUsed')}: {stats.videoUsed} / {formatLimit(stats.videoLimit)} used this month
+            Videos (regular + avatar): {stats.videoUsed} / {formatLimit(stats.videoLimit)} used this month
           </Text>
           {!isUnlimitedLimit(stats.videoLimit) ? (
             <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
               <View
                 className="h-full rounded-full"
                 style={{ width: `${videoLimitState.percent}%`, backgroundColor: videoLimitState.reached ? '#DC2626' : colors.primary }}
+              />
+            </View>
+          ) : null}
+          {typeof stats.ttsLimit === 'number' ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+              Text to Speech: {stats.ttsUsed} / {formatLimit(stats.ttsLimit)} conversions used this month
+            </Text>
+          ) : null}
+          {typeof stats.ttsLimit === 'number' && !isUnlimitedLimit(stats.ttsLimit) ? (
+            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+              <View
+                className="h-full rounded-full"
+                style={{ width: `${ttsLimitState.percent}%`, backgroundColor: ttsLimitState.reached ? '#DC2626' : colors.primary }}
               />
             </View>
           ) : null}

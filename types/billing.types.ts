@@ -32,6 +32,12 @@ export type SubscriptionUsage = {
   imageGenerationsToday?: number;
   videoGenerationsToday?: number;
   lastResetDate?: string;
+  chat?: { used?: number; limit?: number | null };
+  image?: { used?: number; limit?: number | null };
+  images?: { used?: number; limit?: number | null };
+  video?: { used?: number; limit?: number | null };
+  videos?: { used?: number; limit?: number | null };
+  tts?: { used?: number; limit?: number | null };
 };
 
 export type SubscriptionOverview = {
@@ -73,6 +79,8 @@ export type UsageSnapshot = {
   imageLimit: number | null;
   videoUsed?: number;
   videoLimit?: number | null;
+  ttsUsed?: number;
+  ttsLimit?: number | null;
   aiDetectionWordsUsed?: number;
   aiDetectionWordsLimit?: number | null;
   humanizeWordsUsed?: number;
@@ -117,6 +125,18 @@ export type DailyUsagePayload = {
       limit?: number | null;
     };
     videos?: {
+      used?: number;
+      limit?: number | null;
+    };
+    image?: {
+      used?: number;
+      limit?: number | null;
+    };
+    video?: {
+      used?: number;
+      limit?: number | null;
+    };
+    tts?: {
       used?: number;
       limit?: number | null;
     };

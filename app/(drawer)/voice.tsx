@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
 import { AppButton, AppScreen, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { useAppContext } from '@/context';
@@ -19,6 +20,7 @@ import { useAppTheme } from '@/hooks';
 import {
   cloneAvatarVoice,
   convertTextToSpeech,
+  getDailyUsage,
   getTextToSpeechHistory,
   getTextToSpeechVoiceCatalog,
   getTextToSpeechVoiceClones,
@@ -71,6 +73,13 @@ function formatTierLabel(tier: SubscriptionTier) {
 
 function getCharacterLimit(tier: SubscriptionTier) {
   return tier === 'free' ? 500 : 3000;
+}
+
+function getMonthlyTtsLimit(tier: SubscriptionTier) {
+  if (tier === 'cafa_max') return -1;
+  if (tier === 'cafa_pro') return 200;
+  if (tier === 'cafa_smart') return 50;
+  return 5;
 }
 
 function formatVoiceMeta(voice: AvatarVoiceOption) {
@@ -300,6 +309,10 @@ export default function VoiceScreen() {
   const [previewVoiceKey, setPreviewVoiceKey] = useState<string | null>(null);
   const [resultPlaybackBusy, setResultPlaybackBusy] = useState(false);
   const [playingResultId, setPlayingResultId] = useState<string | null>(null);
+  const [ttsUsed, setTtsUsed] = useState(0);
+  const [ttsLimit, setTtsLimit] = useState(() => getMonthlyTtsLimit(tier));
+  const [isUsageLoading, setIsUsageLoading] = useState(true);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
   const isMountedRef = useRef(true);
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const previewPlayerSubRef = useRef<{ remove: () => void } | null>(null);
@@ -312,6 +325,9 @@ export default function VoiceScreen() {
   const remainingCharacters = Math.max(0, characterLimit - characterCount);
   const isTextTooLong = characterCount > characterLimit;
   const trimmedText = text.trim();
+  const isTtsUnlimited = ttsLimit < 0;
+  const remainingConversions = isTtsUnlimited ? null : Math.max(0, ttsLimit - ttsUsed);
+  const isTtsLimitReached = remainingConversions === 0;
 
   const announceForA11y = useCallback((message: string) => {
     AccessibilityInfo.announceForAccessibility?.(message);
@@ -390,6 +406,21 @@ export default function VoiceScreen() {
     }
   }, []);
 
+  const loadTtsUsage = useCallback(async (force = false) => {
+    setIsUsageLoading(true);
+    try {
+      const usage = await getDailyUsage({ force });
+      if (!isMountedRef.current) return;
+      setTtsUsed(usage.ttsUsed ?? 0);
+      setTtsLimit(usage.ttsLimit ?? getMonthlyTtsLimit(tier));
+    } catch {
+      if (!isMountedRef.current) return;
+      setTtsLimit(getMonthlyTtsLimit(tier));
+    } finally {
+      if (isMountedRef.current) setIsUsageLoading(false);
+    }
+  }, [tier]);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -403,7 +434,15 @@ export default function VoiceScreen() {
     void loadVoiceLibrary();
     void loadClonedVoices();
     void loadHistory();
-  }, [loadClonedVoices, loadHistory, loadVoiceLibrary]);
+    void loadTtsUsage();
+  }, [loadClonedVoices, loadHistory, loadTtsUsage, loadVoiceLibrary]);
+
+  useEffect(() => {
+    if (isUsageLoading || !isTtsLimitReached) return;
+    const message = `You've reached your monthly TTS limit. Please upgrade your plan.`;
+    setScreenError(message);
+    setShowUpgradePrompt(true);
+  }, [isTtsLimitReached, isUsageLoading]);
 
   const onPreviewVoice = useCallback(async (voice: SelectedVoice) => {
     if (previewVoiceKey === voice.key) {
@@ -501,6 +540,14 @@ export default function VoiceScreen() {
       announceForA11y('Choose a voice before converting.');
       return;
     }
+    if (isTtsLimitReached) {
+      const message = `You've reached your monthly TTS limit. Please upgrade your plan.`;
+      setConversionStatus(null);
+      setScreenError(message);
+      setShowUpgradePrompt(true);
+      announceForA11y(message);
+      return;
+    }
 
     const conversionMessage = currentResult && lastConvertedVoiceKeyRef.current !== selectedVoice.key
       ? `Creating a new version of your script in ${selectedVoice.label}.`
@@ -512,6 +559,7 @@ export default function VoiceScreen() {
     announceForA11y(conversionMessage);
     setIsConverting(true);
     setScreenError('');
+    setShowUpgradePrompt(false);
     setNotice('');
 
     try {
@@ -525,16 +573,26 @@ export default function VoiceScreen() {
       lastConvertedVoiceKeyRef.current = selectedVoice.key;
       setConversionStatus(null);
       setNotice('Speech is ready. You can play it inline or open the download link.');
+      setTtsUsed((current) => isTtsUnlimited ? current : Math.min(ttsLimit, current + 1));
+      void loadTtsUsage(true);
       announceForA11y('Speech is ready. You can play it now or download it.');
     } catch (error) {
       if (!isMountedRef.current) return;
+      const typed = error as { code?: string; status?: number; message?: string };
+      const code = (typed.code ?? '').toUpperCase();
+      const message = typed.message ?? 'Text to Speech conversion failed.';
+      const isUpgradeError = code === 'USAGE_LIMIT_EXCEEDED' || code === 'UPGRADE_REQUIRED';
       setConversionStatus(null);
-      setScreenError(error instanceof Error ? error.message : 'Text to Speech conversion failed.');
-      announceForA11y(error instanceof Error ? error.message : 'Text to Speech conversion failed.');
+      setScreenError(message);
+      setShowUpgradePrompt(isUpgradeError);
+      if (code === 'USAGE_LIMIT_EXCEEDED') {
+        setTtsUsed((current) => Math.max(current, ttsLimit));
+      }
+      announceForA11y(message);
     } finally {
       if (isMountedRef.current) setIsConverting(false);
     }
-  }, [announceForA11y, characterLimit, currentResult, format, isTextTooLong, selectedVoice, trimmedText]);
+  }, [announceForA11y, characterLimit, currentResult, format, isTextTooLong, isTtsLimitReached, isTtsUnlimited, loadTtsUsage, selectedVoice, trimmedText, ttsLimit]);
 
   const onCloneVoice = useCallback(async (recording: { uri: string; fileName: string; mimeType: string }) => {
     setIsCloningVoice(true);
@@ -886,6 +944,18 @@ export default function VoiceScreen() {
               </View>
               <View
                 className="mb-2 rounded-full px-3 py-2"
+                style={{ backgroundColor: isTtsLimitReached ? 'rgba(220,38,38,0.12)' : (isDark ? '#171E2A' : '#FFFFFF') }}
+              >
+                <Text style={{ color: isTtsLimitReached ? '#DC2626' : colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
+                  {isUsageLoading
+                    ? 'Loading monthly usage...'
+                    : isTtsUnlimited
+                      ? 'Unlimited conversions this month'
+                      : `${remainingConversions} conversion${remainingConversions === 1 ? '' : 's'} remaining this month`}
+                </Text>
+              </View>
+              <View
+                className="mb-2 rounded-full px-3 py-2"
                 style={{ backgroundColor: isDark ? '#171E2A' : '#FFFFFF' }}
               >
                 <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
@@ -980,6 +1050,15 @@ export default function VoiceScreen() {
           {screenError ? (
             <View className="mb-4">
               <NoticeCard message={screenError} tone="error" colors={colors} isDark={isDark} />
+              {showUpgradePrompt ? (
+                <View className="mt-3">
+                  <AppButton
+                    label="View upgrade options"
+                    iconName="arrow-up-circle-outline"
+                    onPress={() => router.push('/(drawer)/plans')}
+                  />
+                </View>
+              ) : null}
             </View>
           ) : null}
 

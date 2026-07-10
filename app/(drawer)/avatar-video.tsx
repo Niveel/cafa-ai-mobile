@@ -3,6 +3,8 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Linking,
   Modal,
   Platform,
@@ -197,6 +199,277 @@ function statusMessageForAvatarJob(status?: AvatarJobStatus) {
     default:
       return 'Creating your video... this can take 5 to 10 minutes.';
   }
+}
+
+type AvatarGenerationLoaderProps = {
+  colors: ReturnType<typeof useAppTheme>['colors'];
+  isDark: boolean;
+  status?: AvatarJobStatus;
+};
+
+function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoaderProps) {
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const haloScale = useRef(new Animated.Value(0.92)).current;
+  const haloOpacity = useRef(new Animated.Value(0.22)).current;
+  const ringRotation = useRef(new Animated.Value(0)).current;
+  const coreScale = useRef(new Animated.Value(0.98)).current;
+  const coreGlow = useRef(new Animated.Value(0.82)).current;
+  const dotValues = useRef([
+    new Animated.Value(0.45),
+    new Animated.Value(0.45),
+    new Animated.Value(0.45),
+  ]).current;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const syncReduceMotionPreference = async () => {
+      try {
+        const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+        if (mounted) setReduceMotionEnabled(enabled);
+      } catch {
+        if (mounted) setReduceMotionEnabled(false);
+      }
+    };
+
+    void syncReduceMotionPreference();
+
+    const subscription = AccessibilityInfo.addEventListener?.('reduceMotionChanged', (enabled) => {
+      setReduceMotionEnabled(enabled);
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.remove?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      haloScale.setValue(1);
+      haloOpacity.setValue(0.24);
+      ringRotation.setValue(0);
+      coreScale.setValue(1);
+      coreGlow.setValue(1);
+      dotValues.forEach((dot) => dot.setValue(0.75));
+      return;
+    }
+
+    const haloLoop = Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(haloScale, {
+            toValue: 1.1,
+            duration: 1400,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(haloScale, {
+            toValue: 0.92,
+            duration: 1400,
+            easing: Easing.inOut(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(haloOpacity, {
+            toValue: 0.36,
+            duration: 1400,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(haloOpacity, {
+            toValue: 0.18,
+            duration: 1400,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    );
+
+    const rotationLoop = Animated.loop(
+      Animated.timing(ringRotation, {
+        toValue: 1,
+        duration: 4200,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+
+    const coreLoop = Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(coreScale, {
+            toValue: 1.04,
+            duration: 1100,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(coreScale, {
+            toValue: 0.98,
+            duration: 1100,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(coreGlow, {
+            toValue: 1,
+            duration: 1100,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(coreGlow, {
+            toValue: 0.82,
+            duration: 1100,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    );
+
+    const dotLoops = dotValues.map((dot, index) => (
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 180),
+          Animated.timing(dot, {
+            toValue: 1,
+            duration: 420,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(dot, {
+            toValue: 0.4,
+            duration: 420,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.delay(220),
+        ]),
+      )
+    ));
+
+    haloLoop.start();
+    rotationLoop.start();
+    coreLoop.start();
+    dotLoops.forEach((loop) => loop.start());
+
+    return () => {
+      haloLoop.stop();
+      rotationLoop.stop();
+      coreLoop.stop();
+      dotLoops.forEach((loop) => loop.stop());
+    };
+  }, [coreGlow, coreScale, dotValues, haloOpacity, haloScale, reduceMotionEnabled, ringRotation]);
+
+  const rotation = ringRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <View className="items-center">
+      <View
+        className="items-center justify-center"
+        style={{ width: 140, height: 140 }}
+      >
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 132,
+            height: 132,
+            borderRadius: 66,
+            backgroundColor: colors.primary,
+            opacity: haloOpacity,
+            transform: [{ scale: haloScale }],
+          }}
+        />
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 124,
+            height: 124,
+            borderRadius: 62,
+            borderWidth: 1.5,
+            borderColor: `${colors.primary}66`,
+            borderTopColor: colors.primary,
+            borderRightColor: `${colors.primary}AA`,
+            transform: [{ rotate: rotation }],
+          }}
+        />
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 96,
+            height: 96,
+            borderRadius: 48,
+            backgroundColor: isDark ? '#121A28' : '#FFFFFF',
+            borderWidth: 1,
+            borderColor: `${colors.primary}33`,
+            opacity: coreGlow,
+            transform: [{ scale: coreScale }],
+          }}
+        />
+        <Animated.View
+          style={{
+            width: 72,
+            height: 72,
+            borderRadius: 36,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.primary,
+            shadowColor: colors.primary,
+            shadowOpacity: isDark ? 0.45 : 0.18,
+            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 10 },
+            elevation: 8,
+            transform: [{ scale: coreScale }],
+          }}
+        >
+          <Ionicons name="sparkles" size={30} color="#FFFFFF" />
+        </Animated.View>
+      </View>
+
+      <View className="mt-4 flex-row items-center justify-center">
+        {dotValues.map((dot, index) => (
+          <Animated.View
+            key={`avatar-loader-dot-${index}`}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 999,
+              marginHorizontal: 4,
+              backgroundColor: colors.primary,
+              opacity: dot,
+              transform: [
+                {
+                  translateY: dot.interpolate({
+                    inputRange: [0.4, 1],
+                    outputRange: [0, -5],
+                  }),
+                },
+                {
+                  scale: dot.interpolate({
+                    inputRange: [0.4, 1],
+                    outputRange: [0.92, 1.08],
+                  }),
+                },
+              ],
+            }}
+          />
+        ))}
+      </View>
+
+      <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginTop: 12, letterSpacing: 0.6 }}>
+        {status === 'video_generating' ? 'Rendering frames' : status === 'audio_generated' ? 'Syncing voice' : 'Building performance'}
+      </Text>
+    </View>
+  );
 }
 
 function logAvatarUiError(scope: string, error: unknown) {
@@ -2147,12 +2420,13 @@ export default function AvatarVideoScreen() {
                 backgroundColor: isDark ? '#0B1320' : '#F8FAFF',
               }}
             >
-              <View className="flex-row items-center">
-                <ActivityIndicator color={colors.primary} />
-                <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800', marginLeft: 10 }}>
-                  Generating your avatar video
-                </Text>
-              </View>
+              <AvatarGenerationLoader colors={colors} isDark={isDark} status={activeJobStatus?.status} />
+              <Text
+                className="mt-5 text-center"
+                style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}
+              >
+                Generating your avatar video
+              </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 10 }}>
                 {statusMessageForAvatarJob(activeJobStatus?.status)}
               </Text>
