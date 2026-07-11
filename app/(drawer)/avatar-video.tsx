@@ -209,15 +209,22 @@ type AvatarGenerationLoaderProps = {
 
 function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoaderProps) {
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const [activeIconIndex, setActiveIconIndex] = useState(0);
   const haloScale = useRef(new Animated.Value(0.92)).current;
   const haloOpacity = useRef(new Animated.Value(0.22)).current;
   const ringRotation = useRef(new Animated.Value(0)).current;
   const coreScale = useRef(new Animated.Value(0.98)).current;
   const coreGlow = useRef(new Animated.Value(0.82)).current;
+  const iconOpacity = useRef(new Animated.Value(1)).current;
   const dotValues = useRef([
     new Animated.Value(0.45),
     new Animated.Value(0.45),
     new Animated.Value(0.45),
+  ]).current;
+  const loaderIcons = useRef<React.ComponentProps<typeof Ionicons>['name'][]>([
+    'mic',
+    'videocam',
+    'person',
   ]).current;
 
   useEffect(() => {
@@ -251,6 +258,7 @@ function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoad
       ringRotation.setValue(0);
       coreScale.setValue(1);
       coreGlow.setValue(1);
+      iconOpacity.setValue(1);
       dotValues.forEach((dot) => dot.setValue(0.75));
       return;
     }
@@ -362,7 +370,32 @@ function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoad
       coreLoop.stop();
       dotLoops.forEach((loop) => loop.stop());
     };
-  }, [coreGlow, coreScale, dotValues, haloOpacity, haloScale, reduceMotionEnabled, ringRotation]);
+  }, [coreGlow, coreScale, dotValues, haloOpacity, haloScale, iconOpacity, reduceMotionEnabled, ringRotation]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.sequence([
+        Animated.timing(iconOpacity, {
+          toValue: 0.28,
+          duration: 180,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(iconOpacity, {
+          toValue: 1,
+          duration: 220,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      setActiveIconIndex((current) => (current + 1) % loaderIcons.length);
+    }, reduceMotionEnabled ? 2200 : 1200);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [iconOpacity, loaderIcons.length, reduceMotionEnabled]);
 
   const rotation = ringRotation.interpolate({
     inputRange: [0, 1],
@@ -431,7 +464,9 @@ function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoad
             transform: [{ scale: coreScale }],
           }}
         >
-          <Ionicons name="sparkles" size={30} color="#FFFFFF" />
+          <Animated.View style={{ opacity: iconOpacity }}>
+            <Ionicons name={loaderIcons[activeIconIndex] ?? 'videocam'} size={30} color="#FFFFFF" />
+          </Animated.View>
         </Animated.View>
       </View>
 
@@ -2433,20 +2468,6 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
                 This process usually takes 5 to 10 minutes. You can leave the screen and come back later. The app will resume polling your pending job automatically.
               </Text>
-              <View className="mt-4 rounded-[22px] border p-4" style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#FFFFFF' }}>
-                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                  Current status
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                  Job ID: {activeJobMeta.jobId}
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  Voice: {activeJobMeta.voiceLabel}
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  Started: {formatDateLabel(activeJobMeta.createdAt)}
-                </Text>
-              </View>
             </View>
           ) : null}
 
