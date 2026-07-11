@@ -21,7 +21,7 @@ const REPO_CARDS: RepoCard[] = [
     description: 'Browse generated files, exports, and document outputs in one organized repository view.',
     route: '/(drawer)/artifacts',
     icon: 'document-attach-outline',
-    accent: '#7C3AED',
+    accent: '#5B34A8',
     eyebrow: 'Files',
   },
   {
@@ -29,7 +29,7 @@ const REPO_CARDS: RepoCard[] = [
     description: 'Review saved video generations, manage downloads, and revisit recent motion outputs.',
     route: '/(drawer)/videos',
     icon: 'videocam-outline',
-    accent: '#DC2626',
+    accent: '#9F2F2F',
     eyebrow: 'Motion',
   },
   {
@@ -37,7 +37,7 @@ const REPO_CARDS: RepoCard[] = [
     description: 'Open your image history, inspect results, and manage saved visual generations quickly.',
     route: '/(drawer)/images',
     icon: 'images-outline',
-    accent: '#0891B2',
+    accent: '#176D86',
     eyebrow: 'Gallery',
   },
 ];
@@ -51,8 +51,6 @@ function RepoHubCard({
   eyebrow,
   cardWidth,
 }: RepoCard & { cardWidth: number }) {
-  const { colors, isDark } = useAppTheme();
-
   return (
     <Pressable
       accessibilityRole="button"
@@ -70,52 +68,55 @@ function RepoHubCard({
         className="mb-4 overflow-hidden rounded-[24px] border p-4"
         style={{
           width: cardWidth,
-          borderColor: `${accent}40`,
-          backgroundColor: isDark ? '#101017' : '#FBFBFF',
+          borderColor: `${accent}DD`,
+          backgroundColor: accent,
         }}
       >
         <View
           className="absolute -left-8 top-8 h-16 w-16 rounded-full"
-          style={{ backgroundColor: `${accent}14` }}
+          style={{ backgroundColor: 'rgba(255,255,255,0.10)' }}
         />
         <View
           className="absolute -right-8 -top-8 h-20 w-20 rounded-full"
-          style={{ backgroundColor: `${accent}22` }}
+          style={{ backgroundColor: 'rgba(255,255,255,0.14)' }}
         />
 
         <View className="flex-row items-start justify-between">
           <View
             className="h-10 w-10 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: `${accent}20`, borderWidth: 1, borderColor: `${accent}40` }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)' }}
           >
-            <Ionicons name={icon} size={18} color={accent} />
+            <Ionicons name={icon} size={18} color="#FFFFFF" />
           </View>
           <View
             className="rounded-full px-2.5 py-1"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.72)' }}
+            style={{ backgroundColor: 'rgba(15,23,42,0.18)' }}
           >
-            <Text style={{ color: accent, fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
               {eyebrow}
             </Text>
           </View>
         </View>
 
-        <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800', marginTop: 14 }}>
+        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginTop: 14 }}>
           {title}
         </Text>
-        <Text numberOfLines={4} style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
+        <Text
+          numberOfLines={4}
+          style={{ color: 'rgba(255,255,255,0.84)', fontSize: 12, lineHeight: 18, marginTop: 8 }}
+        >
           {description}
         </Text>
 
         <View className="mt-5 flex-row items-center justify-between">
-          <Text style={{ color: colors.textPrimary, fontSize: 11, fontWeight: '700' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
             Open
           </Text>
           <View
             className="h-8 w-8 items-center justify-center rounded-full"
-            style={{ backgroundColor: accent }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.96)' }}
           >
-            <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
+            <Ionicons name="arrow-forward" size={15} color={accent} />
           </View>
         </View>
       </View>

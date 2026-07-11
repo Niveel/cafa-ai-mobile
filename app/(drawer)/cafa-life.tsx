@@ -4,13 +4,14 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  GestureResponderEvent,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -370,10 +371,382 @@ function VoiceSelectionModal({
   );
 }
 
+function CafaLiveSettingsModal({
+  visible,
+  onClose,
+  onOpenVoicePicker,
+  onRefreshVoices,
+  isRefreshingVoices,
+  isVoicesLoading,
+  voiceError,
+  selectedVoice,
+  onPreviewVoice,
+  previewVoiceId,
+  previewState,
+  colors,
+  isDark,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onOpenVoicePicker: () => void;
+  onRefreshVoices: () => void;
+  isRefreshingVoices: boolean;
+  isVoicesLoading: boolean;
+  voiceError: string | null;
+  selectedVoice: CafaLifeVoiceOption | null;
+  onPreviewVoice: (voiceId: string) => void;
+  previewVoiceId: string | null;
+  previewState: 'idle' | 'loading' | 'playing';
+  colors: { border: string; primary: string; textPrimary: string; textSecondary: string };
+  isDark: boolean;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(5, 8, 14, 0.78)' : 'rgba(15, 23, 42, 0.32)', justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel="Close live settings" />
+        <View
+          accessibilityViewIsModal
+          style={{
+            maxHeight: '82%',
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            borderWidth: 1.2,
+            borderColor: colors.border,
+            backgroundColor: isDark ? '#0E1118' : '#FFFFFF',
+            paddingHorizontal: 18,
+            paddingTop: 16,
+            paddingBottom: 20,
+          }}
+        >
+          <View className="mb-4 flex-row items-start justify-between">
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
+                Settings
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
+                Voice setup and session preferences for Cafa Live.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close live settings"
+              onPress={onClose}
+              className="h-10 w-10 items-center justify-center rounded-full"
+              style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
+            >
+              <Ionicons name="close" size={18} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          <View
+            className="overflow-hidden rounded-[28px] border"
+            style={{ borderColor: `${colors.primary}35`, backgroundColor: isDark ? '#0A1220' : '#F8FBFF' }}
+          >
+            <LinearGradient
+              colors={isDark ? ['#101A2B', '#0B1220', '#111827'] : ['#F5F9FF', '#EEF4FF', '#F9FBFF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ padding: 14 }}
+            >
+              <View className="flex-row items-start justify-between">
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
+                    Voice setup
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
+                    Pick a voice before you start so your live session feels right from the first reply.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Refresh available voices"
+                  accessibilityHint="Checks for newly added voices."
+                  onPress={onRefreshVoices}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: `${colors.primary}35`,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
+                  }}
+                >
+                  {isRefreshingVoices ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {isVoicesLoading ? (
+                <View className="mt-3 flex-row items-center rounded-[18px] border px-3 py-3" style={{ borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 10 }}>
+                    Loading voices...
+                  </Text>
+                </View>
+              ) : voiceError ? (
+                <View
+                  className="mt-3 rounded-[18px] border px-3 py-3"
+                  accessible
+                  accessibilityLiveRegion="polite"
+                  style={{ borderColor: '#FCA5A5', backgroundColor: '#FFF1F2' }}
+                >
+                  <Text style={{ color: '#B91C1C', fontSize: 13, fontWeight: '700' }}>
+                    {voiceError}
+                  </Text>
+                </View>
+              ) : selectedVoice ? (
+                <View className="mt-3 rounded-[20px] border px-3 py-3" style={{ borderColor: `${colors.primary}45`, backgroundColor: isDark ? 'rgba(15,23,42,0.78)' : '#FFFFFF' }}>
+                  <View className="flex-row items-start justify-between">
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '800' }}>
+                        {selectedVoice.name}
+                      </Text>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                        {formatVoiceGender(selectedVoice.gender)} voice
+                      </Text>
+                      {selectedVoice.description ? (
+                        <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
+                          {selectedVoice.description}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View className="items-center justify-center rounded-full" style={{ width: 34, height: 34, backgroundColor: `${colors.primary}16` }}>
+                      <Ionicons name="radio-outline" size={16} color={colors.primary} />
+                    </View>
+                  </View>
+
+                  <View className="mt-3 flex-row flex-wrap">
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel="Open voice picker"
+                      accessibilityHint="Browse and choose a different voice for your session."
+                      onPress={onOpenVoicePicker}
+                      className="mr-3 rounded-full px-4 py-2.5"
+                      style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
+                    >
+                      <View className="flex-row items-center">
+                        <Ionicons name="swap-horizontal-outline" size={15} color="#FFFFFF" />
+                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
+                          Change voice
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={`Preview ${selectedVoice.name}'s voice`}
+                      accessibilityHint="Plays a short sample of the selected voice."
+                      onPress={() => onPreviewVoice(selectedVoice.id)}
+                      className="rounded-full px-4 py-2.5"
+                      style={{ borderWidth: 1.2, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#FFFFFF' }}
+                    >
+                      <View className="flex-row items-center">
+                        {previewVoiceId === selectedVoice.id && previewState === 'loading' ? (
+                          <ActivityIndicator size="small" color={colors.primary} />
+                        ) : (
+                          <Ionicons
+                            name={previewVoiceId === selectedVoice.id && previewState === 'playing' ? 'stop-circle-outline' : 'volume-high-outline'}
+                            size={15}
+                            color={colors.primary}
+                          />
+                        )}
+                        <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
+                          {previewVoiceId === selectedVoice.id && previewState === 'playing'
+                            ? 'Stop preview'
+                            : previewVoiceId === selectedVoice.id && previewState === 'loading'
+                              ? 'Loading preview...'
+                              : 'Preview voice'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Open voice picker"
+                  accessibilityHint="Choose the voice Cafa will use for your live session."
+                  onPress={onOpenVoicePicker}
+                  className="mt-3 rounded-[20px] border px-3 py-3"
+                  style={{ borderColor: `${colors.primary}35`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }}
+                >
+                  <View className="flex-row items-center">
+                    <View className="items-center justify-center rounded-full" style={{ width: 38, height: 38, backgroundColor: `${colors.primary}14` }}>
+                      <Ionicons name="volume-high-outline" size={16} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                        Voice setup
+                      </Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 3 }}>
+                        Open the voice list to preview the available options before you begin.
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                  </View>
+                </TouchableOpacity>
+              )}
+            </LinearGradient>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CafaLiveHistoryModal({
+  visible,
+  onClose,
+  history,
+  isHistoryLoading,
+  isRefreshingHistory,
+  historyError,
+  onRefreshHistory,
+  assistantLabel,
+  colors,
+  isDark,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  history: CafaLifeHistoryTurn[];
+  isHistoryLoading: boolean;
+  isRefreshingHistory: boolean;
+  historyError: string | null;
+  onRefreshHistory: () => void;
+  assistantLabel: string;
+  colors: { border: string; primary: string; textPrimary: string; textSecondary: string };
+  isDark: boolean;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(5, 8, 14, 0.78)' : 'rgba(15, 23, 42, 0.32)', justifyContent: 'flex-end' }}>
+        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel="Close recent conversation" />
+        <View
+          accessibilityViewIsModal
+          style={{
+            maxHeight: '84%',
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            borderWidth: 1.2,
+            borderColor: colors.border,
+            backgroundColor: isDark ? '#0E1118' : '#FFFFFF',
+            paddingHorizontal: 18,
+            paddingTop: 16,
+            paddingBottom: 20,
+          }}
+        >
+          <View className="mb-4 flex-row items-start justify-between">
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
+                Recent conversation
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
+                Review your latest saved Cafa Live turns.
+              </Text>
+            </View>
+            <View className="flex-row items-center">
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Refresh Cafa Live history"
+                accessibilityHint="Fetches the latest saved turns from the server."
+                onPress={onRefreshHistory}
+                className="mr-2 rounded-full px-3 py-2"
+                style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: `${colors.primary}10` }}
+              >
+                {isRefreshingHistory ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close recent conversation"
+                onPress={onClose}
+                className="h-10 w-10 items-center justify-center rounded-full"
+                style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
+              >
+                <Ionicons name="close" size={18} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {isHistoryLoading ? (
+              <View className="items-center justify-center" style={{ paddingVertical: 28 }}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
+                  Loading recent turns...
+                </Text>
+              </View>
+            ) : historyError ? (
+              <View className="mt-1 rounded-2xl border px-4 py-3" style={{ borderColor: colors.border, backgroundColor: isDark ? '#111827' : '#F8FAFC' }}>
+                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                  {historyError}
+                </Text>
+              </View>
+            ) : history.length === 0 ? (
+              <View className="mt-1 rounded-2xl border px-4 py-5" style={{ borderColor: colors.border, backgroundColor: isDark ? '#10151D' : '#F8FAFC' }}>
+                <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
+                  No turns yet
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 }}>
+                  Start your first Cafa Live session and your latest turns will appear here automatically.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ marginTop: 4, gap: 10, paddingBottom: 8 }}>
+                {history.map((turn, index) => {
+                  const isAssistant = turn.role === 'assistant';
+                  return (
+                    <View
+                      key={`${turn.timestamp}-${index}`}
+                      className="rounded-2xl border px-4 py-3"
+                      accessibilityRole="text"
+                      accessibilityLabel={`${isAssistant ? 'Assistant' : 'You'} said ${turn.content}`}
+                      style={{
+                        borderColor: colors.border,
+                        backgroundColor: isAssistant ? (isDark ? 'rgba(16,185,129,0.08)' : '#ECFDF5') : (isDark ? 'rgba(99,102,241,0.08)' : '#EEF2FF'),
+                      }}
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-row items-center" style={{ flex: 1, paddingRight: 10 }}>
+                          <View className="items-center justify-center rounded-full" style={{ width: 30, height: 30, backgroundColor: isAssistant ? '#10B981' : colors.primary }}>
+                            <Ionicons name={isAssistant ? 'chatbubble-ellipses-outline' : 'person-outline'} size={15} color="#FFFFFF" />
+                          </View>
+                          <View style={{ marginLeft: 10, flex: 1 }}>
+                            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                              {isAssistant ? assistantLabel : 'You'}
+                            </Text>
+                            <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                              {formatRelativeTimestamp(turn.timestamp)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, lineHeight: 20, marginTop: 12 }}>
+                        {turn.content}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function CafaLifeScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const prefersReducedMotion = useReducedMotionPreference();
+  const { width: screenWidth } = useWindowDimensions();
   const {
     state,
     error,
@@ -391,6 +764,8 @@ export default function CafaLifeScreen() {
   const [voices, setVoices] = useState<CafaLifeVoiceOption[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [isVoicePickerVisible, setIsVoicePickerVisible] = useState(false);
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+  const [isHistoryVisible, setIsHistoryVisible] = useState(false);
   const [isVoicesLoading, setIsVoicesLoading] = useState(true);
   const [isRefreshingVoices, setIsRefreshingVoices] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -400,6 +775,7 @@ export default function CafaLifeScreen() {
   const [isRefreshingHistory, setIsRefreshingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [showEndPrompt, setShowEndPrompt] = useState(false);
+  const [tooltipState, setTooltipState] = useState<{ text: string; x: number; y: number } | null>(null);
   const [now, setNow] = useState(Date.now());
   const pulseValue = useRef(new Animated.Value(0)).current;
   const haloRotate = useRef(new Animated.Value(0)).current;
@@ -409,6 +785,7 @@ export default function CafaLifeScreen() {
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const previewPlayerSubRef = useRef<{ remove: () => void } | null>(null);
   const previewUriByVoiceIdRef = useRef<Record<string, string>>({});
+  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const presentation = getStatusPresentation(state);
 
@@ -447,6 +824,10 @@ export default function CafaLifeScreen() {
       previewPlayerRef.current?.pause();
       previewPlayerRef.current?.remove();
       previewPlayerRef.current = null;
+      if (tooltipTimeoutRef.current) {
+        clearTimeout(tooltipTimeoutRef.current);
+        tooltipTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -624,6 +1005,22 @@ export default function CafaLifeScreen() {
     void loadVoices(true);
   }, [loadVoices]);
 
+  const showTooltip = useCallback((text: string, event?: GestureResponderEvent) => {
+    hapticSelection();
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+
+    const fallbackX = screenWidth / 2;
+    const fallbackY = 180;
+    const pageX = event?.nativeEvent?.pageX ?? fallbackX;
+    const pageY = event?.nativeEvent?.pageY ?? fallbackY;
+
+    setTooltipState({ text, x: pageX, y: pageY });
+    tooltipTimeoutRef.current = setTimeout(() => {
+      setTooltipState(null);
+      tooltipTimeoutRef.current = null;
+    }, 1200);
+  }, [screenWidth]);
+
   const handlePreviewVoice = useCallback(async (voiceId: string) => {
     if (previewVoiceId === voiceId && previewState === 'playing') {
       stopPreview();
@@ -716,214 +1113,41 @@ export default function CafaLifeScreen() {
         colors={colors}
         isDark={isDark}
       />
+      <CafaLiveSettingsModal
+        visible={isSettingsVisible}
+        onClose={() => setIsSettingsVisible(false)}
+        onOpenVoicePicker={() => setIsVoicePickerVisible(true)}
+        onRefreshVoices={handleRefreshVoices}
+        isRefreshingVoices={isRefreshingVoices}
+        isVoicesLoading={isVoicesLoading}
+        voiceError={voiceError}
+        selectedVoice={selectedVoice}
+        onPreviewVoice={handlePreviewVoice}
+        previewVoiceId={previewVoiceId}
+        previewState={previewState}
+        colors={colors}
+        isDark={isDark}
+      />
+      <CafaLiveHistoryModal
+        visible={isHistoryVisible}
+        onClose={() => setIsHistoryVisible(false)}
+        history={history}
+        isHistoryLoading={isHistoryLoading}
+        isRefreshingHistory={isRefreshingHistory}
+        historyError={historyError}
+        onRefreshHistory={handleRefreshHistory}
+        assistantLabel={assistantLabel}
+        colors={colors}
+        isDark={isDark}
+      />
 
       <AppScreen
         title={t('drawer.cafaLife')}
         subtitle={t('screen.cafaLifeSubtitle')}
       >
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isRefreshingHistory} onRefresh={handleRefreshHistory} tintColor={colors.primary} />}
-        >
-          {!isActive ? (
-            <View
-              className="mb-4 overflow-hidden rounded-[30px] border"
-              style={{
-                borderColor: `${colors.primary}35`,
-                backgroundColor: isDark ? '#0A1220' : '#F8FBFF',
-              }}
-            >
-              <LinearGradient
-                colors={isDark ? ['#101A2B', '#0B1220', '#111827'] : ['#F5F9FF', '#EEF4FF', '#F9FBFF']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={{ padding: 14 }}
-              >
-                <View className="flex-row items-start justify-between">
-                  <View style={{ flex: 1, paddingRight: 12 }}>
-                    <View
-                      className="self-start rounded-full px-3 py-1"
-                      style={{ backgroundColor: isDark ? 'rgba(96,165,250,0.16)' : '#DBEAFE' }}
-                    >
-                      <Text style={{ color: isDark ? '#BFDBFE' : '#1D4ED8', fontSize: 12, fontWeight: '700' }}>
-                        Voice setup
-                      </Text>
-                    </View>
-                    <Text style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800', marginTop: 10 }}>
-                      Choose how Cafa sounds
-                    </Text>
-                    <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                      Pick a voice before you start so your live session feels right from the first reply.
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Refresh available voices"
-                    accessibilityHint="Checks for newly added voices."
-                    onPress={handleRefreshVoices}
-                    className="rounded-full px-3 py-2"
-                    style={{
-                      borderWidth: 1.2,
-                      borderColor: `${colors.primary}35`,
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
-                    }}
-                  >
-                    {isRefreshingVoices ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Ionicons name="refresh-outline" size={16} color={colors.primary} />
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {isVoicesLoading ? (
-                  <View className="mt-3 flex-row items-center rounded-[18px] border px-3 py-3" style={{ borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 10 }}>
-                      Loading voices...
-                    </Text>
-                  </View>
-                ) : voiceError ? (
-                  <View
-                    className="mt-3 rounded-[18px] border px-3 py-3"
-                    accessible
-                    accessibilityLiveRegion="polite"
-                    style={{
-                      borderColor: '#FCA5A5',
-                      backgroundColor: '#FFF1F2',
-                    }}
-                  >
-                    <Text style={{ color: '#B91C1C', fontSize: 13, fontWeight: '700' }}>
-                      {voiceError}
-                    </Text>
-                  </View>
-                ) : selectedVoice ? (
-                  <View
-                    className="mt-3 rounded-[20px] border px-3 py-3"
-                    style={{
-                      borderColor: `${colors.primary}45`,
-                      backgroundColor: isDark ? 'rgba(15,23,42,0.78)' : '#FFFFFF',
-                    }}
-                  >
-                    <View className="flex-row items-start justify-between">
-                      <View style={{ flex: 1, paddingRight: 10 }}>
-                        <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '800' }}>
-                          {selectedVoice.name}
-                        </Text>
-                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
-                          {formatVoiceGender(selectedVoice.gender)} voice
-                        </Text>
-                        {selectedVoice.description ? (
-                          <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                            {selectedVoice.description}
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      <View
-                        className="items-center justify-center rounded-full"
-                        style={{
-                          width: 34,
-                          height: 34,
-                          backgroundColor: `${colors.primary}16`,
-                        }}
-                      >
-                        <Ionicons name="radio-outline" size={16} color={colors.primary} />
-                      </View>
-                    </View>
-
-                    <View className="mt-3 flex-row flex-wrap">
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel="Open voice picker"
-                        accessibilityHint="Browse and choose a different voice for your session."
-                        onPress={() => setIsVoicePickerVisible(true)}
-                        className="mr-3 rounded-full px-4 py-2.5"
-                        style={{
-                          borderWidth: 1.2,
-                          borderColor: colors.primary,
-                          backgroundColor: colors.primary,
-                        }}
-                      >
-                        <View className="flex-row items-center">
-                          <Ionicons name="swap-horizontal-outline" size={15} color="#FFFFFF" />
-                          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
-                            Change voice
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        accessibilityRole="button"
-                        accessibilityLabel={`Preview ${selectedVoice.name}'s voice`}
-                        accessibilityHint="Plays a short sample of the selected voice."
-                        onPress={() => handlePreviewVoice(selectedVoice.id)}
-                        className="rounded-full px-4 py-2.5"
-                        style={{
-                          borderWidth: 1.2,
-                          borderColor: colors.border,
-                          backgroundColor: isDark ? '#11151D' : '#FFFFFF',
-                        }}
-                      >
-                        <View className="flex-row items-center">
-                          {previewVoiceId === selectedVoice.id && previewState === 'loading' ? (
-                            <ActivityIndicator size="small" color={colors.primary} />
-                          ) : (
-                            <Ionicons
-                              name={previewVoiceId === selectedVoice.id && previewState === 'playing' ? 'stop-circle-outline' : 'volume-high-outline'}
-                              size={15}
-                              color={colors.primary}
-                            />
-                          )}
-                          <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
-                            {previewVoiceId === selectedVoice.id && previewState === 'playing'
-                              ? 'Stop preview'
-                              : previewVoiceId === selectedVoice.id && previewState === 'loading'
-                                ? 'Loading preview...'
-                                : 'Preview voice'}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel="Open voice picker"
-                    accessibilityHint="Choose the voice Cafa will use for your live session."
-                    onPress={() => setIsVoicePickerVisible(true)}
-                    className="mt-3 rounded-[20px] border px-3 py-3"
-                    style={{
-                      borderColor: `${colors.primary}35`,
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
-                    }}
-                  >
-                    <View className="flex-row items-center">
-                      <View
-                        className="items-center justify-center rounded-full"
-                        style={{ width: 38, height: 38, backgroundColor: `${colors.primary}14` }}
-                      >
-                        <Ionicons name="volume-high-outline" size={16} color={colors.primary} />
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                          Choose a voice
-                        </Text>
-                        <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 3 }}>
-                          Open the voice list to preview the available options before you begin.
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-                    </View>
-                  </TouchableOpacity>
-                )}
-              </LinearGradient>
-            </View>
-          ) : null}
-
+        <View className="flex-1">
           <View
-            className="mb-4 overflow-hidden rounded-[30px] border"
+            className="flex-1 overflow-hidden rounded-[30px] border"
             style={{
               borderColor: `${presentation.ringColor}55`,
               backgroundColor: isDark ? '#07111F' : '#F8FBFF',
@@ -933,7 +1157,7 @@ export default function CafaLifeScreen() {
               colors={isDark ? ['#0A1324', '#101B30', '#0B1220'] : ['#F8FBFF', '#EEF5FF', '#F7FAFC']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={{ padding: 18 }}
+              style={{ flex: 1, padding: 18 }}
             >
               <View className="flex-row items-start justify-between">
                 <View style={{ flex: 1, paddingRight: 12 }}>
@@ -948,35 +1172,46 @@ export default function CafaLifeScreen() {
                       {presentation.title}
                     </Text>
                   </View>
-                  <Text style={{ color: colors.textPrimary, fontSize: 28, fontWeight: '800', marginTop: 14 }}>
-                    {assistantLabel}
-                  </Text>
-                  <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 8 }}>
-                    {presentation.body}
-                  </Text>
                 </View>
 
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel={isActive ? 'Refresh recent conversation history' : 'Refresh recent conversation history'}
-                  accessibilityHint="Loads the most recent Cafa Live turns saved on the server."
-                  onPress={handleRefreshHistory}
-                  className="rounded-full px-3 py-2"
-                  style={{
-                    borderWidth: 1.2,
-                    borderColor: colors.border,
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF',
-                  }}
-                >
-                  {isRefreshingHistory ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  ) : (
-                    <Ionicons name="refresh-outline" size={16} color={colors.primary} />
-                  )}
-                </TouchableOpacity>
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Refresh Cafa Live history"
+                    accessibilityHint="Loads the most recent Cafa Live turns saved on the server."
+                    onLongPress={(event) => showTooltip('Refresh', event)}
+                    onPress={handleRefreshHistory}
+                    className="rounded-full px-3 py-2"
+                    style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
+                  >
+                    {isRefreshingHistory ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Cafa Live settings"
+                    accessibilityHint="Opens settings including voice setup."
+                    onLongPress={(event) => showTooltip('Settings', event)}
+                    onPress={() => setIsSettingsVisible(true)}
+                    className="ml-2 rounded-full px-3 py-2"
+                    style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
+                  >
+                    <Ionicons name="settings-outline" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Open recent conversation files"
+                    accessibilityHint="Shows your recent Cafa Live conversation history."
+                    onLongPress={(event) => showTooltip('Recent convo', event)}
+                    onPress={() => setIsHistoryVisible(true)}
+                    className="ml-2 rounded-full px-3 py-2"
+                    style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
+                  >
+                    <Ionicons name="document-text-outline" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              <View className="items-center justify-center" style={{ marginTop: 24, marginBottom: 18 }}>
+              <View className="flex-1 items-center justify-center" style={{ marginTop: 24, marginBottom: 18 }}>
                 <View style={{ width: 264, height: 264, alignItems: 'center', justifyContent: 'center' }}>
                   {[0, 0.22, 0.44].map((offset, index) => (
                     <Animated.View
@@ -1101,7 +1336,7 @@ export default function CafaLifeScreen() {
               </View>
 
               {isActive ? (
-                <View className="mt-2">
+                <View className="mt-2 self-center">
                   <TouchableOpacity
                     accessibilityRole="button"
                     accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
@@ -1111,7 +1346,7 @@ export default function CafaLifeScreen() {
                       hapticSelection();
                       void toggleMute();
                     }}
-                    className="self-start flex-row items-center rounded-full px-4 py-3"
+                    className="flex-row items-center rounded-full px-4 py-3"
                     style={{
                       borderWidth: 1.2,
                       borderColor: colors.border,
@@ -1165,146 +1400,24 @@ export default function CafaLifeScreen() {
             </LinearGradient>
           </View>
 
-          <View
-            className="mb-4 rounded-[28px] border p-4"
+        </View>
+        {tooltipState ? (
+          <Animated.View
+            pointerEvents="none"
+            className="absolute rounded-md px-2 py-1"
             style={{
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#0C1017' : '#FFFFFF',
+              zIndex: 9999,
+              elevation: 120,
+              borderWidth: 1,
+              borderColor: isDark ? '#3F3F46' : '#27272A',
+              backgroundColor: isDark ? '#0B0B0F' : '#111111',
+              left: Math.max(8, Math.min(tooltipState.x - 56, screenWidth - 124)),
+              top: Math.max(8, tooltipState.y - 40),
             }}
           >
-            <View className="flex-row items-center justify-between">
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '700' }}>
-                  Recent conversation
-                </Text>
-              </View>
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Refresh Cafa Live history"
-                accessibilityHint="Fetches the latest saved turns from the server."
-                onPress={handleRefreshHistory}
-                className="rounded-full px-3 py-2"
-                style={{
-                  borderWidth: 1.2,
-                  borderColor: colors.primary,
-                  backgroundColor: `${colors.primary}10`,
-                }}
-              >
-                <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                  Refresh
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {isHistoryLoading ? (
-              <View className="items-center justify-center" style={{ paddingVertical: 28 }}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-                  Loading recent turns...
-                </Text>
-              </View>
-            ) : historyError ? (
-              <View
-                className="mt-4 rounded-2xl border px-4 py-3"
-                style={{
-                  borderColor: colors.border,
-                  backgroundColor: isDark ? '#111827' : '#F8FAFC',
-                }}
-              >
-                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                  {historyError}
-                </Text>
-              </View>
-            ) : history.length === 0 ? (
-              <View
-                className="mt-4 rounded-2xl border px-4 py-5"
-                style={{
-                  borderColor: colors.border,
-                  backgroundColor: isDark ? '#10151D' : '#F8FAFC',
-                }}
-              >
-                <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
-                  No turns yet
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 }}>
-                  Start your first Cafa Live session and your latest turns will appear here automatically.
-                </Text>
-              </View>
-            ) : (
-              <View style={{ marginTop: 16, gap: 10 }}>
-                {history.map((turn, index) => {
-                  const isAssistant = turn.role === 'assistant';
-                  return (
-                    <View
-                      key={`${turn.timestamp}-${index}`}
-                      className="rounded-2xl border px-4 py-3"
-                      accessibilityRole="text"
-                      accessibilityLabel={`${isAssistant ? 'Assistant' : 'You'} said ${turn.content}`}
-                      style={{
-                        borderColor: colors.border,
-                        backgroundColor: isAssistant
-                          ? (isDark ? 'rgba(16,185,129,0.08)' : '#ECFDF5')
-                          : (isDark ? 'rgba(99,102,241,0.08)' : '#EEF2FF'),
-                      }}
-                    >
-                      <View className="flex-row items-center justify-between">
-                        <View className="flex-row items-center" style={{ flex: 1, paddingRight: 10 }}>
-                          <View
-                            className="items-center justify-center rounded-full"
-                            style={{
-                              width: 30,
-                              height: 30,
-                              backgroundColor: isAssistant ? '#10B981' : colors.primary,
-                            }}
-                          >
-                            <Ionicons name={isAssistant ? 'chatbubble-ellipses-outline' : 'person-outline'} size={15} color="#FFFFFF" />
-                          </View>
-                          <View style={{ marginLeft: 10, flex: 1 }}>
-                            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                              {isAssistant ? assistantLabel : 'You'}
-                            </Text>
-                            <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
-                              {formatRelativeTimestamp(turn.timestamp)}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                      <Text style={{ color: colors.textPrimary, fontSize: 13, lineHeight: 20, marginTop: 12 }}>
-                        {turn.content}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-
-          <View
-            className="mb-5 rounded-[28px] border p-4"
-            style={{
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#0C1017' : '#FFFFFF',
-            }}
-          >
-            <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
-              Voice session notes
-            </Text>
-            <View style={{ marginTop: 12, gap: 10 }}>
-              {[
-                'Tap the orb to start talking with Cafa. The conversation begins as soon as your microphone is ready.',
-                'Use Mute any time you want a quiet pause, then unmute when you are ready to keep going.',
-                'If the conversation stops because of your connection, just start again and Cafa will reconnect with you.',
-              ].map((note, index) => (
-                <View key={`note-${index}`} className="flex-row">
-                  <Ionicons name="ellipse" size={10} color={colors.primary} style={{ marginTop: 6 }} />
-                  <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginLeft: 10, flex: 1 }}>
-                    {note}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
+            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>{tooltipState.text}</Text>
+          </Animated.View>
+        ) : null}
       </AppScreen>
     </RequireAuthRoute>
   );

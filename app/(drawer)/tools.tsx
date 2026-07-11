@@ -21,7 +21,7 @@ const TOOL_CARDS: ToolCard[] = [
     description: 'Create a talking avatar video with gallery faces or your own portrait, auto-written script, and voice selection.',
     route: '/(drawer)/avatar-video',
     icon: 'person-circle-outline',
-    accent: '#C2410C',
+    accent: '#8C3B16',
     eyebrow: 'Talking Video',
   },
   {
@@ -29,7 +29,7 @@ const TOOL_CARDS: ToolCard[] = [
     description: 'Turn a still image into a motion-ready clip with a workflow tuned for video prompts.',
     route: '/(drawer)/image-to-video',
     icon: 'film-outline',
-    accent: '#2563EB',
+    accent: '#1E4FA3',
     eyebrow: 'Motion Lab',
   },
   {
@@ -37,7 +37,7 @@ const TOOL_CARDS: ToolCard[] = [
     description: 'Refine, restyle, or transform an image without leaving the Cafa creative flow.',
     route: '/(drawer)/edit-image',
     icon: 'color-wand-outline',
-    accent: '#EA580C',
+    accent: '#A44A1A',
     eyebrow: 'Creative Edit',
   },
   {
@@ -45,7 +45,7 @@ const TOOL_CARDS: ToolCard[] = [
     description: 'Open AI Detection and Humanize in one place for fast checks and cleaner rewrites.',
     route: '/(drawer)/writing-tools',
     icon: 'create-outline',
-    accent: '#059669',
+    accent: '#0F6B57',
     eyebrow: 'Text Studio',
   },
   {
@@ -53,7 +53,7 @@ const TOOL_CARDS: ToolCard[] = [
     description: 'Turn text into downloadable speech with library voices, cloned voices, previews, and recent history.',
     route: '/(drawer)/voice',
     icon: 'volume-high-outline',
-    accent: '#7C3AED',
+    accent: '#5B34A8',
     eyebrow: 'Voice Lab',
   },
 ];
@@ -67,8 +67,6 @@ function ToolHubCard({
   eyebrow,
   cardWidth,
 }: ToolCard & { cardWidth: number }) {
-  const { colors, isDark } = useAppTheme();
-
   return (
     <Pressable
       accessibilityRole="button"
@@ -86,52 +84,55 @@ function ToolHubCard({
         className="mb-4 overflow-hidden rounded-[24px] border p-4"
         style={{
           width: cardWidth,
-          borderColor: `${accent}40`,
-          backgroundColor: isDark ? '#0E1118' : '#F8FAFF',
+          borderColor: `${accent}DD`,
+          backgroundColor: accent,
         }}
       >
         <View
           className="absolute -right-8 -top-8 h-20 w-20 rounded-full"
-          style={{ backgroundColor: `${accent}1F` }}
+          style={{ backgroundColor: 'rgba(255,255,255,0.14)' }}
         />
         <View
           className="absolute -bottom-8 right-6 h-16 w-16 rounded-full"
-          style={{ backgroundColor: `${accent}14` }}
+          style={{ backgroundColor: 'rgba(255,255,255,0.10)' }}
         />
 
         <View className="flex-row items-start justify-between">
           <View
             className="h-10 w-10 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: `${accent}20`, borderWidth: 1, borderColor: `${accent}40` }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)' }}
           >
-            <Ionicons name={icon} size={18} color={accent} />
+            <Ionicons name={icon} size={18} color="#FFFFFF" />
           </View>
           <View
             className="rounded-full px-2.5 py-1"
-            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.7)' }}
+            style={{ backgroundColor: 'rgba(15,23,42,0.18)' }}
           >
-            <Text style={{ color: accent, fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
               {eyebrow}
             </Text>
           </View>
         </View>
 
-        <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800', marginTop: 14 }}>
+        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginTop: 14 }}>
           {title}
         </Text>
-        <Text numberOfLines={4} style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
+        <Text
+          numberOfLines={4}
+          style={{ color: 'rgba(255,255,255,0.84)', fontSize: 12, lineHeight: 18, marginTop: 8 }}
+        >
           {description}
         </Text>
 
         <View className="mt-5 flex-row items-center justify-between">
-          <Text style={{ color: colors.textPrimary, fontSize: 11, fontWeight: '700' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
             Open
           </Text>
           <View
             className="h-8 w-8 items-center justify-center rounded-full"
-            style={{ backgroundColor: accent }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.96)' }}
           >
-            <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
+            <Ionicons name="arrow-forward" size={15} color={accent} />
           </View>
         </View>
       </View>
