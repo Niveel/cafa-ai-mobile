@@ -43,6 +43,7 @@ export type UiMessage = {
   videoId?: string;
   isVideoGenerating?: boolean;
   isArtifactGenerating?: boolean;
+  isAnalyzing?: boolean;
   screenHandoff?: UiMessageScreenHandoff;
   imageRequirement?: UiMessageImageRequirement;
   documentWizard?: UiMessageDocumentWizard;

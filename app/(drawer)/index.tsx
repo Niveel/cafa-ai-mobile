@@ -135,6 +135,7 @@ import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
 import {
   clearDocumentWizardDraftMessages,
+  classifyChatResponse,
   detectDocumentRequest,
   emitChatMutated,
   getActiveDocumentWizardDraftKey,
@@ -3172,8 +3173,41 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
           setIsUnderstandingPrompt(false);
 
-          let detectedExpectedResponseType: 'text' | 'image' | 'video' | 'artifact' = 'text';
-          if (screenMode === 'chat' && isAuthenticated && attachmentsForSend.length === 0) {
+          let detectedExpectedResponseType: import('@/types').ExpectedResponseType = 'text';
+          let analyzedUserMessage: UiMessage | null = null;
+          let analyzedAssistantId = '';
+          if (screenMode === 'chat' && isAuthenticated) {
+            analyzedUserMessage = {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content: trimmed,
+              createdAt: Date.now(),
+              referencedMedia: composerMediaReference ? { ...composerMediaReference } : undefined,
+              attachments: attachmentsForSend.map((asset) => ({
+                id: asset.id,
+                originalName: asset.fileName ?? asset.label,
+                mimeType: asset.mimeType,
+                fileType: (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? 'image' : 'document',
+                url: asset.uri,
+                thumbnailUrl: asset.uri,
+              })),
+            };
+            analyzedAssistantId = `assistant-${Date.now()}`;
+            setAttachmentMenuOpen(false);
+            setModelMenuOpen(false);
+            if (attachmentsForSend.length) setAttachedAssets([]);
+            Keyboard.dismiss();
+            inputValueRef.current = '';
+            setInput('');
+            setMessages((prev) => [
+              ...prev.filter((message) => !isWelcomeMessage(message)),
+              analyzedUserMessage!,
+              { id: analyzedAssistantId, role: 'assistant', content: '', createdAt: Date.now() + 1, isAnalyzing: true },
+            ]);
+            autoScrollEnabledRef.current = true;
+            setShowScrollToBottom(false);
+            scrollToBottom();
+
             lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
             logSendPayload({
               endpoint: lastEndpoint,
@@ -3185,9 +3219,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               reference: composerMediaReference ?? null,
               attachments: [],
             });
-            setStatusNotice('Analyzing your request...');
-            const detection = await detectDocumentRequest(trimmed);
-            detectedExpectedResponseType = detection.expectedResponseType;
+            const [classification, detection] = await Promise.all([
+              classifyChatResponse(trimmed, attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType }))),
+              detectDocumentRequest(trimmed),
+            ]);
+            detectedExpectedResponseType = classification.responseType;
             if (__DEV__) {
               try {
                 console.log('[document-detect:result]', JSON.stringify({
@@ -3212,7 +3248,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               }
             }
 
-            if (detection.isDocumentRequest && detection.confidence >= 0.7) {
+            if (classification.responseType === 'artifact' && detection.needsForm) {
               try {
                 let wizardConversationId = activeAuthConversationId ?? authConversationId;
                 if (!wizardConversationId) {
@@ -3223,8 +3259,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   setAuthConversationId(wizardConversationId);
                   didMutateChats = true;
                 }
-                const userMessageId = `user-document-${Date.now()}`;
-                const assistantMessageId = `assistant-document-form-${Date.now()}`;
+                const userMessageId = analyzedUserMessage.id;
+                const assistantMessageId = analyzedAssistantId;
                 lastEndpoint = `${API_BASE_URL}/documents/wizard/start`;
                 logSendPayload({
                   endpoint: lastEndpoint,
@@ -3254,12 +3290,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   html,
                   htmlLength: html.length,
                 });
-                const userMessage: UiMessage = {
-                  id: userMessageId,
-                  role: 'user',
-                  content: trimmed,
-                  createdAt: Date.now(),
-                };
                 const assistantMessage: UiMessage = {
                   id: assistantMessageId,
                   role: 'assistant',
@@ -3294,24 +3324,18 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         }
                       : message
                   ));
-                nextMessages.push(userMessage, assistantMessage);
+                nextMessages.push(analyzedUserMessage, assistantMessage);
                 setMessages((prev) => {
                   const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
-                  return [
-                    ...withoutSyntheticWelcome.map((message) => (
-                      message.documentWizard
-                        ? {
-                            ...message,
-                            documentWizard: {
-                              ...message.documentWizard,
-                              collapsed: true,
-                            },
-                          }
-                        : message
-                    )),
-                    userMessage,
-                    assistantMessage,
-                  ];
+                  return withoutSyntheticWelcome.map((message) => {
+                    if (message.id === assistantMessageId) return assistantMessage;
+                    return message.documentWizard
+                      ? {
+                          ...message,
+                          documentWizard: { ...message.documentWizard, collapsed: true },
+                        }
+                      : message;
+                  });
                 });
                 await setDocumentWizardDraftMessages(
                   getDocumentWizardDraftKey(wizardConversationId ?? null),
@@ -3334,7 +3358,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             }
           }
 
-          const userMessage: UiMessage = {
+          const userMessage: UiMessage = analyzedUserMessage ?? {
             id: `user-${Date.now()}`,
             role: 'user',
             content: trimmed,
@@ -3358,11 +3382,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             });
           }
 
-          assistantId = `assistant-${Date.now()}`;
+          assistantId = analyzedAssistantId || `assistant-${Date.now()}`;
           activeAssistantId = assistantId;
           const shouldUseBackendResponseTypeForLoading = screenMode === 'chat'
-            && isAuthenticated
-            && attachmentsForSend.length === 0;
+            && isAuthenticated;
           const shouldShowBackendArtifactLoading = shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'artifact';
           const suppressStreamingTextForArtifact = shouldShowBackendArtifactLoading
@@ -3399,18 +3422,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           setStreamingModelLabel(t(`chat.model.label.${activeModel}`));
           setMessages((prev) => {
             const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
+            const assistantMessage: UiMessage = {
+              id: assistantId,
+              role: 'assistant',
+              content: '',
+              createdAt: Date.now(),
+              isAnalyzing: false,
+              isArtifactGenerating: shouldShowBackendArtifactLoading || suppressStreamingTextForArtifact,
+              isImageGenerating: shouldShowBackendImageLoading,
+              isVideoGenerating: shouldShowBackendVideoLoading,
+            };
+            if (analyzedUserMessage) {
+              return withoutSyntheticWelcome.map((message) => message.id === assistantId ? assistantMessage : message);
+            }
             return [
               ...withoutSyntheticWelcome,
               userMessage,
-              {
-                id: assistantId,
-                role: 'assistant',
-                content: '',
-                createdAt: Date.now(),
-                isArtifactGenerating: shouldShowBackendArtifactLoading || suppressStreamingTextForArtifact,
-                isImageGenerating: shouldShowBackendImageLoading,
-                isVideoGenerating: shouldShowBackendVideoLoading,
-              },
+              assistantMessage,
             ];
           });
           autoScrollEnabledRef.current = true;
@@ -6617,6 +6645,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 const isImageGenerating = !isUser && item.isImageGenerating && !item.imageUrl;
                 const isVideoGenerating = !isUser && item.isVideoGenerating && !item.videoUrl;
                 const isArtifactGenerating = !isUser && item.isArtifactGenerating && !item.videoUrl && !item.imageUrl;
+                const isAnalyzing = !isUser && item.isAnalyzing;
                 const isImageMessage = !isUser && Boolean(item.imageUrl);
                 const isVideoMessage = !isUser && Boolean(item.videoUrl);
                 const isScreenHandoffMessage = !isUser && Boolean(item.screenHandoff);
@@ -6646,6 +6675,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           }
                         : undefined}
                     >
+                      {isAnalyzing ? (
+                        <View className="flex-row items-center rounded-2xl px-3 py-2" style={{ backgroundColor: isDark ? '#111111' : '#F5F5F5' }}>
+                          <ActivityIndicator size="small" color={colors.primary} />
+                          <Text style={{ marginLeft: 8, color: colors.textSecondary, fontSize: 13 }}>Analyzing your request...</Text>
+                        </View>
+                      ) : null}
                       {isImageGenerating ? (
                         <ImageGenerationPlaceholder
                           width={236}
@@ -6929,7 +6964,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable

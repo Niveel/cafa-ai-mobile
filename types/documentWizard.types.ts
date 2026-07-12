@@ -1,5 +1,20 @@
 export type DocumentWizardFormat = 'pdf' | 'docx' | 'pptx' | 'xlsx';
-export type ExpectedResponseType = 'text' | 'image' | 'video' | 'artifact';
+export type ExpectedResponseType =
+  | 'text'
+  | 'search'
+  | 'image'
+  | 'video'
+  | 'artifact'
+  | 'image_analysis'
+  | 'document_analysis';
+
+export type ChatClassificationResult = {
+  responseType: ExpectedResponseType;
+  confidence: number;
+  subIntent: string | null;
+  label: string;
+  description: string;
+};
 
 export type DetectDocumentRequestResult = {
   isDocumentRequest: boolean;
@@ -7,6 +22,8 @@ export type DetectDocumentRequestResult = {
   format: DocumentWizardFormat | null;
   confidence: number;
   expectedResponseType: ExpectedResponseType;
+  needsForm: boolean;
+  formReason: string | null;
 };
 
 export type DocumentWizardArtifact = {

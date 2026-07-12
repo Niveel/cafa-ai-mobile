@@ -4,6 +4,7 @@ import { apiClient } from '@/services/api';
 import { mapApiError } from '@/services/api/error.mapper';
 import {
   ApiResponse,
+  ChatClassificationResult,
   DetectDocumentRequestResult,
   DocumentWizardArtifact,
   DocumentWizardHistoryPage,
@@ -33,7 +34,34 @@ const DETECT_FALLBACK: DetectDocumentRequestResult = {
   format: null,
   confidence: 0,
   expectedResponseType: 'text',
+  needsForm: false,
+  formReason: null,
 };
+
+const CLASSIFY_FALLBACK: ChatClassificationResult = {
+  responseType: 'text',
+  confidence: 0,
+  subIntent: null,
+  label: 'Thinking',
+  description: 'Getting your answer ready',
+};
+
+export async function classifyChatResponse(
+  message: string,
+  attachments: { fileName?: string; mimeType?: string }[] = [],
+): Promise<ChatClassificationResult> {
+  try {
+    const response: AxiosResponse<ApiResponse<ChatClassificationResult>> = await apiClient.post('/chat/classify', {
+      message,
+      attachments,
+      hasImageAttachment: attachments.some((item) => item.mimeType?.toLowerCase().startsWith('image/')),
+      hasDocumentAttachment: attachments.some((item) => !item.mimeType?.toLowerCase().startsWith('image/')),
+    });
+    return response.data?.data ? { ...CLASSIFY_FALLBACK, ...response.data.data } : CLASSIFY_FALLBACK;
+  } catch {
+    return CLASSIFY_FALLBACK;
+  }
+}
 
 export async function detectDocumentRequest(message: string): Promise<DetectDocumentRequestResult> {
   try {
