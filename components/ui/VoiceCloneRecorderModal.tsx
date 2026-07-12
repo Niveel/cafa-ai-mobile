@@ -129,7 +129,6 @@ function VoiceCloneRecorderModalContent({
   const recorder = useAudioRecorder({
     ...RecordingPresets.HIGH_QUALITY,
     isMeteringEnabled: true,
-    keepAudioRecordingOnBackground: false,
   }, (status) => {
     if (status.hasError || status.error) {
       logVoiceCloneRecorder('native-status-error', status);
@@ -376,13 +375,14 @@ function VoiceCloneRecorderModalContent({
 
   const onUseRecording = useCallback(async () => {
     if (!recording || isSubmitting) return;
-    if (recording.durationMillis < MIN_RECORDING_MILLIS) {
+    const currentRecording = recording;
+    if (currentRecording.durationMillis < MIN_RECORDING_MILLIS) {
       setRecordingError('Record at least 10 seconds so your cloned voice sounds right.');
       announce('Record at least 10 seconds so your cloned voice sounds right.');
       return;
     }
 
-    const info = await LegacyFileSystem.getInfoAsync(recording.uri);
+    const info = await LegacyFileSystem.getInfoAsync(currentRecording.uri);
     if (!info.exists) {
       const message = 'That recording is no longer available. Please record again.';
       setRecordingError(message);
@@ -398,18 +398,18 @@ function VoiceCloneRecorderModalContent({
 
     setRecordingError('');
     logVoiceCloneRecorder('submit-recording', {
-      durationMillis: recording.durationMillis,
-      uri: recording.uri,
-      fileName: recording.fileName,
-      mimeType: recording.mimeType,
+      durationMillis: currentRecording.durationMillis,
+      uri: currentRecording.uri,
+      fileName: currentRecording.fileName,
+      mimeType: currentRecording.mimeType,
     });
-    await onSubmitRecording(recording);
+    await onSubmitRecording(currentRecording);
   }, [announce, isSubmitting, onSubmitRecording, recording]);
 
   const remainingSeconds = Math.max(0, MAX_RECORDING_SECONDS - Math.floor(recorderState.durationMillis / 1000));
   const isRecording = phase === 'recording';
   const canDismiss = !isRecording && !isSubmitting && !isPreparing;
-  const needsLongerSample = Boolean(recording) && recording.durationMillis < MIN_RECORDING_MILLIS;
+  const needsLongerSample = (recording?.durationMillis ?? 0) < MIN_RECORDING_MILLIS && Boolean(recording);
 
   return (
     <Modal

@@ -26,6 +26,7 @@ import { ArtifactItem, DocumentWizardArtifact, DocumentWizardHistoryItem } from 
 import { hapticError, hapticSelection, hapticSuccess, saveFileToDownloadsCafaFolder } from '@/utils';
 
 const PAGE_SIZE = 20;
+type ArtifactListItem = ArtifactItem | DocumentWizardHistoryItem;
 
 function formatDate(value?: string) {
   if (!value) return '';
@@ -64,6 +65,10 @@ function fileIconForMime(mimeType?: string) {
   if (mime.includes('markdown') || mime.includes('text/')) return 'document-outline';
   if (mime.includes('json') || mime.includes('xml') || mime.includes('csv')) return 'code-slash-outline';
   return 'document-outline';
+}
+
+function isDocumentHistoryItem(item: ArtifactListItem): item is DocumentWizardHistoryItem {
+  return '_id' in item;
 }
 
 async function getSharingModule() {
@@ -409,7 +414,7 @@ export default function ArtifactsScreen() {
   }, [showNotice]);
 
   const isShowingDocuments = activeCollection === 'documents';
-  const listData = isShowingDocuments ? filteredDocuments : artifacts;
+  const listData: ArtifactListItem[] = isShowingDocuments ? filteredDocuments : artifacts;
   const isListInitialLoading = isShowingDocuments ? isDocumentInitialLoading : isInitialLoading;
   const isListLoadingMore = isShowingDocuments ? isLoadingDocumentsMore : isLoadingMore;
 
@@ -491,9 +496,9 @@ export default function ArtifactsScreen() {
           </View>
         </View>
 
-        <FlatList
+        <FlatList<ArtifactListItem>
           data={listData}
-          keyExtractor={(item) => ('artifactId' in item ? item.artifactId : item._id)}
+          keyExtractor={(item) => (isDocumentHistoryItem(item) ? item._id : item.artifactId)}
           onEndReached={onLoadMore}
           onEndReachedThreshold={0.6}
           refreshing={isRefreshing}
@@ -501,7 +506,7 @@ export default function ArtifactsScreen() {
           accessibilityLabel={isShowingDocuments ? 'Documents list' : 'Artifacts list'}
           contentContainerStyle={{ paddingBottom: 36, paddingTop: 2 }}
           renderItem={({ item }) => {
-            if ('_id' in item) {
+            if (isDocumentHistoryItem(item)) {
               const primaryArtifact = item.artifacts[0];
               const documentKey = primaryArtifact ? `${item._id}:${primaryArtifact.fileName}` : null;
               const isDownloading = documentKey ? downloadingDocumentKey === documentKey : false;

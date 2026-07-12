@@ -135,7 +135,6 @@ export async function getAvatarGallery(query: AvatarGalleryQuery = {}, options: 
     logAvatarDev('[avatar-gallery:error]', {
       endpoint: apiEndpoints.avatar.gallery,
       query: sanitizedQuery,
-      message: mapped.message,
       ...(mapped as Error & { code?: string; status?: number; details?: unknown; payload?: unknown }),
     });
     throw mapped;
@@ -226,7 +225,6 @@ export async function getAvatarVoiceCatalog(query: AvatarVoiceQuery = {}, option
     logAvatarDev('[avatar-voices:error]', {
       endpoint: apiEndpoints.avatar.voices,
       query: sanitizedQuery,
-      message: mapped.message,
       ...(mapped as Error & { code?: string; status?: number; details?: unknown; payload?: unknown }),
     });
     throw mapped;
