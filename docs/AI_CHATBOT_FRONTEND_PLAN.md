@@ -235,7 +235,6 @@ Covered by backend docs:
 
 ## 8. Additional Backend Requests for ChatGPT-class UX
 
-Create and share `docs/BACKEND_ENDPOINT_REQUESTS.md` (included in this plan package) for endpoints likely needed but not currently documented.
 
 ## 9. Security and Privacy Baseline
 

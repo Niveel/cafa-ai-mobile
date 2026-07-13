@@ -414,6 +414,24 @@ export async function getAvatarVideoStatus(jobId: string) {
   }
 }
 
+export async function cancelAvatarVideo(jobId: string) {
+  try {
+    await apiClient.post(apiEndpoints.avatar.videoCancel(jobId));
+    avatarHistoryCache.clear();
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export async function deleteAvatarVideo(videoId: string) {
+  try {
+    await apiClient.delete(apiEndpoints.avatar.videoDelete(videoId));
+    avatarHistoryCache.clear();
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
 export async function getAvatarHistory(page = 1, limit = 20, options: AvatarRequestOptions = {}) {
   const cacheKey = `${page}:${limit}`;
   if (!options.forceRefresh) {

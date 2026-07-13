@@ -122,6 +122,8 @@ export const apiEndpoints = {
     scriptGenerate: `${API_BASE_PATH}/avatar/script/generate`,
     videoGenerate: `${API_BASE_PATH}/avatar/video/generate`,
     videoStatus: (id: string) => `${API_BASE_PATH}/avatar/video/${id}/status`,
+    videoCancel: (id: string) => `${API_BASE_PATH}/avatar/video/${id}/cancel`,
+    videoDelete: (id: string) => `${API_BASE_PATH}/avatar/video/${id}`,
     history: `${API_BASE_PATH}/avatar/history`,
   },
 };

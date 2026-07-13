@@ -100,6 +100,13 @@ export default function DrawerLayout() {
         }}
       />
       <Drawer.Screen
+        name="avatar-history"
+        options={{
+          title: 'Avatar History',
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
         name="image-to-video"
         options={{
           title: 'Image-to-video',

@@ -22,11 +22,13 @@ import * as ExpoImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
+import { router, type Href } from 'expo-router';
 
 import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { pickRandomAvatarScriptPreset } from '@/features/avatar/data/avatarRandomScriptPool';
 import {
   cloneAvatarVoice,
+  cancelAvatarVideo,
   generateAvatarScript,
   generateAvatarVideo,
   getAvatarGallery,
@@ -501,7 +503,7 @@ function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoad
       </View>
 
       <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginTop: 12, letterSpacing: 0.6 }}>
-        {status === 'video_generating' ? 'Rendering frames' : status === 'audio_generated' ? 'Syncing voice' : 'Building performance'}
+        {status === 'video_generating' ? 'Rendering frames' : status === 'audio_generated' ? 'Syncing voice' : 'Preparing your avatar'}
       </Text>
     </View>
   );
@@ -767,6 +769,7 @@ export default function AvatarVideoScreen() {
   const [activeJobMeta, setActiveJobMeta] = useState<PendingAvatarVideoJob | null>(null);
   const [activeJobStatus, setActiveJobStatus] = useState<AvatarVideoStatus | null>(null);
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
+  const [isCancellingGeneration, setIsCancellingGeneration] = useState(false);
   const [currentResult, setCurrentResult] = useState<CurrentAvatarResult | null>(null);
   const [failedResult, setFailedResult] = useState<FailedAvatarResult | null>(null);
   const [isFailureModalVisible, setIsFailureModalVisible] = useState(false);
@@ -1379,6 +1382,40 @@ export default function AvatarVideoScreen() {
     userGoal,
   ]);
 
+  const cancelGeneration = useCallback(() => {
+    if (!activeJobMeta || isCancellingGeneration) return;
+    Alert.alert(
+      'Cancel avatar video?',
+      'The current generation will stop and cannot be resumed.',
+      [
+        { text: 'Keep Generating', style: 'cancel' },
+        {
+          text: 'Cancel Generation',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setIsCancellingGeneration(true);
+              try {
+                await cancelAvatarVideo(activeJobMeta.jobId);
+                await clearPendingAvatarVideoJob();
+                if (!isMountedRef.current) return;
+                setActiveJobMeta(null);
+                setActiveJobStatus(null);
+                setStatusNotice('Avatar video generation cancelled.');
+                announce('Avatar video generation cancelled.');
+              } catch (error) {
+                if (!isMountedRef.current) return;
+                setErrorMessage(error instanceof Error ? error.message : 'Could not cancel avatar generation.');
+              } finally {
+                if (isMountedRef.current) setIsCancellingGeneration(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [activeJobMeta, announce, isCancellingGeneration]);
+
   const downloadVideoToDevice = useCallback(async (videoUrl: string, fileStem: string, historyId?: string) => {
     if (historyId) {
       setDownloadingHistoryId(historyId);
@@ -1491,6 +1528,15 @@ export default function AvatarVideoScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 16 }}>
             Create a talking avatar video by choosing a face, drafting your message, and matching it with the right voice.
           </Text>
+          <View style={{ alignItems: 'flex-end', marginTop: -8, marginBottom: 16 }}>
+            <AppButton
+              label="History"
+              iconName="time-outline"
+              compact
+              variant="outline"
+              onPress={() => router.push('/(drawer)/avatar-history' as Href)}
+            />
+          </View>
 
           {statusNotice ? (
             <View
@@ -2468,6 +2514,16 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
                 This process usually takes 5 to 10 minutes. You can leave the screen and come back later. The app will resume polling your pending job automatically.
               </Text>
+              <View style={{ marginTop: 16 }}>
+                <AppButton
+                  label={isCancellingGeneration ? 'Cancelling...' : 'Cancel Generation'}
+                  iconName="close-circle-outline"
+                  compact
+                  variant="outline"
+                  loading={isCancellingGeneration}
+                  onPress={cancelGeneration}
+                />
+              </View>
             </View>
           ) : null}
 
@@ -2540,7 +2596,7 @@ export default function AvatarVideoScreen() {
             </SectionCard>
           ) : null}
 
-          <SectionCard
+          {false ? <SectionCard
             title="History"
             subtitle="Replay your completed avatar videos and save them again whenever you need them."
             colors={colors}
@@ -2646,7 +2702,7 @@ export default function AvatarVideoScreen() {
                 </View>
               ))
             ) : null}
-          </SectionCard>
+          </SectionCard> : null}
         </ScrollView>
       </AppScreen>
     </RequireAuthRoute>
