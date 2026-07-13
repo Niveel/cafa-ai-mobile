@@ -786,6 +786,7 @@ export default function CafaLifeScreen() {
   const previewPlayerSubRef = useRef<{ remove: () => void } | null>(null);
   const previewUriByVoiceIdRef = useRef<Record<string, string>>({});
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voicePickerOpenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const presentation = getStatusPresentation(state);
 
@@ -824,6 +825,10 @@ export default function CafaLifeScreen() {
       previewPlayerRef.current?.pause();
       previewPlayerRef.current?.remove();
       previewPlayerRef.current = null;
+      if (voicePickerOpenTimeoutRef.current) {
+        clearTimeout(voicePickerOpenTimeoutRef.current);
+        voicePickerOpenTimeoutRef.current = null;
+      }
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
         tooltipTimeoutRef.current = null;
@@ -1005,6 +1010,25 @@ export default function CafaLifeScreen() {
     void loadVoices(true);
   }, [loadVoices]);
 
+  const handleOpenVoicePicker = useCallback(() => {
+    hapticSelection();
+    stopPreview();
+    if (voicePickerOpenTimeoutRef.current) {
+      clearTimeout(voicePickerOpenTimeoutRef.current);
+      voicePickerOpenTimeoutRef.current = null;
+    }
+    if (isSettingsVisible) {
+      setIsSettingsVisible(false);
+      voicePickerOpenTimeoutRef.current = setTimeout(() => {
+        voicePickerOpenTimeoutRef.current = null;
+        if (!isMountedRef.current) return;
+        setIsVoicePickerVisible(true);
+      }, 250);
+      return;
+    }
+    setIsVoicePickerVisible(true);
+  }, [isSettingsVisible, stopPreview]);
+
   const showTooltip = useCallback((text: string, event?: GestureResponderEvent) => {
     hapticSelection();
     if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
@@ -1116,7 +1140,7 @@ export default function CafaLifeScreen() {
       <CafaLiveSettingsModal
         visible={isSettingsVisible}
         onClose={() => setIsSettingsVisible(false)}
-        onOpenVoicePicker={() => setIsVoicePickerVisible(true)}
+        onOpenVoicePicker={handleOpenVoicePicker}
         onRefreshVoices={handleRefreshVoices}
         isRefreshingVoices={isRefreshingVoices}
         isVoicesLoading={isVoicesLoading}
