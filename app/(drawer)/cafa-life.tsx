@@ -1128,7 +1128,10 @@ export default function CafaLifeScreen() {
         voices={voices}
         selectedVoiceId={selectedVoiceId}
         onSelectVoice={(voiceId) => {
+          stopPreview();
           setSelectedVoiceId(voiceId);
+          setIsVoicePickerVisible(false);
+          setIsSettingsVisible(true);
           announceForAccessibilitySafe(`${voices.find((voice) => voice.id === voiceId)?.name ?? 'Voice'} selected.`);
         }}
         onPreviewVoice={handlePreviewVoice}
