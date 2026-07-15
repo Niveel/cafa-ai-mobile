@@ -2923,6 +2923,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
   }, []);
 
+  const isChartGenerationRequest = useCallback((value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    return /\b(?:bar|line|pie|area|scatter|bubble|column|donut|doughnut)\s+charts?\b/i.test(normalized)
+      || /\b(?:charts?|graphs?|plots?|data visuali[sz]ation)\b/i.test(normalized);
+  }, []);
+
   const handleSend = (options?: { skipDocumentFormWarning?: boolean }) => {
       const run = async () => {
         const trimmed = inputValueRef.current.trim();
@@ -3224,6 +3231,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           setIsUnderstandingPrompt(false);
 
           let detectedExpectedResponseType: import('@/types').ExpectedResponseType = 'text';
+          let shouldRouteChartThroughChat = isChartGenerationRequest(trimmed);
           let analyzedUserMessage: UiMessage | null = null;
           let analyzedAssistantId = '';
           if (screenMode === 'chat' && isAuthenticated) {
@@ -3273,9 +3281,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               classifyChatResponse(trimmed, attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType }))),
               detectDocumentRequest(trimmed),
             ]);
+            shouldRouteChartThroughChat = shouldRouteChartThroughChat
+              || classification.subIntent?.trim().toLowerCase() === 'chart_generate';
             detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
               ? 'artifact'
               : classification.responseType;
+            if (shouldRouteChartThroughChat) {
+              detectedExpectedResponseType = 'artifact';
+            }
             if (__DEV__) {
               try {
                 console.log('[document-detect:result]', JSON.stringify({
@@ -3287,6 +3300,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
                   classificationResponseType: classification.responseType,
+                  classificationSubIntent: classification.subIntent,
+                  routeThroughRegularChat: shouldRouteChartThroughChat,
                   needsForm: detection.needsForm,
                   formReason: detection.formReason,
                 }));
@@ -3300,6 +3315,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
                   classificationResponseType: classification.responseType,
+                  classificationSubIntent: classification.subIntent,
+                  routeThroughRegularChat: shouldRouteChartThroughChat,
                   needsForm: detection.needsForm,
                   formReason: detection.formReason,
                 });
@@ -3619,7 +3636,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           && !hasAnyAttachment
           && !composerMediaReference;
         const inferredImagePrompt = shouldUseBackendResponseTypeForMediaIntent
-          ? (detectedExpectedResponseType === 'image' ? trimmed : null)
+          ? (!shouldRouteChartThroughChat && detectedExpectedResponseType === 'image' ? trimmed : null)
           : (!extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
             ? trimmed
             : null);
