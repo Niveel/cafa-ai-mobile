@@ -24,7 +24,7 @@ import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
 import { router, type Href } from 'expo-router';
 
-import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
+import { AppButton, AppPromptModal, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { pickRandomAvatarScriptPreset } from '@/features/avatar/data/avatarRandomScriptPool';
 import {
   cloneAvatarVoice,
@@ -770,6 +770,7 @@ export default function AvatarVideoScreen() {
   const [activeJobStatus, setActiveJobStatus] = useState<AvatarVideoStatus | null>(null);
   const [isStartingGeneration, setIsStartingGeneration] = useState(false);
   const [isCancellingGeneration, setIsCancellingGeneration] = useState(false);
+  const [isCancelGenerationPromptVisible, setIsCancelGenerationPromptVisible] = useState(false);
   const [currentResult, setCurrentResult] = useState<CurrentAvatarResult | null>(null);
   const [failedResult, setFailedResult] = useState<FailedAvatarResult | null>(null);
   const [isFailureModalVisible, setIsFailureModalVisible] = useState(false);
@@ -1384,36 +1385,30 @@ export default function AvatarVideoScreen() {
 
   const cancelGeneration = useCallback(() => {
     if (!activeJobMeta || isCancellingGeneration) return;
-    Alert.alert(
-      'Cancel avatar video?',
-      'The current generation will stop and cannot be resumed.',
-      [
-        { text: 'Keep Generating', style: 'cancel' },
-        {
-          text: 'Cancel Generation',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              setIsCancellingGeneration(true);
-              try {
-                await cancelAvatarVideo(activeJobMeta.jobId);
-                await clearPendingAvatarVideoJob();
-                if (!isMountedRef.current) return;
-                setActiveJobMeta(null);
-                setActiveJobStatus(null);
-                setStatusNotice('Avatar video generation cancelled.');
-                announce('Avatar video generation cancelled.');
-              } catch (error) {
-                if (!isMountedRef.current) return;
-                setErrorMessage(error instanceof Error ? error.message : 'Could not cancel avatar generation.');
-              } finally {
-                if (isMountedRef.current) setIsCancellingGeneration(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
+    setIsCancelGenerationPromptVisible(true);
+  }, [activeJobMeta, isCancellingGeneration]);
+
+  const confirmCancelGeneration = useCallback(() => {
+    if (!activeJobMeta || isCancellingGeneration) return;
+    const jobId = activeJobMeta.jobId;
+    setIsCancelGenerationPromptVisible(false);
+    void (async () => {
+      setIsCancellingGeneration(true);
+      try {
+        await cancelAvatarVideo(jobId);
+        await clearPendingAvatarVideoJob();
+        if (!isMountedRef.current) return;
+        setActiveJobMeta(null);
+        setActiveJobStatus(null);
+        setStatusNotice('Avatar video generation cancelled.');
+        announce('Avatar video generation cancelled.');
+      } catch (error) {
+        if (!isMountedRef.current) return;
+        setErrorMessage(error instanceof Error ? error.message : 'Could not cancel avatar generation.');
+      } finally {
+        if (isMountedRef.current) setIsCancellingGeneration(false);
+      }
+    })();
   }, [activeJobMeta, announce, isCancellingGeneration]);
 
   const downloadVideoToDevice = useCallback(async (videoUrl: string, fileStem: string, historyId?: string) => {
@@ -1511,6 +1506,17 @@ export default function AvatarVideoScreen() {
   return (
     <RequireAuthRoute>
       <AppScreen title="Avatar Video">
+        <AppPromptModal
+          visible={isCancelGenerationPromptVisible}
+          title="Cancel avatar video?"
+          message="The current generation will stop and cannot be resumed."
+          confirmLabel="Cancel Generation"
+          cancelLabel="Keep Generating"
+          confirmTone="danger"
+          iconName="close-circle-outline"
+          onConfirm={confirmCancelGeneration}
+          onCancel={() => setIsCancelGenerationPromptVisible(false)}
+        />
         <ScrollView
           ref={mainScrollRef}
           showsVerticalScrollIndicator={false}
