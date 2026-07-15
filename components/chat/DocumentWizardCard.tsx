@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useMemo, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import {
   AccessibilityInfo,
@@ -37,6 +37,53 @@ type DocumentWizardCardProps = {
 };
 
 const HEIGHT_MESSAGE_PREFIX = '__CAFA_WIZARD_HEIGHT__:';
+const SUBMIT_MESSAGE = '__CAFA_WIZARD_SUBMIT__';
+const NATIVE_DOCUMENT_WIZARD_BRIDGE = `
+  (function () {
+    var form = document.querySelector('form');
+    if (!form || form.getAttribute('data-cafa-native-bridge') === 'true') return true;
+    form.setAttribute('data-cafa-native-bridge', 'true');
+    form.setAttribute('novalidate', 'novalidate');
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      window.ReactNativeWebView.postMessage('__CAFA_WIZARD_SUBMIT__');
+
+      var requiredControls = Array.prototype.slice.call(
+        form.querySelectorAll('input[required], textarea[required], select[required], [aria-required="true"]')
+      );
+      var firstEmpty = requiredControls.find(function (control) {
+        var type = ((control.getAttribute('type') || '') + '').toLowerCase();
+        if (type === 'radio' || type === 'checkbox') {
+          var name = control.getAttribute('name');
+          if (!name) return !control.checked;
+          return !form.querySelector('[name="' + name.replace(/"/g, '\\"') + '"]:checked');
+        }
+        return !String(control.value || '').trim();
+      });
+      if (firstEmpty) {
+        firstEmpty.setAttribute('aria-invalid', 'true');
+        if (typeof firstEmpty.scrollIntoView === 'function') firstEmpty.scrollIntoView({ block: 'center' });
+        if (typeof firstEmpty.focus === 'function') firstEmpty.focus();
+        return false;
+      }
+
+      var submittedData = {};
+      new FormData(form).forEach(function (value, key) {
+        var normalizedValue = typeof value === 'string' ? value : value.name;
+        if (Object.prototype.hasOwnProperty.call(submittedData, key) && submittedData[key]) {
+          submittedData[key] += ', ' + normalizedValue;
+        } else {
+          submittedData[key] = normalizedValue;
+        }
+      });
+      window.ReactNativeWebView.postMessage(JSON.stringify(submittedData));
+      return false;
+    }, true);
+    return true;
+  })();
+`;
 
 export function DocumentWizardCard({
   html,
@@ -55,6 +102,7 @@ export function DocumentWizardCard({
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [formHeight, setFormHeight] = useState(440);
+  const submissionInFlightRef = useRef(false);
 
   const enhancedHtml = useMemo(
     () => enhanceDocumentWizardHtml(html, colors.primary, isDark),
@@ -84,6 +132,18 @@ export function DocumentWizardCard({
     }
 
     if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return;
+    if (Object.keys(formData).length === 0) {
+      setError('The form fields could not be read. Please reload the form and try again.');
+      AccessibilityInfo.announceForAccessibility?.('The form fields could not be read. Please reload the form and try again.');
+      return;
+    }
+
+    if (payload === SUBMIT_MESSAGE) {
+      console.log('submitting form...');
+      return;
+    }
+    if (submissionInFlightRef.current) return;
+    submissionInFlightRef.current = true;
 
     setLoading(true);
     setError(null);
@@ -102,6 +162,7 @@ export function DocumentWizardCard({
       setError(message);
       AccessibilityInfo.announceForAccessibility?.(message);
     } finally {
+      submissionInFlightRef.current = false;
       setLoading(false);
     }
   }, [assistantMessageId, conversationId, documentType, format, onComplete, userMessageId]);
@@ -139,7 +200,10 @@ export function DocumentWizardCard({
             void handlePayload(event.nativeEvent.data);
           }}
           javaScriptEnabled
+          injectedJavaScript={NATIVE_DOCUMENT_WIZARD_BRIDGE}
           originWhitelist={['*']}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
           scrollEnabled
           style={{ flex: 1, backgroundColor: isDark ? '#101821' : '#f8fafc' }}
         />
@@ -246,7 +310,39 @@ export function DocumentWizardCard({
         </View>
       ) : null}
 
-      <View style={{ padding: 5 }}>
+      {loading ? (
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Form submitted. Generating your document."
+          style={{
+            margin: 7,
+            minHeight: 150,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 18,
+            backgroundColor: isDark ? 'rgba(95,127,184,0.10)' : 'rgba(95,127,184,0.07)',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(95,127,184,0.18)' : 'rgba(22,53,95,0.10)',
+          }}
+        >
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Ionicons name="document-text-outline" size={22} color={colors.primary} style={{ marginTop: 12 }} />
+          <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800', marginTop: 8 }}>
+            Form submitted
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+            Generating your document now.
+          </Text>
+        </View>
+      ) : null}
+
+      <View
+        pointerEvents={loading ? 'none' : 'auto'}
+        accessibilityElementsHidden={loading}
+        importantForAccessibility={loading ? 'no-hide-descendants' : 'auto'}
+        style={{ padding: loading ? 0 : 5, height: loading ? 0 : undefined, opacity: loading ? 0 : 1, overflow: 'hidden' }}
+      >
         <View
           style={{
             borderRadius: 12,
@@ -260,29 +356,6 @@ export function DocumentWizardCard({
           {embeddedForm}
         </View>
       </View>
-
-      {loading ? (
-        <View
-          accessibilityRole="progressbar"
-          accessibilityLabel="Generating your document"
-          style={{
-            marginHorizontal: 7,
-            marginBottom: 7,
-            borderRadius: 12,
-            paddingHorizontal: 8,
-            paddingVertical: 7,
-            backgroundColor: isDark ? 'rgba(95,127,184,0.12)' : 'rgba(95,127,184,0.08)',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Ionicons name="document-text-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
-          <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700', marginLeft: 6 }}>
-            Generating your document...
-          </Text>
-        </View>
-      ) : null}
     </LinearGradient>
   );
 }

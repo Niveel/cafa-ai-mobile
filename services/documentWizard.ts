@@ -21,6 +21,8 @@ type GenerateWizardResponse = ApiResponse<{ artifacts: DocumentWizardArtifact[] 
 type HistoryWizardResponse = ApiResponse<DocumentWizardHistoryPage>;
 
 const DOCUMENT_WIZARD_BASE = '/documents/wizard';
+const DOCUMENT_WIZARD_START_TIMEOUT_MS = 90_000;
+const DOCUMENT_WIZARD_GENERATE_TIMEOUT_MS = 180_000;
 
 type DocumentWizardPersistenceOptions = {
   conversationId?: string;
@@ -87,6 +89,8 @@ export async function startDocumentWizard(userRequest: string, options?: Documen
       conversationId: options?.conversationId,
       userMessageId: options?.userMessageId,
       assistantMessageId: options?.assistantMessageId,
+    }, {
+      timeout: DOCUMENT_WIZARD_START_TIMEOUT_MS,
     });
     if (!response.data?.success || !response.data.data?.html) {
       throw new Error(response.data?.message || 'Failed to prepare document form.');
@@ -111,6 +115,8 @@ export async function generateDocumentFromWizard(
       conversationId: options?.conversationId,
       userMessageId: options?.userMessageId,
       assistantMessageId: options?.assistantMessageId,
+    }, {
+      timeout: DOCUMENT_WIZARD_GENERATE_TIMEOUT_MS,
     });
     if (!response.data?.success) {
       throw new Error(response.data?.message || 'Failed to generate document.');

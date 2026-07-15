@@ -32,6 +32,8 @@ export function enhanceDocumentWizardHtml(
       color: var(--wizard-text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       min-height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
     }
     body {
       padding: 2px;
@@ -78,11 +80,25 @@ export function enhanceDocumentWizardHtml(
       box-shadow: var(--wizard-shadow);
     }
     label, legend {
-      display: block;
-      margin-bottom: 2px;
-      color: var(--wizard-text);
-      font-size: 0.72rem;
-      font-weight: 700;
+      display: block !important;
+      position: static !important;
+      inset: auto !important;
+      transform: none !important;
+      float: none !important;
+      width: auto !important;
+      height: auto !important;
+      margin: 0 0 2px !important;
+      padding: 0 !important;
+      color: var(--wizard-text) !important;
+      background: transparent !important;
+      font-size: 0.72rem !important;
+      font-weight: 700 !important;
+      line-height: 1.3 !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      clip: auto !important;
+      clip-path: none !important;
+      overflow: visible !important;
     }
     input, textarea, select {
       width: 100%;
@@ -193,6 +209,7 @@ export function enhanceDocumentWizardHtml(
   const script = `
     (function () {
       var HEIGHT_PREFIX = '__CAFA_WIZARD_HEIGHT__:';
+      var SUBMIT_MESSAGE = '__CAFA_WIZARD_SUBMIT__';
 
       function postToHost(value) {
         if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
@@ -232,6 +249,51 @@ export function enhanceDocumentWizardHtml(
         return !['hidden', 'submit', 'button', 'reset', 'image'].includes(type);
       }
 
+      function getControlLabel(control) {
+        if (!control) return null;
+        var id = control.getAttribute('id');
+        if (id) {
+          var explicitLabel = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+          if (explicitLabel) return explicitLabel;
+        }
+        return control.closest ? control.closest('label') : null;
+      }
+
+      function isOptionalControl(control) {
+        if (!control) return false;
+        if (control.hasAttribute('data-optional')) return true;
+        if (control.getAttribute('aria-required') === 'false') return true;
+        var label = getControlLabel(control);
+        var labelText = label ? normalizeText(label.textContent || '') : '';
+        return /(^|\s|\()(optional|not required)(\)|\s|$)/i.test(labelText);
+      }
+
+      function serializeForm(form) {
+        var payload = {};
+        var controls = Array.prototype.slice.call(form.querySelectorAll('input, textarea, select')).filter(isEligibleControl);
+        controls.forEach(function (control, index) {
+          var type = ((control.getAttribute('type') || '') + '').toLowerCase();
+          if ((type === 'radio' || type === 'checkbox') && !control.checked) return;
+          var label = getControlLabel(control);
+          var labelText = label ? String(label.textContent || '') : '';
+          var labelKey = labelText
+            .replace(/\*/g, '')
+            .replace(/\((optional|not required)\)/ig, '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+          var key = control.getAttribute('name') || control.getAttribute('id') || labelKey || ('field_' + String(index + 1));
+          var value = String(control.value || '');
+          if (Object.prototype.hasOwnProperty.call(payload, key) && payload[key]) {
+            payload[key] += ', ' + value;
+          } else {
+            payload[key] = value;
+          }
+        });
+        return payload;
+      }
+
       function hasFormControls(node) {
         return Boolean(node && node.querySelector && node.querySelector('input, textarea, select, button'));
       }
@@ -268,6 +330,18 @@ export function enhanceDocumentWizardHtml(
         var form = document.querySelector('form');
         if (!form) return;
         form.setAttribute('aria-label', 'Document details form');
+        form.setAttribute('novalidate', 'novalidate');
+
+        // Generated forms sometimes autofocus the first control. Embedded browsers
+        // then scroll that control to the top and leave its label above the viewport.
+        Array.prototype.slice.call(form.querySelectorAll('[autofocus]')).forEach(function (control) {
+          control.removeAttribute('autofocus');
+        });
+        if (document.activeElement && document.activeElement !== document.body
+          && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
+        }
+        window.scrollTo(0, 0);
 
         var banner = document.createElement('div');
         banner.className = 'wizard-validation-banner';
@@ -299,10 +373,16 @@ export function enhanceDocumentWizardHtml(
 
         controls.forEach(function (control) {
           var type = ((control.getAttribute('type') || '') + '').toLowerCase();
-          if (!['radio', 'checkbox'].includes(type)) {
+          var optional = isOptionalControl(control);
+          if (optional) {
+            control.removeAttribute('required');
+            control.setAttribute('aria-required', 'false');
+          } else if (!['radio', 'checkbox'].includes(type)) {
             control.setAttribute('required', 'required');
+            control.setAttribute('aria-required', 'true');
+          } else {
+            control.setAttribute('aria-required', 'true');
           }
-          control.setAttribute('aria-required', 'true');
           control.addEventListener('input', function () {
             control.classList.remove('wizard-invalid');
             control.setAttribute('aria-invalid', 'false');
@@ -320,7 +400,7 @@ export function enhanceDocumentWizardHtml(
         Array.prototype.slice.call(form.querySelectorAll('label')).forEach(function (label) {
           var targetId = label.getAttribute('for');
           var control = targetId ? document.getElementById(targetId) : label.querySelector('input, textarea, select');
-          if (!isEligibleControl(control) || label.querySelector('.wizard-required-mark')) return;
+          if (!isEligibleControl(control) || isOptionalControl(control) || label.querySelector('.wizard-required-mark')) return;
           var star = document.createElement('span');
           star.className = 'wizard-required-mark';
           star.textContent = '*';
@@ -328,6 +408,7 @@ export function enhanceDocumentWizardHtml(
         });
 
         form.addEventListener('submit', function (event) {
+          postToHost(SUBMIT_MESSAGE);
           var invalid = [];
           var radioNames = {};
           var checkboxNames = {};
@@ -336,6 +417,8 @@ export function enhanceDocumentWizardHtml(
             var type = ((control.getAttribute('type') || '') + '').toLowerCase();
             var name = control.getAttribute('name') || control.getAttribute('id') || '';
             control.classList.remove('wizard-invalid');
+
+            if (isOptionalControl(control)) return;
 
             if (type === 'radio') {
               if (!name || radioNames[name]) return;
@@ -363,7 +446,13 @@ export function enhanceDocumentWizardHtml(
           });
 
           if (!invalid.length) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.stopImmediatePropagation === 'function') {
+              event.stopImmediatePropagation();
+            }
             banner.setAttribute('data-visible', 'false');
+            postToHost(JSON.stringify(serializeForm(form)));
             notifyHeight();
             return;
           }
@@ -386,6 +475,27 @@ export function enhanceDocumentWizardHtml(
           notifyHeight();
         }, true);
 
+        Array.prototype.slice.call(form.querySelectorAll('button, input[type="button"]')).forEach(function (button) {
+          var type = ((button.getAttribute('type') || 'submit') + '').toLowerCase();
+          var text = normalizeText(button.textContent || button.value || '');
+          if (type !== 'button' || !/(^|\s)(submit|generate|create|continue)(\s|$)/i.test(text)) return;
+          button.addEventListener('click', function (event) {
+            event.preventDefault();
+            if (typeof form.requestSubmit === 'function') {
+              form.requestSubmit();
+              return;
+            }
+            var submitEvent;
+            try {
+              submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+            } catch {
+              submitEvent = document.createEvent('Event');
+              submitEvent.initEvent('submit', true, true);
+            }
+            form.dispatchEvent(submitEvent);
+          });
+        });
+
         window.addEventListener('load', notifyHeight);
         window.addEventListener('resize', notifyHeight);
         if (window.MutationObserver) {
@@ -394,7 +504,10 @@ export function enhanceDocumentWizardHtml(
           }).observe(document.body, { childList: true, subtree: true, attributes: true });
         }
         setTimeout(notifyHeight, 0);
-        setTimeout(notifyHeight, 250);
+        setTimeout(function () {
+          window.scrollTo(0, 0);
+          notifyHeight();
+        }, 250);
       });
     })();
   `;

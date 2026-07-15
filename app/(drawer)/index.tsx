@@ -435,6 +435,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
+  const [upgradeNoticeResetHours, setUpgradeNoticeResetHours] = useState<number | null>(null);
   const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
   const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
   const [downloadToastNotice, setDownloadToastNotice] = useState('');
@@ -506,6 +507,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   });
   const menuTouchRef = useRef(false);
   const documentDraftHydratedRef = useRef(false);
+  const conversationHydrationRequestRef = useRef(0);
+  const routedConversationIdRef = useRef('');
+  routedConversationIdRef.current = typeof params.conversationId === 'string' ? params.conversationId : '';
   const uploadTriggerButtonRef = useRef<View | null>(null);
   const uploadImageOptionRef = useRef<View | null>(null);
   const uploadDocumentOptionRef = useRef<View | null>(null);
@@ -1722,6 +1726,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [applyDescriptiveAttachmentNames, resolveBackendAssetUrl]);
 
   const applyAuthConversationDetail = useCallback((detail: Awaited<ReturnType<typeof getAuthenticatedConversation>>) => {
+    const routedConversationId = routedConversationIdRef.current;
+    if (routedConversationId && detail.id !== routedConversationId) return;
     const mapped = detail.messages.map(mapAuthMessageToUiMessage);
     setMessages((prev) => {
       const previousById = new Map(prev.map((message) => [message.id, message] as const));
@@ -2031,7 +2037,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       || message.includes('upgrade required');
     if (isModelUnavailableUpgrade) return false;
     if (
-      code === 'USAGE_LIMIT_EXCEEDED'
+      code.endsWith('_LIMIT_EXCEEDED')
+      || code === 'LIMIT_EXCEEDED'
       || code === 'DAILY_LIMIT_EXCEEDED'
       || code === 'GUEST_DAILY_LIMIT_EXCEEDED'
       || code === 'UPGRADE_REQUIRED'
@@ -2059,6 +2066,35 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return t('chat.limit.chatReached');
   }, [t]);
 
+  const getLimitKind = (error: unknown, fallback: 'chat' | 'image' | 'video') => {
+    const typed = error as { code?: string; message?: string } | undefined;
+    const signal = `${typed?.code ?? ''} ${typed?.message ?? (error instanceof Error ? error.message : '')}`.toLowerCase();
+    if (signal.includes('video')) return 'video';
+    if (signal.includes('image')) return 'image';
+    if (signal.includes('chat') || signal.includes('text') || signal.includes('message')) return 'chat';
+    return fallback;
+  };
+
+  const getLimitResetHours = (error: unknown) => {
+    const message = (error as { message?: string } | undefined)?.message
+      ?? (error instanceof Error ? error.message : '');
+    const match = message.match(/resets?\s+in\s+(\d+(?:\.\d+)?)\s*hours?/i);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    return Number.isFinite(hours) && hours >= 0 ? hours : null;
+  };
+
+  const formatLimitResetDuration = (hours: number) => {
+    if (hours < 1) return 'less than an hour';
+    const totalHours = Math.ceil(hours);
+    const days = Math.floor(totalHours / 24);
+    const remainingHours = totalHours % 24;
+    if (days === 0) return `${totalHours} hour${totalHours === 1 ? '' : 's'}`;
+    const dayPart = `${days} day${days === 1 ? '' : 's'}`;
+    if (remainingHours === 0) return dayPart;
+    return `${dayPart} and ${remainingHours} hour${remainingHours === 1 ? '' : 's'}`;
+  };
+
   const formatTierLabel = useCallback((tier: 'free' | 'cafa_smart' | 'cafa_pro' | 'cafa_max') => {
     if (tier === 'cafa_smart') return 'Cafa Smart';
     if (tier === 'cafa_pro') return 'Cafa Pro';
@@ -2066,9 +2102,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return 'Free';
   }, []);
 
-  const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video', message?: string) => {
+  const showLimitNotice = useCallback((kind: 'chat' | 'image' | 'video', resetHours?: number | null) => {
     setUpgradeNoticeKind(kind);
-    setStatusNotice(message?.trim() || getLimitNoticeMessage(kind));
+    setUpgradeNoticeResetHours(resetHours ?? null);
+    setStatusNotice(getLimitNoticeMessage(kind));
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = null;
   }, [getLimitNoticeMessage]);
@@ -2115,6 +2152,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         setAuthSubscriptionTier(resolvedTier);
         setStatusNotice(t('plans.upgradeVerified', { plan: formatTierLabel(resolvedTier) }));
         setUpgradeNoticeKind(null);
+        setUpgradeNoticeResetHours(null);
         hapticSuccess();
       } else {
         setStatusNotice(t('plans.upgradeSyncPending'));
@@ -2150,7 +2188,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return 'This model is not available on your current plan.';
     }
 
-    if (code === 'USAGE_LIMIT_EXCEEDED') {
+    if (code.endsWith('_LIMIT_EXCEEDED') || code === 'LIMIT_EXCEEDED') {
       return getLimitNoticeMessage(kind);
     }
 
@@ -2200,6 +2238,18 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     }
     return rawMessage || t('chat.sendFailed');
   }, [getLimitNoticeMessage, t]);
+
+  useEffect(() => {
+    if (isAuthenticated) return;
+    setStatusNotice('');
+    setUpgradeNoticeKind(null);
+    setUpgradeNoticeResetHours(null);
+    setIsLimitRestoreSyncing(false);
+    if (noticeTimeoutRef.current) {
+      clearTimeout(noticeTimeoutRef.current);
+      noticeTimeoutRef.current = null;
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -3223,7 +3273,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               classifyChatResponse(trimmed, attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType }))),
               detectDocumentRequest(trimmed),
             ]);
-            detectedExpectedResponseType = classification.responseType;
+            detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
+              ? 'artifact'
+              : classification.responseType;
             if (__DEV__) {
               try {
                 console.log('[document-detect:result]', JSON.stringify({
@@ -3234,6 +3286,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   format: detection.format,
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
+                  classificationResponseType: classification.responseType,
+                  needsForm: detection.needsForm,
+                  formReason: detection.formReason,
                 }));
               } catch {
                 console.log('[document-detect:result]', {
@@ -3244,11 +3299,19 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   format: detection.format,
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
+                  classificationResponseType: classification.responseType,
+                  needsForm: detection.needsForm,
+                  formReason: detection.formReason,
                 });
               }
             }
 
-            if (classification.responseType === 'artifact' && detection.needsForm) {
+            const shouldStartDocumentWizard = detection.needsForm && (
+              detection.isDocumentRequest
+              || detection.expectedResponseType === 'artifact'
+              || classification.responseType === 'artifact'
+            );
+            if (shouldStartDocumentWizard) {
               try {
                 let wizardConversationId = activeAuthConversationId ?? authConversationId;
                 if (!wizardConversationId) {
@@ -3274,13 +3337,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   documentType: detection.documentType ?? null,
                   format: detection.format ?? null,
                   confidence: detection.confidence,
-                  userRequest: detection.documentType ?? trimmed,
+                  userRequest: trimmed,
                   userMessageId,
                   assistantMessageId,
                 });
                 setStatusNotice('Preparing your form...');
                 const detectedDocumentType = detection.documentType?.trim() || 'document';
-                const html = await startDocumentWizard(detection.documentType ?? trimmed, {
+                const html = await startDocumentWizard(trimmed, {
                   conversationId: wizardConversationId ?? undefined,
                   userMessageId,
                   assistantMessageId,
@@ -3348,8 +3411,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 setShowScrollToBottom(false);
                 scrollToBottom();
                 return;
-              } catch {
-                // Fall through to standard chat if the form could not be prepared.
+              } catch (wizardError) {
+                // A form-required request must not fall through to normal chat: the
+                // chat endpoint can only respond with instructions to fill a form.
+                throw wizardError;
               } finally {
                 setStatusNotice('');
               }
@@ -4280,8 +4345,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const normalizedErrorMessage = rawErrorMessage.toLowerCase();
         const isLimitError = isLimitOrUpgradeError(error);
         const isRateLimited = isRateLimitedError(error);
-        const limitRequestKind = normalizedErrorMessage.includes('video limit') ? 'video' : requestKind;
-        const limitVisibleMessage = rawErrorMessage.trim() || getLimitNoticeMessage(limitRequestKind);
+        const limitRequestKind = getLimitKind(error, requestKind);
+        const limitResetHours = getLimitResetHours(error);
+        const limitVisibleMessage = getLimitNoticeMessage(limitRequestKind)
+          + (limitResetHours !== null ? ` Your allowance resets in ${formatLimitResetDuration(limitResetHours)}.` : '');
         const isAuthStreamTransportError = code.startsWith('AUTH_STREAM_');
         const isIdempotencyInProgress =
           code === 'IDEMPOTENCY_IN_PROGRESS'
@@ -4635,7 +4702,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
         if (isLimitError) {
-          showLimitNotice(limitRequestKind, limitVisibleMessage);
+          showLimitNotice(limitRequestKind, limitResetHours);
         }
         hapticError();
         setStreamingModelLabel(null);
@@ -4983,6 +5050,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
   const showTransientNotice = (message: string, durationMs = 3200) => {
     setUpgradeNoticeKind(null);
+    setUpgradeNoticeResetHours(null);
     setStatusNotice(message);
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = setTimeout(() => {
@@ -5699,6 +5767,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (isDedicatedMediaScreen) return;
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
     if (!documentDraftHydratedRef.current) return;
+    const activeConversationId = isAuthenticated ? authConversationId : guestConversationId;
+    if (targetConversationId !== (activeConversationId ?? '')) return;
+    if (isHydratingAuthChat) return;
 
     const draftKey = getDocumentWizardDraftKey(targetConversationId);
     const drafts = collectDocumentWizardDraftMessages(messages);
@@ -5710,6 +5781,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [
     collectDocumentWizardDraftMessages,
     getDocumentWizardDraftKey,
+    authConversationId,
+    guestConversationId,
+    isAuthenticated,
+    isHydratingAuthChat,
     isDedicatedMediaScreen,
     messages,
     params.conversationId,
@@ -5740,7 +5815,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       && newChatToken !== initialNewChatTokenRef.current
       && newChatToken !== lastHandledNewChatTokenRef.current;
     if (shouldStartNewChat) {
+      conversationHydrationRequestRef.current += 1;
       lastHandledNewChatTokenRef.current = newChatToken;
+      setIsHydratingAuthChat(false);
       setAuthConversationId(null);
       setGuestConversationId(null);
       setInput('');
@@ -5752,15 +5829,38 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       router.setParams({ newChat: undefined, conversationId: undefined });
       return;
     }
-    if (!targetConversationId) return;
+    if (!targetConversationId) {
+      conversationHydrationRequestRef.current += 1;
+      setIsHydratingAuthChat(false);
+      return;
+    }
+
+    const requestId = conversationHydrationRequestRef.current + 1;
+    conversationHydrationRequestRef.current = requestId;
+    let cancelled = false;
+    setIsHydratingAuthChat(true);
+    setMessages([]);
+    setMessageReactions({});
+    if (isAuthenticated) {
+      setAuthConversationId(targetConversationId);
+      setGuestConversationId(null);
+    } else {
+      setGuestConversationId(targetConversationId);
+      setAuthConversationId(null);
+    }
+
+    const isCurrentRequest = () => (
+      !cancelled && conversationHydrationRequestRef.current === requestId
+    );
 
     const hydrateTarget = async () => {
       try {
         if (isAuthenticated) {
           const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
-          setAuthConversationId(targetConversationId);
+          if (!isCurrentRequest()) return;
           const mappedMessages = applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage));
           const localDrafts = await getDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
+          if (!isCurrentRequest()) return;
           const mergedMessages = mergeDocumentWizardDraftMessages(mappedMessages, localDrafts);
           if (!mergedMessages.length) {
             setMessages([createWelcomeMessage()]);
@@ -5784,7 +5884,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         }
 
         const detail = await getGuestConversation(targetConversationId, { force: true });
-        setGuestConversationId(targetConversationId);
+        if (!isCurrentRequest()) return;
         if (!detail.messages.length) {
           setMessages([createWelcomeMessage()]);
           rotateStarterPrompts();
@@ -5799,18 +5899,31 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           })),
         );
       } catch {
-        // Non-blocking for general chat flow.
+        if (!isCurrentRequest()) return;
+        setMessages([{
+          id: `conversation-load-error-${targetConversationId}`,
+          role: 'assistant',
+          content: 'This conversation could not be loaded. Please select it again to retry.',
+          createdAt: Date.now(),
+        }]);
+        setMessageReactions({});
+      } finally {
+        if (isCurrentRequest()) {
+          setIsHydratingAuthChat(false);
+        }
       }
     };
 
     void hydrateTarget();
+    return () => {
+      cancelled = true;
+    };
   }, [
     applyDescriptiveAttachmentNames,
-    authConversationId,
     createWelcomeMessage,
-    guestConversationId,
     getDocumentWizardDraftKey,
     isAuthenticated,
+    isSending,
     mergeDocumentWizardDraftMessages,
     mapAuthMessageToUiMessage,
     params.conversationId,
@@ -7525,15 +7638,65 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 className="absolute left-3 right-3 rounded-2xl border px-3 py-2"
                 style={{
                   bottom: 102 + composerBottomInset,
-                  borderColor: colors.primary,
-                  backgroundColor: isDark ? 'rgba(23,23,28,0.96)' : 'rgba(255,255,255,0.98)',
+                  borderColor: upgradeNoticeKind === 'image'
+                    ? '#8B5CF6'
+                    : upgradeNoticeKind === 'video'
+                      ? '#F97316'
+                      : colors.primary,
+                  backgroundColor: upgradeNoticeKind === 'image'
+                    ? (isDark ? 'rgba(38,24,62,0.98)' : 'rgba(250,245,255,0.98)')
+                    : upgradeNoticeKind === 'video'
+                      ? (isDark ? 'rgba(55,29,16,0.98)' : 'rgba(255,247,237,0.98)')
+                      : (isDark ? 'rgba(23,23,28,0.96)' : 'rgba(255,255,255,0.98)'),
                 }}
               >
-                <View className="flex-row items-center">
-                  <Ionicons name="information-circle-outline" size={14} color={colors.primary} />
-                  <Text style={{ color: colors.textPrimary, fontSize: 12, marginLeft: 8 }}>
-                    {statusNotice}
-                  </Text>
+                <View className="flex-row items-start">
+                  <View
+                    className="h-8 w-8 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: upgradeNoticeKind === 'image'
+                        ? 'rgba(139,92,246,0.16)'
+                        : upgradeNoticeKind === 'video'
+                          ? 'rgba(249,115,22,0.16)'
+                          : `${colors.primary}20`,
+                    }}
+                  >
+                    <Ionicons
+                      name={upgradeNoticeKind === 'image'
+                        ? 'image-outline'
+                        : upgradeNoticeKind === 'video'
+                          ? 'videocam-outline'
+                          : upgradeNoticeKind === 'chat'
+                            ? 'chatbubbles-outline'
+                            : 'information-circle-outline'}
+                      size={16}
+                      color={upgradeNoticeKind === 'image' ? '#8B5CF6' : upgradeNoticeKind === 'video' ? '#F97316' : colors.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 9 }}>
+                    {upgradeNoticeKind ? (
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
+                        {upgradeNoticeKind === 'image'
+                          ? 'Image limit reached'
+                          : upgradeNoticeKind === 'video'
+                            ? 'Video limit reached'
+                            : 'Chat limit reached'}
+                      </Text>
+                    ) : null}
+                    <Text style={{ color: colors.textPrimary, fontSize: 12, marginTop: upgradeNoticeKind ? 2 : 0, lineHeight: 17 }}>
+                      {statusNotice}
+                    </Text>
+                    {upgradeNoticeKind && upgradeNoticeResetHours !== null ? (
+                      <View
+                        className="mt-2 self-start rounded-full px-2.5 py-1"
+                        style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)' }}
+                      >
+                        <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
+                          Resets in {formatLimitResetDuration(upgradeNoticeResetHours)}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
                 {upgradeNoticeKind ? (
                   <View className="mt-2 flex-row items-center gap-2">
@@ -7542,6 +7705,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         hapticSelection();
                         setStatusNotice('');
                         setUpgradeNoticeKind(null);
+                        setUpgradeNoticeResetHours(null);
                         router.push('/plans');
                       }}
                       accessibilityRole="button"
@@ -7583,6 +7747,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         hapticSelection();
                         setStatusNotice('');
                         setUpgradeNoticeKind(null);
+                        setUpgradeNoticeResetHours(null);
                       }}
                       accessibilityRole="button"
                       accessibilityLabel={t('chat.limit.dismiss')}
