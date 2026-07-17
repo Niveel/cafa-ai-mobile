@@ -2,7 +2,7 @@
   "expo": {
     "name": "Cafa AI",
     "slug": "cafa-ai",
-    "version": "2.2.8",
+    "version": "2.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "cafa-ai",
@@ -172,6 +172,12 @@
           "url": "https://sentry.io/",
           "organization": "nivee-llc",
           "project": "cafa-ai"
+        }
+      ],
+      [
+        "./plugins/with-tiktok-business-sdk",
+        {
+          "appId": "7650349998273527815"
         }
       ]
     ],

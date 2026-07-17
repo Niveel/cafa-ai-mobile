@@ -23,6 +23,12 @@ import {
 } from '@/services';
 import { AuthUser } from '@/types';
 import { setAnimationLevel as applyAnimationLevel, setHapticsEnabled as applyHapticsEnabled } from '@/utils';
+import {
+  identifyTikTokUser,
+  resetTikTokUser,
+  TikTokEvents,
+  trackTikTokEvent,
+} from '@/services/tiktokEvents';
 
 type AppContextValue = {
   isReady: boolean;
@@ -183,6 +189,7 @@ export function AppProvider({ children }: AppProviderProps) {
       name: authUser.name,
       subscriptionTier: authUser.subscriptionTier ?? 'free',
     });
+    identifyTikTokUser(authUser);
   }, [authUser?.email, authUser?.id, authUser?.name, authUser?.subscriptionTier, isAuthenticated, isReady]);
 
   useEffect(() => {
@@ -205,6 +212,7 @@ export function AppProvider({ children }: AppProviderProps) {
       // Intentionally ignore logout transport failures and always clear local session.
     } finally {
       resetAnalyticsUser();
+      resetTikTokUser();
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
       await clearSessionTokens();
@@ -214,11 +222,13 @@ export function AppProvider({ children }: AppProviderProps) {
   }, []);
 
   const login = useCallback(() => {
+    trackTikTokEvent(TikTokEvents.login);
     setIsAuthenticated(true);
     void hydrateAuth();
   }, [hydrateAuth]);
 
   const signup = useCallback(() => {
+    trackTikTokEvent(TikTokEvents.registration);
     setIsAuthenticated(true);
     void hydrateAuth();
   }, [hydrateAuth]);

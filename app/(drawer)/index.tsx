@@ -7447,15 +7447,32 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               {attachedAssets.map((asset) => (
                 <View
                   key={asset.id}
-                  accessible
-                  accessibilityRole="text"
-                  accessibilityLabel={`Attached file: ${asset.label}`}
                   className="flex-row items-center rounded-full border px-2 py-0.5"
                   style={{ borderColor: colors.border }}
                 >
-                  <Text numberOfLines={1} style={{ maxWidth: 140, color: colors.textSecondary, fontSize: 10 }}>
-                    {asset.label}
-                  </Text>
+                  {(asset.mimeType ?? '').toLowerCase().startsWith('image/') ? (
+                    <Pressable
+                      onPress={() => setImageLightboxUri(asset.uri)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Preview attached image: ${asset.label}`}
+                      accessibilityHint="Opens a full-screen preview of this image."
+                      className="rounded-full py-0.5"
+                    >
+                      <Text numberOfLines={1} style={{ maxWidth: 140, color: colors.textSecondary, fontSize: 10 }}>
+                        {asset.label}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Text
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={`Attached file: ${asset.label}`}
+                      numberOfLines={1}
+                      style={{ maxWidth: 140, color: colors.textSecondary, fontSize: 10 }}
+                    >
+                      {asset.label}
+                    </Text>
+                  )}
                   <Pressable
                     onPress={() => removeAttachment(asset.id)}
                     accessibilityRole="button"

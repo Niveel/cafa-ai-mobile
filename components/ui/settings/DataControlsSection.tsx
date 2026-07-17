@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
 
 import {
   archiveAuthenticatedConversation,
@@ -15,6 +15,8 @@ import {
 } from '@/services/storage';
 import { AppPromptModal } from '../AppPromptModal';
 import { ArchivedChatsManageModal } from './ArchivedChatsManageModal';
+import { AppSwitch } from '../AppSwitch';
+import { getTikTokTrackingConsent, setTikTokTrackingConsent } from '@/services/tiktokEvents';
 
 type DataControlsSectionProps = {
   visible: boolean;
@@ -58,6 +60,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
   const [showArchivedManager, setShowArchivedManager] = useState(false);
   const [deleteArchivedId, setDeleteArchivedId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [tiktokTrackingEnabled, setTikTokTrackingEnabled] = useState(false);
 
   const archivedCount = archivedItems.length;
 
@@ -72,6 +75,11 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     if (!visible || !isAuthenticated) return;
     void loadArchived();
   }, [isAuthenticated, loadArchived, visible]);
+
+  useEffect(() => {
+    if (!visible || Platform.OS !== 'android') return;
+    void getTikTokTrackingConsent().then((consent) => setTikTokTrackingEnabled(consent === true));
+  }, [visible]);
 
   const applyBusy = useCallback((chatId: string, enabled: boolean) => {
     setBusyIds((prev) => {
@@ -220,6 +228,24 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     <View className="gap-3">
       <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700' }}>{t('settings.data.title')}</Text>
       <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{t('settings.data.subtitle')}</Text>
+
+      {Platform.OS === 'android' ? (
+        <View className="flex-row items-center justify-between rounded-2xl border p-3" style={{ borderColor: colors.border }}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>TikTok ad measurement</Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+              Share registration and subscription events with TikTok. Chats, prompts, media, email, and payment details are never included.
+            </Text>
+          </View>
+          <AppSwitch
+            value={tiktokTrackingEnabled}
+            onValueChange={(enabled) => {
+              setTikTokTrackingEnabled(enabled);
+              void setTikTokTrackingConsent(enabled);
+            }}
+          />
+        </View>
+      ) : null}
 
       <TouchableOpacity
         accessibilityRole="button"

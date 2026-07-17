@@ -42,7 +42,7 @@ const VerifyOtpScreenValidationSchema = Yup.object().shape({
 export default function VerifyOtpScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
-  const { login } = useAppContext();
+  const { login, signup } = useAppContext();
   const params = useLocalSearchParams<{ email?: string; flow?: string; devOtp?: string }>();
   const [notice, setNotice] = useState('');
   const [authError, setAuthError] = useState('');
@@ -144,7 +144,8 @@ export default function VerifyOtpScreen() {
                         if (flow === 'login') {
                           await claimGuestUpgradeOnLogin(session.accessToken);
                         }
-                        login();
+                        if (flow === 'signup') signup();
+                        else login();
                         router.replace('/(drawer)');
                       } catch (error) {
                         const mapped = error as { message?: string };

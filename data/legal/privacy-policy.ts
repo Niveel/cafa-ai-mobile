@@ -2,7 +2,7 @@ import type { LegalDocument } from '@/types';
 
 export const PRIVACY_POLICY_DOCUMENT: LegalDocument = {
   title: 'Privacy Policy for Cafa AI',
-  lastUpdated: 'May 25, 2026',
+  lastUpdated: 'July 17, 2026',
   intro: [
     'Cafa AI respects your privacy.',
     'This Privacy Policy explains how Cafa AI collects, uses, stores, discloses, retains, and protects personal data and other information when you use the Cafa AI website, mobile applications, guest mode, accounts, subscriptions, chats, research features, image and video generation tools, voice features, artifacts, uploads, generated outputs, support channels, and related services (together, the "Services").',
@@ -123,6 +123,7 @@ export const PRIVACY_POLICY_DOCUMENT: LegalDocument = {
         'Other cookies or similar technologies, such as analytics or advertising technologies, may be optional under applicable law.',
         'Where required, we will ask for your consent before using non-essential cookies or similar technologies.',
         'You can also manage certain choices through your browser, operating-system settings, in-app settings, or any cookie banner or privacy settings page we provide.',
+        'On Android, if you opt in, Cafa AI uses the TikTok App Events SDK to report limited advertising-measurement events such as registration and subscription. We do not include chats, prompts, generated media, email addresses, phone numbers, or payment details in those events. You can change this choice in Settings under Data controls.',
       ],
     },
     {

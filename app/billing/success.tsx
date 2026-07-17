@@ -8,6 +8,7 @@ import { getSubscriptionOverview, invalidateBillingCache } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { clearPendingBillingTier, getPendingBillingTier } from '@/services';
 import type { SubscriptionTier } from '@/types';
+import { TikTokEvents, trackTikTokEvent } from '@/services/tiktokEvents';
 
 export default function BillingSuccessScreen() {
   const { colors } = useAppTheme();
@@ -41,6 +42,11 @@ export default function BillingSuccessScreen() {
           const tierMatched = pendingTier ? tier === pendingTier : tier !== 'free';
 
           if (isActive && tierMatched) {
+            trackTikTokEvent(
+              TikTokEvents.subscribe,
+              { content_id: tier, content_type: 'subscription' },
+              sessionId || undefined,
+            );
             await clearPendingBillingTier();
             invalidateBillingCache();
             if (!cancelled) {
@@ -68,7 +74,7 @@ export default function BillingSuccessScreen() {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [sessionId, t]);
 
   return (
     <RequireAuthRoute>
