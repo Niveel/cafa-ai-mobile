@@ -2586,7 +2586,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       if (!paragraphBuffer.length) return;
       const paragraph = paragraphBuffer.join('\n');
       nodes.push(
-        <Text key={`p-${key}`} selectable style={{ color: textColor, lineHeight: 20 }}>
+        <Text key={`p-${key}`} selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
           {renderInlineMarkdown(paragraph, { textColor })}
         </Text>,
       );
@@ -2721,8 +2721,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         flushParagraph();
         nodes.push(
           <View key={`ul-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text selectable style={{ color: textColor, lineHeight: 20 }}>{'\u2022 '}</Text>
-            <Text selectable style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>{'\u2022 '}</Text>
+            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24, flex: 1 }}>
               {renderInlineMarkdown(bulletMatch[1], { textColor })}
             </Text>
           </View>,
@@ -2736,8 +2736,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         flushParagraph();
         nodes.push(
           <View key={`ol-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text selectable style={{ color: textColor, lineHeight: 20 }}>{`${orderedMatch[1]}. `}</Text>
-            <Text selectable style={{ color: textColor, lineHeight: 20, flex: 1 }}>
+            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>{`${orderedMatch[1]}. `}</Text>
+            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24, flex: 1 }}>
               {renderInlineMarkdown(orderedMatch[2], { textColor })}
             </Text>
           </View>,
@@ -2760,7 +2760,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               backgroundColor: isDark ? '#121218' : '#F0F2F8',
             }}
           >
-            <Text selectable style={{ color: textColor, lineHeight: 20 }}>
+            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
               {renderInlineMarkdown(quoteMatch[1], { textColor })}
             </Text>
           </View>,
@@ -2779,7 +2779,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
     if (!nodes.length) {
       return (
-        <Text selectable style={{ color: textColor, lineHeight: 20 }}>
+        <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
           {normalizeAssistantSearchResponse(content)}
         </Text>
       );
@@ -6797,7 +6797,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View
-                      className={`${isScreenHandoffMessage || isImageRequirementMessage || isDocumentWizardMessage ? 'w-[96%] max-w-[96%]' : 'max-w-[88%]'} rounded-2xl`}
+                      className={`${isUser ? 'max-w-[88%]' : 'w-[96%] max-w-[96%]'} rounded-2xl`}
                       style={highlightedMessageId === item.id
                         ? {
                             borderWidth: 1,
