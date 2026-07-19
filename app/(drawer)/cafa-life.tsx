@@ -83,12 +83,12 @@ function formatVoiceGender(gender?: string) {
   return gender.charAt(0).toUpperCase() + gender.slice(1);
 }
 
-function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation {
+function getStatusPresentation(state: CafaLifeSessionState, t: (key: string) => string): StatusPresentation {
   switch (state) {
     case 'requesting_permission':
       return {
-        title: 'Waiting for microphone access',
-        body: 'Approve microphone permission so Cafa can hear you.',
+        title: t('cafaLive.status.permission.title'),
+        body: t('cafaLive.status.permission.body'),
         orbColors: ['#3C4BFF', '#2536A8'],
         ringColor: '#93C5FD',
         chipBg: '#DBEAFE',
@@ -96,8 +96,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'connecting':
       return {
-        title: 'Connecting to Cafa Live',
-        body: 'Creating your realtime room and joining the session.',
+        title: t('cafaLive.status.connecting.title'),
+        body: t('cafaLive.status.connecting.body'),
         orbColors: ['#5B55FF', '#243C96'],
         ringColor: '#A78BFA',
         chipBg: '#EDE9FE',
@@ -105,8 +105,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'listening':
       return {
-        title: 'Cafa is listening',
-        body: 'Speak naturally. Your microphone is live and the assistant is ready.',
+        title: t('cafaLive.status.listening.title'),
+        body: t('cafaLive.status.listening.body'),
         orbColors: ['#6F6BFF', '#2E4D9A'],
         ringColor: '#C4B5FD',
         chipBg: '#EEF2FF',
@@ -114,8 +114,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'speaking':
       return {
-        title: 'Cafa is speaking',
-        body: 'Listen in. The reply is streaming back through the room audio.',
+        title: t('cafaLive.status.speaking.title'),
+        body: t('cafaLive.status.speaking.body'),
         orbColors: ['#10B981', '#0F766E'],
         ringColor: '#6EE7B7',
         chipBg: '#D1FAE5',
@@ -123,8 +123,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'muted':
       return {
-        title: 'Microphone muted',
-        body: 'Unmute when you want to continue the conversation.',
+        title: t('cafaLive.status.muted.title'),
+        body: t('cafaLive.status.muted.body'),
         orbColors: ['#F59E0B', '#B45309'],
         ringColor: '#FCD34D',
         chipBg: '#FEF3C7',
@@ -132,8 +132,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'disconnecting':
       return {
-        title: 'Wrapping up session',
-        body: 'Disconnecting cleanly and preparing your recent history.',
+        title: t('cafaLive.status.disconnecting.title'),
+        body: t('cafaLive.status.disconnecting.body'),
         orbColors: ['#64748B', '#334155'],
         ringColor: '#CBD5E1',
         chipBg: '#E2E8F0',
@@ -141,8 +141,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
       };
     case 'error':
       return {
-        title: 'Something interrupted the session',
-        body: 'You can retry once you are ready.',
+        title: t('cafaLive.status.error.title'),
+        body: t('cafaLive.status.error.body'),
         orbColors: ['#EF4444', '#991B1B'],
         ringColor: '#FCA5A5',
         chipBg: '#FEE2E2',
@@ -151,8 +151,8 @@ function getStatusPresentation(state: CafaLifeSessionState): StatusPresentation 
     case 'idle':
     default:
       return {
-        title: 'Ready when you are',
-        body: 'Tap the orb to start a live voice conversation with Cafa.',
+        title: t('cafaLive.status.idle.title'),
+        body: t('cafaLive.status.idle.body'),
         orbColors: ['#314B90', '#1A2750'],
         ringColor: '#5F7FB8',
         chipBg: '#DBEAFE',
@@ -788,7 +788,7 @@ export default function CafaLifeScreen() {
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voicePickerOpenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const presentation = getStatusPresentation(state);
+  const presentation = getStatusPresentation(state, t);
 
   const stopPreview = useCallback(() => {
     previewPlayerSubRef.current?.remove();
@@ -1300,8 +1300,8 @@ export default function CafaLifeScreen() {
 
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={isActive ? 'End live voice session' : 'Start live voice session'}
-                    accessibilityHint={isActive ? 'Ends the current Cafa Live conversation.' : 'Starts a live voice conversation with Cafa.'}
+                    accessibilityLabel={t(isActive ? 'cafaLive.session.end' : 'cafaLive.session.start')}
+                    accessibilityHint={t(isActive ? 'cafaLive.session.endHint' : 'cafaLive.session.startHint')}
                     accessibilityState={{ busy: state === 'connecting' || state === 'requesting_permission' || state === 'disconnecting' }}
                     onPress={onPressOrb}
                     activeOpacity={0.9}
@@ -1346,7 +1346,7 @@ export default function CafaLifeScreen() {
                             color="#FFFFFF"
                           />
                           <Text style={{ color: 'rgba(255,255,255,0.88)', fontSize: 13, fontWeight: '700', marginTop: 10 }}>
-                            {isActive ? 'Tap to end' : 'Tap to start'}
+                            {t(isActive ? 'cafaLive.session.tapEnd' : 'cafaLive.session.tapStart')}
                           </Text>
                         </>
                       )}
@@ -1358,7 +1358,7 @@ export default function CafaLifeScreen() {
                   {elapsedLabel}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                  {isActive ? 'Your private voice session is live.' : 'Start a session when you are ready.'}
+                  {t(isActive ? 'cafaLive.session.live' : 'cafaLive.session.ready')}
                 </Text>
               </View>
 
@@ -1366,8 +1366,8 @@ export default function CafaLifeScreen() {
                 <View className="mt-2 self-center">
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-                    accessibilityHint="Turns your microphone on or off while the live voice session is running."
+                    accessibilityLabel={t(isMuted ? 'cafaLive.session.unmute' : 'cafaLive.session.mute')}
+                    accessibilityHint={t('cafaLive.session.muteHint')}
                     activeOpacity={0.88}
                     onPress={() => {
                       hapticSelection();
@@ -1386,7 +1386,7 @@ export default function CafaLifeScreen() {
                       color={colors.textPrimary}
                     />
                     <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginLeft: 8 }}>
-                      {isMuted ? 'Unmute' : 'Mute'}
+                      {t(isMuted ? 'cafaLive.session.unmuteShort' : 'cafaLive.session.muteShort')}
                     </Text>
                   </TouchableOpacity>
                 </View>

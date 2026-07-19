@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import type { AppLanguage } from '@/config';
 import { ChatModelKey } from './types';
 
 export const CHAT_MODEL_OPTIONS: { key: ChatModelKey; label: string; description: string }[] = [
@@ -87,6 +88,55 @@ export const STARTER_PROMPT_POOL = [
   'Create a structured plan to learn a new skill fast.',
   'Help me write a clear and respectful boundary message.',
 ] as const;
+
+const LOCALIZED_STARTER_PROMPT_POOLS: Partial<Record<AppLanguage, readonly string[]>> = {
+  es: [
+    'Planifica un dia productivo para mi en bloques de 30 minutos.',
+    'Reescribe este mensaje para que suene seguro pero amable.',
+    'Dame una rutina de ejercicio de 10 minutos sin equipo.',
+    'Resume este tema como si fuera principiante.',
+    'Crea un plan semanal de comidas economico.',
+    'Ayudame a generar 20 ideas de nombres para un negocio.',
+    'Convierte mis notas en un correo profesional.',
+    'Explica este concepto con una analogia de la vida real.',
+    'Dame un plan de estudio paso a paso para esta semana.',
+    'Crea una lista de equipaje para un viaje de 5 dias.',
+    'Ayudame a dividir esta gran tarea en pasos pequenos.',
+    'Convierte este objetivo en un plan de accion de 7 dias.',
+  ],
+  fr: [
+    'Planifie-moi une journee productive par tranches de 30 minutes.',
+    'Reecris ce message avec un ton assure mais aimable.',
+    'Propose-moi un entrainement de 10 minutes sans materiel.',
+    'Resume ce sujet comme si je debutais.',
+    'Cree un menu hebdomadaire economique.',
+    'Aide-moi a trouver 20 idees de noms pour une entreprise.',
+    'Transforme mes notes en un e-mail professionnel.',
+    'Explique ce concept avec une analogie de la vie quotidienne.',
+    'Donne-moi un programme de revision etape par etape pour cette semaine.',
+    'Cree une liste de bagages pour un voyage de 5 jours.',
+    'Aide-moi a diviser cette grande tache en petites etapes.',
+    'Transforme cet objectif en plan d action sur 7 jours.',
+  ],
+  pt: [
+    'Planeje um dia produtivo para mim em blocos de 30 minutos.',
+    'Reescreva esta mensagem para soar confiante, mas amigavel.',
+    'Crie um treino de 10 minutos sem equipamentos.',
+    'Resuma este assunto como se eu fosse iniciante.',
+    'Crie um plano semanal de refeicoes economico.',
+    'Ajude-me a pensar em 20 nomes para um negocio.',
+    'Transforme minhas anotacoes em um e-mail profissional.',
+    'Explique este conceito usando uma analogia da vida real.',
+    'Crie um plano de estudos passo a passo para esta semana.',
+    'Crie uma lista de bagagem para uma viagem de 5 dias.',
+    'Ajude-me a dividir esta tarefa grande em etapas menores.',
+    'Transforme este objetivo em um plano de acao de 7 dias.',
+  ],
+};
+
+export function getStarterPromptPool(language: AppLanguage) {
+  return LOCALIZED_STARTER_PROMPT_POOLS[language] ?? STARTER_PROMPT_POOL;
+}
 
 export function getPromptTitle(prompt: string, fallbackTitle = 'New guest chat') {
   const trimmed = prompt.trim();

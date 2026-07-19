@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { MOTION, hapticImpact, hapticSelection } from '@/utils';
 
 type PromptSuggestionsModalProps = {
@@ -53,6 +53,7 @@ const SuggestionCard = memo(function SuggestionCard({
   onSelect,
 }: SuggestionCardProps) {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const truncatedContent = useMemo(() => truncateSuggestion(suggestion), [suggestion]);
 
@@ -61,12 +62,12 @@ const SuggestionCard = memo(function SuggestionCard({
   }, [suggestion]);
 
   const visibleText = expanded || !truncatedContent.truncated ? suggestion : truncatedContent.preview;
-  const toggleLabel = expanded ? 'Show less' : 'Read more';
+  const toggleLabel = expanded ? t('promptSuggestions.showLess') : t('promptSuggestions.readMore');
 
   return (
     <View
       accessible
-      accessibilityLabel={`Suggestion ${index + 1}. ${suggestion}`}
+      accessibilityLabel={t('promptSuggestions.itemLabel', { number: String(index + 1), suggestion })}
       className="mb-3 rounded-3xl border p-4"
       style={{
         borderColor: colors.border,
@@ -92,8 +93,8 @@ const SuggestionCard = memo(function SuggestionCard({
               setExpanded((prev) => !prev);
             }}
             accessibilityRole="button"
-            accessibilityLabel={`${toggleLabel} for suggestion ${index + 1}`}
-            accessibilityHint={expanded ? 'Collapses the full suggestion text.' : 'Expands the full suggestion text.'}
+            accessibilityLabel={t('promptSuggestions.toggleLabel', { action: toggleLabel, number: String(index + 1) })}
+            accessibilityHint={t(expanded ? 'promptSuggestions.collapseHint' : 'promptSuggestions.expandHint')}
             accessibilityState={{ expanded }}
             hitSlop={8}
             className="rounded-full px-1 py-1"
@@ -110,14 +111,14 @@ const SuggestionCard = memo(function SuggestionCard({
             onSelect(suggestion);
           }}
           accessibilityRole="button"
-          accessibilityLabel={`Use suggestion ${index + 1}`}
-          accessibilityHint="Fills the message input with this suggestion."
+          accessibilityLabel={t('promptSuggestions.useLabel', { number: String(index + 1) })}
+          accessibilityHint={t('promptSuggestions.useHint')}
           className="rounded-full px-4 py-2"
           style={{
             backgroundColor: colors.primary,
           }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>Use prompt</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>{t('promptSuggestions.usePrompt')}</Text>
         </Pressable>
       </View>
     </View>
@@ -128,11 +129,13 @@ export function PromptSuggestionsModal({
   visible,
   suggestions,
   loading = false,
-  title = 'Prompt suggestions',
+  title,
   onClose,
   onSelectSuggestion,
 }: PromptSuggestionsModalProps) {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
+  const modalTitle = title ?? t('promptSuggestions.title');
   const insets = useSafeAreaInsets();
   const closeButtonRef = useRef<View | null>(null);
 
@@ -146,15 +149,15 @@ export function PromptSuggestionsModal({
       }
       AccessibilityInfo.announceForAccessibility?.(
         loading
-          ? `${title}. Loading suggestions.`
+          ? t('promptSuggestions.loadingA11y', { title: modalTitle })
           : suggestions.length
-            ? `${title}. ${suggestions.length} suggestions available.`
-            : `${title}. No suggestions available yet.`,
+            ? t('promptSuggestions.countA11y', { title: modalTitle, count: String(suggestions.length) })
+            : t('promptSuggestions.emptyA11y', { title: modalTitle }),
       );
     }, MOTION.duration.quick);
 
     return () => clearTimeout(timer);
-  }, [loading, suggestions.length, title, visible]);
+  }, [loading, modalTitle, suggestions.length, t, visible]);
 
   return (
     <Modal
@@ -179,9 +182,9 @@ export function PromptSuggestionsModal({
         >
           <View className="mb-3 flex-row items-center justify-between px-5">
             <View className="mr-4 flex-1">
-              <Text style={{ color: colors.textPrimary, fontSize: 24, fontWeight: '800' }}>{title}</Text>
+              <Text style={{ color: colors.textPrimary, fontSize: 24, fontWeight: '800' }}>{modalTitle}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                Tap any suggestion to fill the chat input.
+                {t('promptSuggestions.subtitle')}
               </Text>
             </View>
 
@@ -192,8 +195,8 @@ export function PromptSuggestionsModal({
                 onClose();
               }}
               accessibilityRole="button"
-              accessibilityLabel="Close prompt suggestions"
-              accessibilityHint="Returns to the chat composer."
+              accessibilityLabel={t('promptSuggestions.close')}
+              accessibilityHint={t('promptSuggestions.closeHint')}
               className="h-11 w-11 items-center justify-center rounded-full border"
               style={{
                 borderColor: colors.border,
@@ -212,12 +215,12 @@ export function PromptSuggestionsModal({
                 accessibilityLiveRegion="polite"
                 style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '700', marginTop: 14 }}
               >
-                Finding suggestions
+                {t('promptSuggestions.finding')}
               </Text>
               <Text
                 style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 8, textAlign: 'center' }}
               >
-                We are gathering prompt ideas based on what you have typed.
+                {t('promptSuggestions.findingBody')}
               </Text>
             </View>
           ) : suggestions.length ? (
@@ -239,12 +242,12 @@ export function PromptSuggestionsModal({
             <View className="flex-1 items-center justify-center px-8">
               <Ionicons name="chatbubble-ellipses-outline" size={30} color={colors.primary} />
               <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', marginTop: 14 }}>
-                No suggestions yet
+                {t('promptSuggestions.empty')}
               </Text>
               <Text
                 style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 8, textAlign: 'center' }}
               >
-                Keep typing a little more and suggested prompts will appear here.
+                {t('promptSuggestions.emptyBody')}
               </Text>
             </View>
           )}

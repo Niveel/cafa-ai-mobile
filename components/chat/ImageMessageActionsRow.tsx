@@ -111,6 +111,8 @@ export function ImageMessageActionsRow({
         <Ionicons name="download-outline" size={13} color={iconColor} />
       </Pressable>
 
+      {/* Media referencing is temporarily paused. Keep this UI entry point in place
+      so it can be restored without removing the underlying reference feature.
       {showReference ? (
         <Pressable
           onPress={onReference}
@@ -124,7 +126,7 @@ export function ImageMessageActionsRow({
         >
           <Ionicons name="link-outline" size={13} color={iconColor} />
         </Pressable>
-      ) : null}
+      ) : null} */}
 
       <Pressable
         onPress={onShare}

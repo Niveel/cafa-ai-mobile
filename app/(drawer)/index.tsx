@@ -89,6 +89,7 @@ import {
   UserPromptActionsRow,
   VideoGenerationPlaceholder,
   createStarterPromptCycler,
+  getStarterPromptPool,
   createIdempotencyKey,
   getPromptTitle,
   isLikelyImageGenerationIntent,
@@ -547,7 +548,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const sendAttemptSeqRef = useRef(0);
   const lastHandledNewChatTokenRef = useRef<string | null>(null);
   const initialNewChatTokenRef = useRef<string | null>(null);
-  const starterPromptCyclerRef = useRef(createStarterPromptCycler());
+  const starterPromptCyclerRef = useRef(createStarterPromptCycler(getStarterPromptPool(language)));
+
+  useEffect(() => {
+    starterPromptCyclerRef.current = createStarterPromptCycler(getStarterPromptPool(language));
+  }, [language]);
   const screenWidth = Dimensions.get('window').width;
   const backendOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
   const GUEST_UPSELL_STATE_KEY = 'cafa_ai_guest_upsell_state_v1';
@@ -598,7 +603,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (screenMode === 'edit-image') return 'edit-image';
     if (screenMode === 'image-to-video') return 'video';
     return 'chat';
-  }, [screenMode]);
+  }, [language, screenMode]);
 
   const clearPromptSuggestions = useCallback((options?: { keepModalOpen?: boolean }) => {
     if (promptSuggestionDebounceRef.current) {
@@ -4841,11 +4846,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     inputValueRef.current = value;
     setInput(value);
     setPromptSuggestionsVisible(false);
-    announceForA11y('Prompt suggestion added to the message input.');
+    announceForA11y(t('promptSuggestions.addedA11y'));
     requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
-  }, [announceForA11y]);
+  }, [announceForA11y, t]);
 
   const focusComposerInputSoon = useCallback(() => {
     requestAnimationFrame(() => {
@@ -6692,7 +6697,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             {isFreshChatState ? (
               <View className="mb-2">
                 <Text style={{ color: colors.textSecondary, fontSize: 11, marginBottom: 6 }}>
-                  Tap a starter prompt
+                  {t('chat.starter.tap')}
                 </Text>
                 <ScrollView
                   horizontal
@@ -6808,7 +6813,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       {isAnalyzing ? (
                         <View className="flex-row items-center rounded-2xl px-3 py-2" style={{ backgroundColor: isDark ? '#111111' : '#F5F5F5' }}>
                           <ActivityIndicator size="small" color={colors.primary} />
-                          <Text style={{ marginLeft: 8, color: colors.textSecondary, fontSize: 13 }}>Analyzing your request...</Text>
+                          <Text style={{ marginLeft: 8, color: colors.textSecondary, fontSize: 13 }}>{t('chat.status.analyzing')}</Text>
                         </View>
                       ) : null}
                       {isImageGenerating ? (
@@ -7331,8 +7336,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               <Pressable
                 onPress={openPromptSuggestions}
                 accessibilityRole="button"
-                accessibilityLabel="Open prompt suggestions"
-                accessibilityHint="Shows AI-suggested prompts based on what you have typed."
+                accessibilityLabel={t('chat.promptSuggestions.open')}
+                accessibilityHint={t('chat.promptSuggestions.openHint')}
                 accessibilityState={{ busy: isPromptSuggestionsLoading }}
                 className="h-12 w-12 items-center justify-center rounded-full border"
                 style={{
