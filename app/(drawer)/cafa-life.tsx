@@ -204,6 +204,7 @@ function VoiceSelectionModal({
   colors: { border: string; primary: string; textPrimary: string; textSecondary: string };
   isDark: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <View
@@ -215,8 +216,8 @@ function VoiceSelectionModal({
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Close voice picker"
-          accessibilityHint="Returns to the Cafa Live screen."
+          accessibilityLabel={t('cafaLive.voice.close')}
+          accessibilityHint={t('cafaLive.voice.closeHint')}
           onPress={onClose}
           style={{ flex: 1 }}
         />
@@ -237,15 +238,15 @@ function VoiceSelectionModal({
           <View className="mb-4 flex-row items-start justify-between">
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                Choose a voice
+                {t('cafaLive.voice.choose')}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
-                Pick the voice Cafa will use before you start your live session.
+                {t('cafaLive.voice.chooseBody')}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close voice picker"
+              accessibilityLabel={t('cafaLive.voice.close')}
               onPress={onClose}
               className="h-10 w-10 items-center justify-center rounded-full"
               style={{
@@ -260,8 +261,8 @@ function VoiceSelectionModal({
 
           <ScrollView
             accessible
-            accessibilityLabel="Available Cafa Live voices"
-            accessibilityHint="Browse the voices, preview them, and choose the one you want."
+            accessibilityLabel={t('cafaLive.voice.available')}
+            accessibilityHint={t('cafaLive.voice.availableHint')}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 8 }}
           >
@@ -275,7 +276,7 @@ function VoiceSelectionModal({
                     key={voice.id}
                     accessibilityRole="button"
                     accessibilityLabel={`${voice.name}, ${formatVoiceGender(voice.gender)} voice${voice.default ? ', default' : ''}`}
-                    accessibilityHint="Selects this voice for your next live session."
+                    accessibilityHint={t('cafaLive.voice.selectHint')}
                     accessibilityState={{ selected }}
                     onPress={() => onSelectVoice(voice.id)}
                     style={{
@@ -298,7 +299,7 @@ function VoiceSelectionModal({
                               style={{ backgroundColor: selected ? `${colors.primary}20` : (isDark ? '#1B2230' : '#E2E8F0') }}
                             >
                               <Text style={{ color: selected ? colors.primary : colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
-                                Default
+                                {t('cafaLive.voice.default')}
                               </Text>
                             </View>
                           ) : null}
@@ -333,7 +334,7 @@ function VoiceSelectionModal({
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`Preview ${voice.name}'s voice`}
-                        accessibilityHint="Plays a short audio sample."
+                        accessibilityHint={t('cafaLive.voice.previewHint')}
                         onPress={() => onPreviewVoice(voice.id)}
                         className="rounded-full px-4 py-3"
                         style={{
@@ -349,14 +350,14 @@ function VoiceSelectionModal({
                             <Ionicons name="volume-high-outline" size={16} color={colors.primary} />
                           )}
                           <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginLeft: 8 }}>
-                            {isPreviewingThisVoice && isPreviewLoading ? 'Loading preview...' : 'Preview'}
+                            {isPreviewingThisVoice && isPreviewLoading ? t('cafaLive.voice.loadingPreview') : t('cafaLive.voice.preview')}
                           </Text>
                         </View>
                       </TouchableOpacity>
 
                       {selected ? (
                         <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                          Selected for start
+                          {t('cafaLive.voice.selected')}
                         </Text>
                       ) : null}
                     </View>
@@ -400,10 +401,11 @@ function CafaLiveSettingsModal({
   colors: { border: string; primary: string; textPrimary: string; textSecondary: string };
   isDark: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(5, 8, 14, 0.78)' : 'rgba(15, 23, 42, 0.32)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel="Close live settings" />
+        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel={t('cafaLive.settings.close')} />
         <View
           accessibilityViewIsModal
           style={{
@@ -421,15 +423,15 @@ function CafaLiveSettingsModal({
           <View className="mb-4 flex-row items-start justify-between">
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                Settings
+                {t('cafaLive.settings.title')}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
-                Voice setup and session preferences for Cafa Live.
+                {t('cafaLive.settings.subtitle')}
               </Text>
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close live settings"
+              accessibilityLabel={t('cafaLive.settings.close')}
               onPress={onClose}
               className="h-10 w-10 items-center justify-center rounded-full"
               style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
@@ -451,17 +453,17 @@ function CafaLiveSettingsModal({
               <View className="flex-row items-start justify-between">
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                    Voice setup
+                    {t('cafaLive.settings.voiceSetup')}
                   </Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                    Pick a voice before you start so your live session feels right from the first reply.
+                    {t('cafaLive.settings.voiceSetupBody')}
                   </Text>
                 </View>
 
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel="Refresh available voices"
-                  accessibilityHint="Checks for newly added voices."
+                  accessibilityLabel={t('cafaLive.settings.refreshVoices')}
+                  accessibilityHint={t('cafaLive.settings.refreshVoicesHint')}
                   onPress={onRefreshVoices}
                   className="rounded-full px-3 py-2"
                   style={{
@@ -482,7 +484,7 @@ function CafaLiveSettingsModal({
                 <View className="mt-3 flex-row items-center rounded-[18px] border px-3 py-3" style={{ borderColor: colors.border, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }}>
                   <ActivityIndicator size="small" color={colors.primary} />
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 10 }}>
-                    Loading voices...
+                    {t('cafaLive.settings.loadingVoices')}
                   </Text>
                 </View>
               ) : voiceError ? (
@@ -504,7 +506,7 @@ function CafaLiveSettingsModal({
                         {selectedVoice.name}
                       </Text>
                       <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 4 }}>
-                        {formatVoiceGender(selectedVoice.gender)} voice
+                        {t('cafaLive.settings.voiceType', { gender: formatVoiceGender(selectedVoice.gender) })}
                       </Text>
                       {selectedVoice.description ? (
                         <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
@@ -521,8 +523,8 @@ function CafaLiveSettingsModal({
                   <View className="mt-3 flex-row flex-wrap">
                     <TouchableOpacity
                       accessibilityRole="button"
-                      accessibilityLabel="Open voice picker"
-                      accessibilityHint="Browse and choose a different voice for your session."
+                      accessibilityLabel={t('cafaLive.settings.openVoicePicker')}
+                      accessibilityHint={t('cafaLive.settings.openVoicePickerHint')}
                       onPress={onOpenVoicePicker}
                       className="mr-3 rounded-full px-4 py-2.5"
                       style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
@@ -530,7 +532,7 @@ function CafaLiveSettingsModal({
                       <View className="flex-row items-center">
                         <Ionicons name="swap-horizontal-outline" size={15} color="#FFFFFF" />
                         <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
-                          Change voice
+                          {t('cafaLive.settings.changeVoice')}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -538,7 +540,7 @@ function CafaLiveSettingsModal({
                     <TouchableOpacity
                       accessibilityRole="button"
                       accessibilityLabel={`Preview ${selectedVoice.name}'s voice`}
-                      accessibilityHint="Plays a short sample of the selected voice."
+                      accessibilityHint={t('cafaLive.settings.selectedPreviewHint')}
                       onPress={() => onPreviewVoice(selectedVoice.id)}
                       className="rounded-full px-4 py-2.5"
                       style={{ borderWidth: 1.2, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#FFFFFF' }}
@@ -555,10 +557,10 @@ function CafaLiveSettingsModal({
                         )}
                         <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
                           {previewVoiceId === selectedVoice.id && previewState === 'playing'
-                            ? 'Stop preview'
+                            ? t('cafaLive.settings.stopPreview')
                             : previewVoiceId === selectedVoice.id && previewState === 'loading'
-                              ? 'Loading preview...'
-                              : 'Preview voice'}
+                              ? t('cafaLive.voice.loadingPreview')
+                              : t('cafaLive.settings.previewVoice')}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -567,8 +569,8 @@ function CafaLiveSettingsModal({
               ) : (
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel="Open voice picker"
-                  accessibilityHint="Choose the voice Cafa will use for your live session."
+                  accessibilityLabel={t('cafaLive.settings.openVoicePicker')}
+                  accessibilityHint={t('cafaLive.settings.chooseVoiceHint')}
                   onPress={onOpenVoicePicker}
                   className="mt-3 rounded-[20px] border px-3 py-3"
                   style={{ borderColor: `${colors.primary}35`, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#FFFFFF' }}
@@ -579,10 +581,10 @@ function CafaLiveSettingsModal({
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                        Voice setup
+                        {t('cafaLive.settings.voiceSetup')}
                       </Text>
                       <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 3 }}>
-                        Open the voice list to preview the available options before you begin.
+                        {t('cafaLive.settings.openVoiceList')}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
@@ -620,10 +622,11 @@ function CafaLiveHistoryModal({
   colors: { border: string; primary: string; textPrimary: string; textSecondary: string };
   isDark: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(5, 8, 14, 0.78)' : 'rgba(15, 23, 42, 0.32)', justifyContent: 'flex-end' }}>
-        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel="Close recent conversation" />
+        <Pressable onPress={onClose} style={{ flex: 1 }} accessibilityRole="button" accessibilityLabel={t('cafaLive.history.close')} />
         <View
           accessibilityViewIsModal
           style={{
@@ -641,17 +644,17 @@ function CafaLiveHistoryModal({
           <View className="mb-4 flex-row items-start justify-between">
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                Recent conversation
+                {t('cafaLive.history.title')}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
-                Review your latest saved Cafa Live turns.
+                {t('cafaLive.history.subtitle')}
               </Text>
             </View>
             <View className="flex-row items-center">
               <TouchableOpacity
                 accessibilityRole="button"
-                accessibilityLabel="Refresh Cafa Live history"
-                accessibilityHint="Fetches the latest saved turns from the server."
+                accessibilityLabel={t('cafaLive.history.refresh')}
+                accessibilityHint={t('cafaLive.history.refreshHint')}
                 onPress={onRefreshHistory}
                 className="mr-2 rounded-full px-3 py-2"
                 style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: `${colors.primary}10` }}
@@ -664,7 +667,7 @@ function CafaLiveHistoryModal({
               </TouchableOpacity>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close recent conversation"
+                accessibilityLabel={t('cafaLive.history.close')}
                 onPress={onClose}
                 className="h-10 w-10 items-center justify-center rounded-full"
                 style={{ borderWidth: 1, borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
@@ -679,7 +682,7 @@ function CafaLiveHistoryModal({
               <View className="items-center justify-center" style={{ paddingVertical: 28 }}>
                 <ActivityIndicator color={colors.primary} />
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-                  Loading recent turns...
+                  {t('cafaLive.history.loading')}
                 </Text>
               </View>
             ) : historyError ? (
@@ -691,10 +694,10 @@ function CafaLiveHistoryModal({
             ) : history.length === 0 ? (
               <View className="mt-1 rounded-2xl border px-4 py-5" style={{ borderColor: colors.border, backgroundColor: isDark ? '#10151D' : '#F8FAFC' }}>
                 <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
-                  No turns yet
+                  {t('cafaLive.history.emptyTitle')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 }}>
-                  Start your first Cafa Live session and your latest turns will appear here automatically.
+                  {t('cafaLive.history.emptyBody')}
                 </Text>
               </View>
             ) : (
@@ -719,7 +722,7 @@ function CafaLiveHistoryModal({
                           </View>
                           <View style={{ marginLeft: 10, flex: 1 }}>
                             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                              {isAssistant ? assistantLabel : 'You'}
+                              {isAssistant ? assistantLabel : t('cafaLive.history.you')}
                             </Text>
                             <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
                               {formatRelativeTimestamp(turn.timestamp)}
@@ -1106,9 +1109,9 @@ export default function CafaLifeScreen() {
     <RequireAuthRoute>
       <AppPromptModal
         visible={showEndPrompt}
-        title="End Cafa Live session?"
-        message="This will disconnect the live voice room. You can start a fresh session any time."
-        confirmLabel="End session"
+        title={t('cafaLive.end.title')}
+        message={t('cafaLive.end.message')}
+        confirmLabel={t('cafaLive.end.confirm')}
         cancelLabel={t('drawer.cancel')}
         confirmTone="danger"
         iconName="call-outline"
@@ -1204,9 +1207,9 @@ export default function CafaLifeScreen() {
                 <View className="flex-row items-center">
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Refresh Cafa Live history"
-                    accessibilityHint="Loads the most recent Cafa Live turns saved on the server."
-                    onLongPress={(event) => showTooltip('Refresh', event)}
+                    accessibilityLabel={t('cafaLive.history.refresh')}
+                    accessibilityHint={t('cafaLive.history.loadHint')}
+                    onLongPress={(event) => showTooltip(t('cafaLive.history.refreshShort'), event)}
                     onPress={handleRefreshHistory}
                     className="rounded-full px-3 py-2"
                     style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
@@ -1215,9 +1218,9 @@ export default function CafaLifeScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Open Cafa Live settings"
-                    accessibilityHint="Opens settings including voice setup."
-                    onLongPress={(event) => showTooltip('Settings', event)}
+                    accessibilityLabel={t('cafaLive.settings.open')}
+                    accessibilityHint={t('cafaLive.settings.openHint')}
+                    onLongPress={(event) => showTooltip(t('cafaLive.settings.title'), event)}
                     onPress={() => setIsSettingsVisible(true)}
                     className="ml-2 rounded-full px-3 py-2"
                     style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
@@ -1226,9 +1229,9 @@ export default function CafaLifeScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Open recent conversation files"
-                    accessibilityHint="Shows your recent Cafa Live conversation history."
-                    onLongPress={(event) => showTooltip('Recent convo', event)}
+                    accessibilityLabel={t('cafaLive.history.open')}
+                    accessibilityHint={t('cafaLive.history.openHint')}
+                    onLongPress={(event) => showTooltip(t('cafaLive.history.shortTitle'), event)}
                     onPress={() => setIsHistoryVisible(true)}
                     className="ml-2 rounded-full px-3 py-2"
                     style={{ borderWidth: 1.2, borderColor: colors.primary, backgroundColor: colors.primary }}
@@ -1417,7 +1420,7 @@ export default function CafaLifeScreen() {
                   }}
                 >
                   <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                    Native build required
+                    {t('cafaLive.runtime.nativeRequired')}
                   </Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 }}>
                     {runtimeMessage}

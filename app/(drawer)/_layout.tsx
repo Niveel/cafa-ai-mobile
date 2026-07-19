@@ -76,8 +76,8 @@ export default function DrawerLayout() {
       })}
     >
       <Drawer.Screen name="index" options={{ title: t('drawer.newChat') }} />
-      <Drawer.Screen name="tools" options={{ title: 'Tools' }} />
-      <Drawer.Screen name="repo" options={{ title: 'Repo' }} />
+      <Drawer.Screen name="tools" options={{ title: t('drawer.tools') }} />
+      <Drawer.Screen name="repo" options={{ title: t('drawer.repo') }} />
       <Drawer.Screen
         name="images"
         options={{

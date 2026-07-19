@@ -291,8 +291,8 @@ export default function VideosScreen() {
         && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
       ) {
         Alert.alert(
-          'Photos Permission Needed',
-          'Allow Photos access in Settings to save images and videos.',
+          t('videos.photosPermissionTitle'),
+          t('videos.photosPermissionMessage'),
           [
             { text: 'Not now', style: 'cancel' },
             { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
@@ -340,7 +340,7 @@ export default function VideosScreen() {
 
       const uniqueIds = Array.from(new Set(allIds));
       if (!uniqueIds.length) {
-        showNotice('No videos to delete.');
+        showNotice(t('videos.noneToDelete'));
         return;
       }
 
@@ -352,17 +352,17 @@ export default function VideosScreen() {
       setVideos([]);
       setCurrentPage(0);
       setHasNextPage(false);
-      showNotice('All saved videos deleted.');
+      showNotice(t('videos.deleteAllSuccess'));
       hapticSuccess();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not delete videos.';
+      const message = error instanceof Error ? error.message : t('videos.deleteFailed');
       console.log(`[videos-delete-all:error] message="${message}"`);
-      showNotice('Could not delete all videos.', 5000);
+      showNotice(t('videos.deleteAllFailed'), 5000);
       hapticError();
     } finally {
       setIsDeleteBusy(false);
     }
-  }, [showNotice]);
+  }, [showNotice, t]);
 
   const downloadAllAsZip = useCallback(async () => {
     if (Platform.OS !== 'android') return;
@@ -596,10 +596,10 @@ export default function VideosScreen() {
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
         <AppPromptModal
           visible={Boolean(deleteTarget)}
-          title="Delete video?"
-          message="This video will be permanently removed from your saved history."
-          confirmLabel="Delete"
-          cancelLabel="Cancel"
+          title={t('videos.deleteTitle')}
+          message={t('videos.deleteMessage')}
+          confirmLabel={t('videos.delete')}
+          cancelLabel={t('common.cancel')}
           confirmTone="danger"
           iconName="trash-outline"
           onCancel={() => setDeleteTarget(null)}
@@ -613,10 +613,10 @@ export default function VideosScreen() {
         />
         <AppPromptModal
           visible={showDeleteAllPrompt}
-          title="Delete all videos?"
-          message="This will permanently remove all saved videos from your history."
-          confirmLabel="Delete all"
-          cancelLabel="Cancel"
+          title={t('videos.deleteAllTitle')}
+          message={t('videos.deleteAllMessage')}
+          confirmLabel={t('videos.deleteAll')}
+          cancelLabel={t('common.cancel')}
           confirmTone="danger"
           iconName="warning-outline"
           onCancel={() => setShowDeleteAllPrompt(false)}
@@ -631,7 +631,7 @@ export default function VideosScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.videosSubtitle')}
           </Text>
-          <View className="mt-2 self-start flex-row">
+          <View className="mt-2 flex-row flex-wrap" style={{ gap: 8 }}>
             {Platform.OS === 'android' ? (
               <AppButton
                 label={isZipBusy ? t('videos.zipBusy') : t('videos.downloadAllZip')}
@@ -641,13 +641,13 @@ export default function VideosScreen() {
               />
             ) : null}
             {videos.length ? (
-              <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+              <View>
                 <AppButton
-                  label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                  label={isDeleteBusy ? t('videos.deleting') : t('videos.deleteAll')}
                   onPress={() => {
                     if (isDeleteBusy) return;
                     if (!videos.length) {
-                      showNotice('No videos to delete.');
+                      showNotice(t('videos.noneToDelete'));
                       return;
                     }
                     setShowDeleteAllPrompt(true);

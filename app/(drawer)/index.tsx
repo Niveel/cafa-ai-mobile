@@ -364,32 +364,30 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const screenConfig = useMemo(() => {
     if (screenMode === 'image-to-video') {
       return {
-        welcome:
-          'This section is for generating a video based on an image. Upload an image, then describe the motion, camera movement, or scene you want.',
-        attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload.',
-        uploadTriggerLabel: 'Upload',
-        uploadTriggerHint: 'Opens upload options.',
-        attachImageLabel: 'Image upload',
-        attachImageHint: 'Opens your photo library to select an image.',
-        attachDocumentLabel: 'Document upload',
-        attachDocumentHint: 'Opens the document picker.',
+        welcome: t('media.imageToVideo.welcome'),
+        attachmentMenuAnnouncement: t('media.upload.imageMenuAnnouncement'),
+        uploadTriggerLabel: t('media.upload.label'),
+        uploadTriggerHint: t('media.upload.hint'),
+        attachImageLabel: t('media.upload.imageLabel'),
+        attachImageHint: t('media.upload.imageHint'),
+        attachDocumentLabel: t('media.upload.documentLabel'),
+        attachDocumentHint: t('media.upload.documentHint'),
         allowDocumentAttachment: false,
-        placeholder: 'Describe the motion, camera movement, or scene you want...',
+        placeholder: t('media.imageToVideo.placeholder'),
       };
     }
     if (screenMode === 'edit-image') {
       return {
-        welcome:
-          'This section is for editing an image. Upload an image, then describe the changes, style updates, or fixes you want.',
-        attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload.',
-        uploadTriggerLabel: 'Upload',
-        uploadTriggerHint: 'Opens upload options.',
-        attachImageLabel: 'Image upload',
-        attachImageHint: 'Opens your photo library to select an image.',
-        attachDocumentLabel: 'Document upload',
-        attachDocumentHint: 'Opens the document picker.',
+        welcome: t('media.editImage.welcome'),
+        attachmentMenuAnnouncement: t('media.upload.imageMenuAnnouncement'),
+        uploadTriggerLabel: t('media.upload.label'),
+        uploadTriggerHint: t('media.upload.hint'),
+        attachImageLabel: t('media.upload.imageLabel'),
+        attachImageHint: t('media.upload.imageHint'),
+        attachDocumentLabel: t('media.upload.documentLabel'),
+        attachDocumentHint: t('media.upload.documentHint'),
         allowDocumentAttachment: false,
-        placeholder: 'Describe the changes, style updates, or fixes you want...',
+        placeholder: t('media.editImage.placeholder'),
       };
     }
     return {
@@ -5817,7 +5815,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
     const newChatToken = typeof params.newChat === 'string' ? params.newChat.trim() : '';
     const isHydratingActiveConversationWhileSending = Boolean(
-      isSending
+      isSendRunInFlightRef.current
       && targetConversationId
       && (
         (isAuthenticated && authConversationId === targetConversationId)
@@ -5945,7 +5943,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     createWelcomeMessage,
     getDocumentWizardDraftKey,
     isAuthenticated,
-    isSending,
     mergeDocumentWizardDraftMessages,
     mapAuthMessageToUiMessage,
     params.conversationId,

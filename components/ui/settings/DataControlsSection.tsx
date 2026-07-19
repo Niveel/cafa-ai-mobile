@@ -232,9 +232,9 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
       {Platform.OS === 'android' ? (
         <View className="flex-row items-center justify-between rounded-2xl border p-3" style={{ borderColor: colors.border }}>
           <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>TikTok ad measurement</Text>
+            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.data.tiktokMeasurement')}</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>
-              Share registration and subscription events with TikTok. Chats, prompts, media, email, and payment details are never included.
+              {t('settings.data.tiktokMeasurementBody')}
             </Text>
           </View>
           <AppSwitch

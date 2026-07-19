@@ -4,74 +4,76 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
 import { AppScreen, RequireAuthRoute } from '@/components';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 type ToolCard = {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice';
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
-  eyebrow: string;
+  eyebrowKey: string;
 };
 
 const TOOL_CARDS: ToolCard[] = [
   {
-    title: 'Avatar Video',
-    description: 'Create a talking avatar video with gallery faces or your own portrait, auto-written script, and voice selection.',
+    titleKey: 'tools.card.avatar.title',
+    descriptionKey: 'tools.card.avatar.description',
     route: '/(drawer)/avatar-video',
     icon: 'person-circle-outline',
     accent: '#8C3B16',
-    eyebrow: 'Talking Video',
+    eyebrowKey: 'tools.card.avatar.eyebrow',
   },
   {
-    title: 'Image to Video',
-    description: 'Turn a still image into a motion-ready clip with a workflow tuned for video prompts.',
+    titleKey: 'tools.card.imageToVideo.title',
+    descriptionKey: 'tools.card.imageToVideo.description',
     route: '/(drawer)/image-to-video',
     icon: 'film-outline',
     accent: '#1E4FA3',
-    eyebrow: 'Motion Lab',
+    eyebrowKey: 'tools.card.imageToVideo.eyebrow',
   },
   {
-    title: 'Edit Image',
-    description: 'Refine, restyle, or transform an image without leaving the Cafa creative flow.',
+    titleKey: 'tools.card.editImage.title',
+    descriptionKey: 'tools.card.editImage.description',
     route: '/(drawer)/edit-image',
     icon: 'color-wand-outline',
     accent: '#A44A1A',
-    eyebrow: 'Creative Edit',
+    eyebrowKey: 'tools.card.editImage.eyebrow',
   },
   {
-    title: 'Writing Tools',
-    description: 'Open AI Detection and Humanize in one place for fast checks and cleaner rewrites.',
+    titleKey: 'tools.card.writing.title',
+    descriptionKey: 'tools.card.writing.description',
     route: '/(drawer)/writing-tools',
     icon: 'create-outline',
     accent: '#0F6B57',
-    eyebrow: 'Text Studio',
+    eyebrowKey: 'tools.card.writing.eyebrow',
   },
   {
-    title: 'Text to Speech',
-    description: 'Turn text into downloadable speech with library voices, cloned voices, previews, and recent history.',
+    titleKey: 'tools.card.voice.title',
+    descriptionKey: 'tools.card.voice.description',
     route: '/(drawer)/voice',
     icon: 'volume-high-outline',
     accent: '#5B34A8',
-    eyebrow: 'Voice Lab',
+    eyebrowKey: 'tools.card.voice.eyebrow',
   },
 ];
 
 function ToolHubCard({
-  title,
-  description,
+  titleKey,
+  descriptionKey,
   route,
   icon,
   accent,
-  eyebrow,
+  eyebrowKey,
   cardWidth,
 }: ToolCard & { cardWidth: number }) {
+  const { t } = useI18n();
+  const title = t(titleKey);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${title}`}
-      accessibilityHint={`Navigates to ${title}.`}
+      accessibilityLabel={t('hub.openLabel', { title })}
+      accessibilityHint={t('hub.openHint', { title })}
       onPress={() => {
         router.push(route);
       }}
@@ -109,7 +111,7 @@ function ToolHubCard({
             style={{ backgroundColor: 'rgba(15,23,42,0.18)' }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
-              {eyebrow}
+              {t(eyebrowKey)}
             </Text>
           </View>
         </View>
@@ -121,12 +123,12 @@ function ToolHubCard({
           numberOfLines={4}
           style={{ color: 'rgba(255,255,255,0.84)', fontSize: 12, lineHeight: 18, marginTop: 8 }}
         >
-          {description}
+          {t(descriptionKey)}
         </Text>
 
         <View className="mt-5 flex-row items-center justify-between">
           <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
-            Open
+            {t('hub.open')}
           </Text>
           <View
             className="h-8 w-8 items-center justify-center rounded-full"
@@ -142,20 +144,21 @@ function ToolHubCard({
 
 export default function ToolsScreen() {
   const { colors } = useAppTheme();
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const cardWidth = useMemo(() => Math.floor((width - 20 - 12) / 2), [width]);
 
   return (
     <RequireAuthRoute>
-      <AppScreen title="Tools">
+      <AppScreen title={t('drawer.tools')}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
           <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 16 }}>
-            Create, transform, and refine with focused workspaces designed for media and writing tasks.
+            {t('tools.subtitle')}
           </Text>
 
           <View className="flex-row flex-wrap justify-between">
             {TOOL_CARDS.map((card) => (
-              <ToolHubCard key={card.title} {...card} cardWidth={cardWidth} />
+              <ToolHubCard key={card.titleKey} {...card} cardWidth={cardWidth} />
             ))}
           </View>
         </ScrollView>

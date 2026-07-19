@@ -903,8 +903,8 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         <View className="mb-3 mt-2 gap-2">
           <AppButton label={t('drawer.newChat')} iconName="add-outline" compact minWidth={82} onPress={createNewChat} />
           <AppButton label={t('drawer.cafaLife')} iconName="radio-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('cafa-life')} />
-          <AppButton label="Tools" iconName="grid-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('tools')} />
-          <AppButton label="Repo" iconName="folder-open-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('repo')} />
+          <AppButton label={t('drawer.tools')} iconName="grid-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('tools')} />
+          <AppButton label={t('drawer.repo')} iconName="folder-open-outline" compact minWidth={74} variant="outline" onPress={() => openRoute('repo')} />
         </View>
 
         <View

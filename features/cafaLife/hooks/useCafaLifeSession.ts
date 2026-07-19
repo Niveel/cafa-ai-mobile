@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, AppState } from 'react-native';
 import { requestRecordingPermissionsAsync } from 'expo-audio';
 
 import { getCafaLifeToken } from '@/features/cafaLife/services/cafaLife';
@@ -176,6 +176,15 @@ export function useCafaLifeSession() {
       setState('idle');
     }
   }, [clearSessionMeta, silenceRemoteAudioPlayback]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'background' || !roomRef.current) return;
+      void endSession();
+    });
+
+    return () => subscription.remove();
+  }, [endSession]);
 
   const startSession = useCallback(async (selectedVoice?: string) => {
     if (!runtime.supported) {

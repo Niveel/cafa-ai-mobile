@@ -39,7 +39,7 @@ import {
   previewAvatarVoice,
   uploadAvatarImage,
 } from '@/features';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import {
   clearPendingAvatarVideoJob,
   getPendingAvatarVideoJob,
@@ -210,6 +210,7 @@ type AvatarGenerationLoaderProps = {
 };
 
 function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoaderProps) {
+  const { t } = useI18n();
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
   const [activeIconIndex, setActiveIconIndex] = useState(0);
   const haloScale = useRef(new Animated.Value(0.92)).current;
@@ -503,7 +504,7 @@ function AvatarGenerationLoader({ colors, isDark, status }: AvatarGenerationLoad
       </View>
 
       <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginTop: 12, letterSpacing: 0.6 }}>
-        {status === 'video_generating' ? 'Rendering frames' : status === 'audio_generated' ? 'Syncing voice' : 'Preparing your avatar'}
+        {status === 'video_generating' ? t('avatarVideo.dynamic.renderingFrames') : status === 'audio_generated' ? t('avatarVideo.dynamic.syncingVoice') : t('avatarVideo.dynamic.preparingAvatar')}
       </Text>
     </View>
   );
@@ -606,6 +607,7 @@ function SelectionModal({
   isDark: boolean;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <Modal
       visible={visible}
@@ -624,7 +626,7 @@ function SelectionModal({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Close ${title}`}
-          accessibilityHint="Closes this picker and returns to the avatar screen."
+          accessibilityHint={t('avatarVideo.accessibilityHint.closesThisPickerAndReturnsToThe')}
           onPress={onClose}
           style={{ flex: 1 }}
         />
@@ -671,7 +673,7 @@ function SelectionModal({
           <ScrollView
             accessible
             accessibilityLabel={`${title} picker`}
-            accessibilityHint="Browse the available options and choose the one you want to use."
+            accessibilityHint={t('avatarVideo.accessibilityHint.browseTheAvailableOptionsAndChooseThe')}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 8 }}
@@ -721,6 +723,7 @@ function FilterChip({
 
 export default function AvatarVideoScreen() {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const sectionContentWidth = useMemo(() => width - 52, [width]);
   const avatarCardWidth = useMemo(() => Math.floor((sectionContentWidth - 12) / 2), [sectionContentWidth]);
@@ -1434,11 +1437,11 @@ export default function AvatarVideoScreen() {
         && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
       ) {
         Alert.alert(
-          'Photos Permission Needed',
-          'Allow Photos access in Settings to save avatar videos.',
+          t('avatarVideo.dynamic.photosPermissionTitle'),
+          t('avatarVideo.dynamic.photosPermissionMessage'),
           [
-            { text: 'Not now', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
+            { text: t('avatarVideo.dynamic.notNow'), style: 'cancel' },
+            { text: t('avatarVideo.dynamic.openSettings'), onPress: () => { void Linking.openSettings(); } },
           ],
         );
       }
@@ -1453,7 +1456,7 @@ export default function AvatarVideoScreen() {
         setIsDownloadingCurrent(false);
       }
     }
-  }, [announce]);
+  }, [announce, t]);
 
   const shareVideo = useCallback(async (videoUrl: string, fileStem: string, historyId?: string) => {
     if (historyId) {
@@ -1505,13 +1508,13 @@ export default function AvatarVideoScreen() {
 
   return (
     <RequireAuthRoute>
-      <AppScreen title="Avatar Video">
+      <AppScreen title={t('avatarVideo.title.avatarVideo')}>
         <AppPromptModal
           visible={isCancelGenerationPromptVisible}
-          title="Cancel avatar video?"
+          title={t('avatarVideo.title.cancelAvatarVideo')}
           message="The current generation will stop and cannot be resumed."
           confirmLabel="Cancel Generation"
-          cancelLabel="Keep Generating"
+          cancelLabel={t('avatarVideo.dynamic.keepGenerating')}
           confirmTone="danger"
           iconName="close-circle-outline"
           onConfirm={confirmCancelGeneration}
@@ -1532,11 +1535,10 @@ export default function AvatarVideoScreen() {
           )}
         >
           <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 16 }}>
-            Create a talking avatar video by choosing a face, drafting your message, and matching it with the right voice.
-          </Text>
+            {' '}{t('avatarVideo.ui.createATalkingAvatarVideoByChoosing')}{' '}</Text>
           <View style={{ alignItems: 'flex-end', marginTop: -8, marginBottom: 16 }}>
             <AppButton
-              label="History"
+              label={t('avatarVideo.label.history')}
               iconName="time-outline"
               compact
               variant="outline"
@@ -1598,32 +1600,30 @@ export default function AvatarVideoScreen() {
                 }}
               >
                 <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 20, fontWeight: '800' }}>
-                  We could not finish your video
-                </Text>
+                  {' '}{t('avatarVideo.ui.weCouldNotFinishYourVideo')}{' '}</Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 10 }}>
-                  This attempt did not complete successfully. You can try again now, or close this message and adjust the avatar, voice, or script first.
-                </Text>
+                  {' '}{t('avatarVideo.ui.thisAttemptDidNotCompleteSuccessfullyYou')}{' '}</Text>
                 {failedResult ? (
                   <View
                     className="mt-4 rounded-[22px] border p-4"
                     style={{ borderColor: colors.border, backgroundColor: isDark ? '#0C0E13' : '#F8FAFC' }}
                   >
                     <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                      Voice: {failedResult.meta.voiceLabel}
+                      {' '}{t('avatarVideo.ui.voice')}{' '}{failedResult.meta.voiceLabel}
                     </Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                      Started: {formatDateLabel(failedResult.meta.createdAt)}
+                      {' '}{t('avatarVideo.ui.started')}{' '}{formatDateLabel(failedResult.meta.createdAt)}
                     </Text>
                     {failedResult.status.createdAt ? (
                       <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                        Last update: {formatDateLabel(failedResult.status.createdAt)}
+                        {' '}{t('avatarVideo.ui.lastUpdate')}{' '}{formatDateLabel(failedResult.status.createdAt)}
                       </Text>
                     ) : null}
                   </View>
                 ) : null}
                 <View className="mt-5">
                   <AppButton
-                    label="Try Again"
+                    label={t('avatarVideo.label.tryAgain')}
                     iconName="refresh-outline"
                     compact
                     onPress={() => {
@@ -1633,7 +1633,7 @@ export default function AvatarVideoScreen() {
                   />
                   <View style={{ height: 12 }} />
                   <AppButton
-                    label="Close"
+                    label={t('avatarVideo.label.close')}
                     iconName="close-outline"
                     compact
                     variant="outline"
@@ -1645,8 +1645,8 @@ export default function AvatarVideoScreen() {
           </Modal>
 
           <SectionCard
-            title="Quick start"
-            subtitle="Want a ready-made setup? We can instantly choose an avatar, voice, topic, and full script for you."
+            title={t('avatarVideo.title.quickStart')}
+            subtitle={t('avatarVideo.subtitle.wantAReadyMadeSetupWeCan')}
             colors={colors}
             isDark={isDark}
           >
@@ -1655,11 +1655,9 @@ export default function AvatarVideoScreen() {
               style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '800' }}>
-                Randomize everything
-              </Text>
+                {' '}{t('avatarVideo.ui.randomizeEverything')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                We will pull from a large topic pool and set a gallery avatar, built-in voice, tone, use case, and ready-to-use script.
-              </Text>
+                {' '}{t('avatarVideo.ui.weWillPullFromALargeTopic')}{' '}</Text>
               <View style={{ marginTop: 14 }}>
                 <AppButton
                   label={isRandomizingSetup ? 'Randomizing...' : 'Randomize Setup'}
@@ -1673,14 +1671,13 @@ export default function AvatarVideoScreen() {
                 />
               </View>
               <Text style={{ color: colors.textSecondary, fontSize: 11, lineHeight: 17, marginTop: 10 }}>
-                After that, all you need to do is tap Generate Video.
-              </Text>
+                {' '}{t('avatarVideo.ui.afterThatAllYouNeedToDo')}{' '}</Text>
             </View>
           </SectionCard>
 
           <SectionCard
-            title="1. Choose your avatar"
-            subtitle="Pick from the gallery or upload a front-facing portrait photo for a custom talking avatar."
+            title={t('avatarVideo.title.1ChooseYourAvatar')}
+            subtitle={t('avatarVideo.subtitle.pickFromTheGalleryOrUploadA')}
             colors={colors}
             isDark={isDark}
           >
@@ -1689,8 +1686,7 @@ export default function AvatarVideoScreen() {
               style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
-                Current selection
-              </Text>
+                {' '}{t('avatarVideo.ui.currentSelection')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
                 {selectedAvatarType === 'upload'
                   ? 'Your uploaded portrait is selected.'
@@ -1721,28 +1717,26 @@ export default function AvatarVideoScreen() {
                     style={{ width: 64, height: 80, borderRadius: 16, backgroundColor: isDark ? '#0C0E13' : '#FFFFFF' }}
                     contentFit="cover"
                     accessible
-                    accessibilityLabel="Uploaded selected avatar preview"
+                    accessibilityLabel={t('avatarVideo.accessibilityLabel.uploadedSelectedAvatarPreview')}
                   />
                   <View style={{ marginLeft: 12, flex: 1 }}>
                     <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
-                      Your uploaded photo
-                    </Text>
+                      {' '}{t('avatarVideo.ui.yourUploadedPhoto')}{' '}</Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
-                      Custom avatar
-                    </Text>
+                      {' '}{t('avatarVideo.ui.customAvatar')}{' '}</Text>
                   </View>
                 </View>
               ) : null}
               <View className="mt-4">
                 <AppButton
-                  label="Choose Avatar"
+                  label={t('avatarVideo.label.chooseAvatar')}
                   iconName="images-outline"
                   compact
                   onPress={openAvatarPicker}
                 />
                 <View style={{ height: 12 }} />
                 <AppButton
-                  label={isUploadingAvatar ? 'Uploading...' : 'Upload Your Own Photo'}
+                  label={isUploadingAvatar ? t('avatarVideo.dynamic.uploading') : t('avatarVideo.dynamic.uploadOwnPhoto')}
                   iconName="cloud-upload-outline"
                   compact
                   variant="outline"
@@ -1757,15 +1751,14 @@ export default function AvatarVideoScreen() {
 
             <SelectionModal
               visible={isAvatarPickerOpen}
-              title="Choose your avatar"
-              subtitle="Browse the gallery and pick the look you want for your video."
+              title={t('avatarVideo.title.chooseYourAvatar')}
+              subtitle={t('avatarVideo.subtitle.browseTheGalleryAndPickTheLook')}
               onClose={() => setIsAvatarPickerOpen(false)}
               colors={colors}
               isDark={isDark}
             >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginBottom: 8 }}>
-              Filter gallery
-            </Text>
+              {' '}{t('avatarVideo.ui.filterGallery')}{' '}</Text>
             <View className="mb-2 flex-row flex-wrap">
               {GENDER_FILTERS.map((entry) => (
                 <FilterChip
@@ -1799,8 +1792,8 @@ export default function AvatarVideoScreen() {
               </Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Upload your own portrait photo"
-                accessibilityHint="Opens your photo library so you can upload a custom avatar image."
+                accessibilityLabel={t('avatarVideo.accessibilityLabel.uploadYourOwnPortraitPhoto')}
+                accessibilityHint={t('avatarVideo.accessibilityHint.opensYourPhotoLibrarySoYouCan')}
                 onPress={() => { void uploadOwnPhoto(); }}
                 className="rounded-full px-3 py-2"
                 style={{
@@ -1811,7 +1804,7 @@ export default function AvatarVideoScreen() {
                 }}
               >
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                  {isUploadingAvatar ? 'Uploading...' : 'Upload your own photo'}
+                  {isUploadingAvatar ? t('avatarVideo.dynamic.uploading') : t('avatarVideo.dynamic.uploadOwnPhoto')}
                 </Text>
               </Pressable>
             </View>
@@ -1819,7 +1812,7 @@ export default function AvatarVideoScreen() {
             {uploadedAvatar ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Use your uploaded avatar photo"
+                accessibilityLabel={t('avatarVideo.accessibilityLabel.useYourUploadedAvatarPhoto')}
                 accessibilityState={{ selected: selectedAvatarType === 'upload' }}
                 onPress={() => setSelectedAvatarType('upload')}
                 className="mb-4 rounded-[22px] border p-3"
@@ -1834,15 +1827,13 @@ export default function AvatarVideoScreen() {
                     style={{ width: 64, height: 80, borderRadius: 16, backgroundColor: isDark ? '#0C0E13' : '#FFFFFF' }}
                     contentFit="cover"
                     accessible
-                    accessibilityLabel="Uploaded avatar preview"
+                    accessibilityLabel={t('avatarVideo.accessibilityLabel.uploadedAvatarPreview')}
                   />
                   <View style={{ marginLeft: 12, flex: 1 }}>
                     <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
-                      Your uploaded photo
-                    </Text>
+                      {' '}{t('avatarVideo.ui.yourUploadedPhoto')}{' '}</Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
-                      Best results come from a clear portrait or headshot with the face fully visible.
-                    </Text>
+                      {' '}{t('avatarVideo.ui.bestResultsComeFromAClearPortrait')}{' '}</Text>
                   </View>
                   {selectedAvatarType === 'upload' ? (
                     <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
@@ -1891,7 +1882,7 @@ export default function AvatarVideoScreen() {
                             className="absolute right-3 top-3 rounded-full px-2 py-1"
                             style={{ backgroundColor: colors.primary }}
                           >
-                            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>Selected</Text>
+                            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>{t('avatarVideo.ui.selected')}</Text>
                           </View>
                         ) : null}
                       </View>
@@ -1912,23 +1903,22 @@ export default function AvatarVideoScreen() {
           </SectionCard>
 
           <SectionCard
-            title="2. Generate your script"
-            subtitle="Describe what you want to say in plain language. We will draft it for you, and you can edit it before creating the video."
+            title={t('avatarVideo.title.2GenerateYourScript')}
+            subtitle={t('avatarVideo.subtitle.describeWhatYouWantToSayIn')}
             colors={colors}
             isDark={isDark}
           >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-              What should the avatar say?
-            </Text>
+              {' '}{t('avatarVideo.ui.whatShouldTheAvatarSay')}{' '}</Text>
             <TextInput
               value={userGoal}
               onChangeText={setUserGoal}
               multiline
               textAlignVertical="top"
-              placeholder="Example: Promote my bakery called Sweet Treats in Accra Ghana."
+              placeholder={t('avatarVideo.placeholder.examplePromoteMyBakeryCalledSweetTreats')}
               placeholderTextColor={colors.textSecondary}
-              accessibilityLabel="Avatar video goal"
-              accessibilityHint="Describe what you want the avatar to say or promote."
+              accessibilityLabel={t('avatarVideo.accessibilityLabel.avatarVideoGoal')}
+              accessibilityHint={t('avatarVideo.accessibilityHint.describeWhatYouWantTheAvatarTo')}
               style={{
                 minHeight: 110,
                 marginTop: 8,
@@ -1943,15 +1933,14 @@ export default function AvatarVideoScreen() {
             />
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-              Target audience
-            </Text>
+              {' '}{t('avatarVideo.ui.targetAudience')}{' '}</Text>
             <TextInput
               value={targetAudience}
               onChangeText={setTargetAudience}
-              placeholder="Optional: Who this video is for"
+              placeholder={t('avatarVideo.placeholder.optionalWhoThisVideoIsFor')}
               placeholderTextColor={colors.textSecondary}
-              accessibilityLabel="Target audience"
-              accessibilityHint="Optional field describing who should receive this message."
+              accessibilityLabel={t('avatarVideo.accessibilityLabel.targetAudience')}
+              accessibilityHint={t('avatarVideo.accessibilityHint.optionalFieldDescribingWhoShouldReceiveThis')}
               style={{
                 marginTop: 8,
                 borderWidth: 1.2,
@@ -1965,8 +1954,7 @@ export default function AvatarVideoScreen() {
             />
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-              Tone
-            </Text>
+              {' '}{t('avatarVideo.ui.tone')}{' '}</Text>
             <View className="mt-2 flex-row flex-wrap">
               {TONE_OPTIONS.map((entry) => (
                 <FilterChip
@@ -1981,8 +1969,7 @@ export default function AvatarVideoScreen() {
             </View>
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 8 }}>
-              Use case
-            </Text>
+              {' '}{t('avatarVideo.ui.useCase')}{' '}</Text>
             <View className="mt-2 flex-row flex-wrap">
               {USE_CASE_OPTIONS.map((entry) => (
                 <FilterChip
@@ -1999,8 +1986,8 @@ export default function AvatarVideoScreen() {
             <View className="mt-4 flex-row flex-wrap items-center">
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={isGeneratingScript ? 'Generating script' : 'Generate script'}
-                accessibilityHint="Uses your goal and settings to draft a talking avatar script."
+                accessibilityLabel={isGeneratingScript ? t('avatarVideo.dynamic.generatingScript') : t('avatarVideo.dynamic.generateScript')}
+                accessibilityHint={t('avatarVideo.accessibilityHint.usesYourGoalAndSettingsToDraft')}
                 disabled={!canGenerateScript || isGeneratingScript}
                 onPress={() => { void generateScript(); }}
                 className="rounded-full px-4 py-3"
@@ -2009,26 +1996,24 @@ export default function AvatarVideoScreen() {
                 }}
               >
                 <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                  {isGeneratingScript ? 'Generating...' : (scriptText.trim() ? 'Regenerate Script' : 'Generate Script')}
+                  {isGeneratingScript ? t('avatarVideo.dynamic.generating') : (scriptText.trim() ? t('avatarVideo.dynamic.regenerateScript') : t('avatarVideo.dynamic.generateScript'))}
                 </Text>
               </Pressable>
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginLeft: 10, marginTop: 8 }}>
-                Best results stay under about 110 words.
-              </Text>
+                {' '}{t('avatarVideo.ui.bestResultsStayUnderAbout110Words')}{' '}</Text>
             </View>
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 16 }}>
-              Editable script
-            </Text>
+              {' '}{t('avatarVideo.ui.editableScript')}{' '}</Text>
             <TextInput
               value={scriptText}
               onChangeText={setScriptText}
               multiline
               textAlignVertical="top"
-              placeholder="Your generated script will appear here."
+              placeholder={t('avatarVideo.placeholder.yourGeneratedScriptWillAppearHere')}
               placeholderTextColor={colors.textSecondary}
-              accessibilityLabel="Editable avatar script"
-              accessibilityHint="Review and edit the generated script before creating the avatar video."
+              accessibilityLabel={t('avatarVideo.accessibilityLabel.editableAvatarScript')}
+              accessibilityHint={t('avatarVideo.accessibilityHint.reviewAndEditTheGeneratedScriptBefore')}
               style={{
                 minHeight: 160,
                 marginTop: 8,
@@ -2054,14 +2039,12 @@ export default function AvatarVideoScreen() {
                 ) : null}
                 {estimatedDuration ? (
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                    Estimated duration: {estimatedDuration}s
-                  </Text>
+                    {' '}{t('avatarVideo.ui.estimatedDuration')}{' '}{estimatedDuration}{t('avatarVideo.ui.s')}{' '}</Text>
                 ) : null}
                 {scriptKeyPoints.length ? (
                   <View style={{ marginTop: 10 }}>
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                      Key points
-                    </Text>
+                      {' '}{t('avatarVideo.ui.keyPoints')}{' '}</Text>
                     {scriptKeyPoints.map((point) => (
                       <Text key={point} style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
                         • {point}
@@ -2074,8 +2057,8 @@ export default function AvatarVideoScreen() {
           </SectionCard>
 
           <SectionCard
-            title="3. Pick a voice"
-            subtitle="Choose from built-in voices or from voice samples you have already saved."
+            title={t('avatarVideo.title.3PickAVoice')}
+            subtitle={t('avatarVideo.subtitle.chooseFromBuiltInVoicesOrFrom')}
             colors={colors}
             isDark={isDark}
           >
@@ -2084,8 +2067,7 @@ export default function AvatarVideoScreen() {
               style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
-                Current selection
-              </Text>
+                {' '}{t('avatarVideo.ui.currentSelection')}{' '}</Text>
               {selectedVoice?.kind === 'library' ? (
                 <View
                   className="mt-3 flex-row items-center"
@@ -2100,8 +2082,7 @@ export default function AvatarVideoScreen() {
                   </View>
                   <View style={{ marginLeft: 12, flex: 1 }}>
                     <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
-                      Built-in voice
-                    </Text>
+                      {' '}{t('avatarVideo.ui.builtInVoice')}{' '}</Text>
                     <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '800', marginTop: 2 }}>
                       {selectedVoice.label}
                     </Text>
@@ -2117,14 +2098,14 @@ export default function AvatarVideoScreen() {
               </Text>
               <View className="mt-4">
                 <AppButton
-                  label="Choose Library Voice"
+                  label={t('avatarVideo.label.chooseLibraryVoice')}
                   iconName="volume-high-outline"
                   compact
                   onPress={openLibraryVoicePicker}
                 />
                 <View style={{ height: 12 }} />
                 <AppButton
-                  label="Choose Saved Voice"
+                  label={t('avatarVideo.label.chooseSavedVoice')}
                   iconName="person-circle-outline"
                   compact
                   variant="outline"
@@ -2135,15 +2116,14 @@ export default function AvatarVideoScreen() {
 
             <SelectionModal
               visible={isLibraryVoicePickerOpen}
-              title="Choose a built-in voice"
-              subtitle="Filter the available voices, preview them, and pick the one that fits best."
+              title={t('avatarVideo.title.chooseABuiltInVoice')}
+              subtitle={t('avatarVideo.subtitle.filterTheAvailableVoicesPreviewThemAnd')}
               onClose={() => setIsLibraryVoicePickerOpen(false)}
               colors={colors}
               isDark={isDark}
             >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-              Filter voices
-            </Text>
+              {' '}{t('avatarVideo.ui.filterVoices')}{' '}</Text>
             <View className="mt-2 flex-row flex-wrap">
               {VOICE_GENDER_FILTERS.map((entry) => (
                 <FilterChip
@@ -2170,7 +2150,7 @@ export default function AvatarVideoScreen() {
             </View>
             <View className="mt-1 flex-row">
               <FilterChip
-                label="Popular only"
+                label={t('avatarVideo.label.popularOnly')}
                 selected={popularOnly}
                 onPress={() => setPopularOnly((current) => !current)}
                 colors={colors}
@@ -2179,16 +2159,14 @@ export default function AvatarVideoScreen() {
             </View>
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 10 }}>
-              Voice options
-            </Text>
+              {' '}{t('avatarVideo.ui.voiceOptions')}{' '}</Text>
             {isVoicesLoading ? (
               <View className="items-center py-6">
                 <ActivityIndicator color={colors.primary} />
               </View>
             ) : voices.length === 0 ? (
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                No voices matched these filters.
-              </Text>
+                {' '}{t('avatarVideo.ui.noVoicesMatchedTheseFilters')}{' '}</Text>
             ) : (
               voices.map((voice) => {
                 const isSelected = selectedVoice?.kind === 'library' && selectedVoice.voiceId === voice.id;
@@ -2218,8 +2196,7 @@ export default function AvatarVideoScreen() {
                       {voice.popular ? (
                       <View className="rounded-full px-3 py-1" style={{ backgroundColor: `${colors.primary}12` }}>
                           <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>
-                            Popular
-                          </Text>
+                            {' '}{t('avatarVideo.ui.popular')}{' '}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -2228,7 +2205,7 @@ export default function AvatarVideoScreen() {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={isPlaying ? `Stop ${voice.name} preview` : `Preview ${voice.name} voice`}
-                        accessibilityHint="Plays a short sample so you can hear this voice before selecting it."
+                        accessibilityHint={t('avatarVideo.accessibilityHint.playsAShortSampleSoYouCan')}
                         onPress={() => {
                           void previewVoice({ cacheKey: previewCacheKey, voiceId: voice.id });
                         }}
@@ -2259,7 +2236,7 @@ export default function AvatarVideoScreen() {
                         }}
                       >
                         <Text style={{ color: isSelected ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                          {isSelected ? 'Selected' : 'Use This Voice'}
+                          {isSelected ? t('avatarVideo.dynamic.selected') : t('avatarVideo.dynamic.useThisVoice')}
                         </Text>
                       </Pressable>
                     </View>
@@ -2273,17 +2250,15 @@ export default function AvatarVideoScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={isSaveVoiceExpanded ? 'Collapse save my voice section' : 'Expand save my voice section'}
-                accessibilityHint="Shows or hides the form used to save your own voice sample."
+                accessibilityHint={t('avatarVideo.accessibilityHint.showsOrHidesTheFormUsedTo')}
                 onPress={() => setIsSaveVoiceExpanded((current) => !current)}
                 className="flex-row items-center justify-between px-4 py-4"
               >
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
-                    Save my voice
-                  </Text>
+                    {' '}{t('avatarVideo.ui.saveMyVoice')}{' '}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                    Upload a short voice sample to create a saved voice you can reuse later.
-                  </Text>
+                    {' '}{t('avatarVideo.ui.uploadAShortVoiceSampleToCreate')}{' '}</Text>
                 </View>
                 <Ionicons
                   name={isSaveVoiceExpanded ? 'chevron-up-outline' : 'chevron-down-outline'}
@@ -2295,15 +2270,14 @@ export default function AvatarVideoScreen() {
               {isSaveVoiceExpanded ? (
                 <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18 }}>
-                    Record your voice live in the app. We will stop automatically after 30 seconds, then you can confirm the take or re-record it.
-                  </Text>
+                    {' '}{t('avatarVideo.ui.recordYourVoiceLiveInTheApp')}{' '}</Text>
                   <TextInput
                     value={cloneVoiceName}
                     onChangeText={setCloneVoiceName}
-                    placeholder="Example: My work voice"
+                    placeholder={t('avatarVideo.placeholder.exampleMyWorkVoice')}
                     placeholderTextColor={colors.textSecondary}
-                    accessibilityLabel="Saved voice name"
-                    accessibilityHint="Give your saved voice a short name before recording the sample audio."
+                    accessibilityLabel={t('avatarVideo.accessibilityLabel.savedVoiceName')}
+                    accessibilityHint={t('avatarVideo.accessibilityHint.giveYourSavedVoiceAShortName')}
                     style={{
                       marginTop: 10,
                       borderWidth: 1.2,
@@ -2335,7 +2309,7 @@ export default function AvatarVideoScreen() {
 
             <VoiceCloneRecorderModal
               visible={isVoiceRecorderOpen}
-              title="Save my voice"
+              title={t('avatarVideo.title.saveMyVoice')}
               description="Record your voice live for cloning. Recording cannot be dismissed once it starts, and it stops automatically after 30 seconds."
               voiceName={cloneVoiceName}
               voiceNameLabel="Saved voice name"
@@ -2352,23 +2326,21 @@ export default function AvatarVideoScreen() {
 
             <SelectionModal
               visible={isClonedVoicePickerOpen}
-              title="Choose a saved voice"
-              subtitle="Preview your saved voices and choose one whenever it is ready."
+              title={t('avatarVideo.title.chooseASavedVoice')}
+              subtitle={t('avatarVideo.subtitle.previewYourSavedVoicesAndChooseOne')}
               onClose={() => setIsClonedVoicePickerOpen(false)}
               colors={colors}
               isDark={isDark}
             >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-              Saved voices
-            </Text>
+              {' '}{t('avatarVideo.ui.savedVoices')}{' '}</Text>
             {isClonesLoading ? (
               <View className="items-center py-6">
                 <ActivityIndicator color={colors.primary} />
               </View>
             ) : clonedVoices.length === 0 ? (
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                You have not saved any voices yet.
-              </Text>
+                {' '}{t('avatarVideo.ui.youHaveNotSavedAnyVoicesYet')}{' '}</Text>
             ) : (
               clonedVoices.map((voice) => {
                 const isSelected = selectedVoice?.kind === 'clone' && selectedVoice.fishAudioId === voice.fishAudioId;
@@ -2407,7 +2379,7 @@ export default function AvatarVideoScreen() {
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={isPlaying ? `Stop ${voice.name} preview` : `Preview saved voice ${voice.name}`}
-                        accessibilityHint="Plays a short sample of your saved voice."
+                        accessibilityHint={t('avatarVideo.accessibilityHint.playsAShortSampleOfYourSaved')}
                         disabled={!isReady}
                         onPress={() => {
                           if (isReady) {
@@ -2444,7 +2416,7 @@ export default function AvatarVideoScreen() {
                         }}
                       >
                         <Text style={{ color: isSelected ? colors.primary : colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                          {isSelected ? 'Selected' : 'Use This Voice'}
+                          {isSelected ? t('avatarVideo.dynamic.selected') : t('avatarVideo.dynamic.useThisVoice')}
                         </Text>
                       </Pressable>
                     </View>
@@ -2456,8 +2428,8 @@ export default function AvatarVideoScreen() {
           </SectionCard>
 
           <SectionCard
-            title="4. Create the video"
-            subtitle="Create your video with the selected avatar, edited script, and chosen voice."
+            title={t('avatarVideo.title.4CreateTheVideo')}
+            subtitle={t('avatarVideo.subtitle.createYourVideoWithTheSelectedAvatar')}
             colors={colors}
             isDark={isDark}
           >
@@ -2466,24 +2438,22 @@ export default function AvatarVideoScreen() {
               style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
-                Ready to send
-              </Text>
+                {' '}{t('avatarVideo.ui.readyToSend')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                Avatar: {selectedAvatarType === 'upload' ? 'Your uploaded portrait' : selectedGalleryAvatarName}
+                {' '}{t('avatarVideo.ui.avatar')}{' '}{selectedAvatarType === 'upload' ? 'Your uploaded portrait' : selectedGalleryAvatarName}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
-                Voice: {selectedVoice?.label || 'Not selected'}
+                {' '}{t('avatarVideo.ui.voice')}{' '}{selectedVoice?.label || 'Not selected'}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
-                Script length: {scriptText.trim().split(/\s+/).filter(Boolean).length} words
-              </Text>
+                {' '}{t('avatarVideo.ui.scriptLength')}{' '}{scriptText.trim().split(/\s+/).filter(Boolean).length} {' '}{t('avatarVideo.ui.words')}{' '}</Text>
             </View>
 
             <View className="mt-4 flex-row items-center">
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={activeJobMeta ? 'Avatar generation in progress' : isStartingGeneration ? 'Starting avatar generation' : 'Generate avatar video'}
-                accessibilityHint="Creates your talking avatar video using the selected image, script, and voice."
+                accessibilityLabel={activeJobMeta ? t('avatarVideo.dynamic.generationInProgressA11y') : isStartingGeneration ? t('avatarVideo.dynamic.startingGenerationA11y') : t('avatarVideo.dynamic.generateVideoA11y')}
+                accessibilityHint={t('avatarVideo.accessibilityHint.createsYourTalkingAvatarVideoUsingThe')}
                 disabled={!canGenerateVideo || isStartingGeneration || Boolean(activeJobMeta)}
                 onPress={() => { void startGeneration(); }}
                 className="rounded-full px-4 py-3"
@@ -2492,7 +2462,7 @@ export default function AvatarVideoScreen() {
                 }}
               >
                 <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                  {activeJobMeta ? 'Generation In Progress' : isStartingGeneration ? 'Starting...' : 'Generate Video'}
+                  {activeJobMeta ? t('avatarVideo.dynamic.generationInProgress') : isStartingGeneration ? t('avatarVideo.dynamic.starting') : t('avatarVideo.dynamic.generateVideo')}
                 </Text>
               </Pressable>
             </View>
@@ -2512,14 +2482,12 @@ export default function AvatarVideoScreen() {
                 className="mt-5 text-center"
                 style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}
               >
-                Generating your avatar video
-              </Text>
+                {' '}{t('avatarVideo.ui.generatingYourAvatarVideo')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 10 }}>
                 {statusMessageForAvatarJob(activeJobStatus?.status)}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                This process usually takes 5 to 10 minutes. You can leave the screen and come back later. The app will resume polling your pending job automatically.
-              </Text>
+                {' '}{t('avatarVideo.ui.thisProcessUsuallyTakes5To10')}{' '}</Text>
               <View style={{ marginTop: 16 }}>
                 <AppButton
                   label={isCancellingGeneration ? 'Cancelling...' : 'Cancel Generation'}
@@ -2535,8 +2503,8 @@ export default function AvatarVideoScreen() {
 
           {currentResult?.status.videoUrl ? (
             <SectionCard
-              title="5. Result"
-              subtitle="Your generated avatar video is ready to preview, save, share, or use as the starting point for another one."
+              title={t('avatarVideo.title.5Result')}
+              subtitle={t('avatarVideo.subtitle.yourGeneratedAvatarVideoIsReadyTo')}
               colors={colors}
               isDark={isDark}
             >
@@ -2546,22 +2514,21 @@ export default function AvatarVideoScreen() {
                 height={Math.floor(resultVideoWidth * 0.5625)}
                 borderColor={colors.border}
                 backgroundColor={isDark ? '#101010' : '#FFFFFF'}
-                accessibilityLabel="Generated avatar video"
+                accessibilityLabel={t('avatarVideo.accessibilityLabel.generatedAvatarVideo')}
               />
               <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '800', marginTop: 14 }}>
-                Voice: {currentResult.meta.voiceLabel}
+                {' '}{t('avatarVideo.ui.voice')}{' '}{currentResult.meta.voiceLabel}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                Created: {formatDateLabel(currentResult.status.createdAt || currentResult.meta.createdAt)}
+                {' '}{t('avatarVideo.ui.created')}{' '}{formatDateLabel(currentResult.status.createdAt || currentResult.meta.createdAt)}
               </Text>
               {formatGenerationSeconds(currentResult.status.generationTime) ? (
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  Generation time: {formatGenerationSeconds(currentResult.status.generationTime)}
+                  {' '}{t('avatarVideo.ui.generationTime')}{' '}{formatGenerationSeconds(currentResult.status.generationTime)}
                 </Text>
               ) : null}
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-                Script used
-              </Text>
+                {' '}{t('avatarVideo.ui.scriptUsed')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 8 }}>
                 {currentResult.status.scriptText || currentResult.meta.scriptText}
               </Text>
@@ -2578,7 +2545,7 @@ export default function AvatarVideoScreen() {
                 />
                 <View style={{ width: 8, height: 8 }} />
                 <AppButton
-                  label="Share"
+                  label={t('avatarVideo.label.share')}
                   iconName="share-social-outline"
                   compact
                   variant="outline"
@@ -2592,7 +2559,7 @@ export default function AvatarVideoScreen() {
               </View>
               <View style={{ marginTop: 12 }}>
                 <AppButton
-                  label="Create Another"
+                  label={t('avatarVideo.label.createAnother')}
                   iconName="refresh-outline"
                   compact
                   variant="outline"
@@ -2603,19 +2570,18 @@ export default function AvatarVideoScreen() {
           ) : null}
 
           {false ? <SectionCard
-            title="History"
-            subtitle="Replay your completed avatar videos and save them again whenever you need them."
+            title={t('avatarVideo.title.history')}
+            subtitle={t('avatarVideo.subtitle.replayYourCompletedAvatarVideosAndSave')}
             colors={colors}
             isDark={isDark}
           >
             {!hasLoadedHistory && !isHistoryLoading ? (
               <View className="rounded-[22px] border p-4" style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}>
                 <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
-                  Load your recent avatar videos only when you need them.
-                </Text>
+                  {' '}{t('avatarVideo.ui.loadYourRecentAvatarVideosOnlyWhen')}{' '}</Text>
                 <View className="mt-4 flex-row">
                   <AppButton
-                    label="Load History"
+                    label={t('avatarVideo.label.loadHistory')}
                     iconName="time-outline"
                     compact
                     onPress={() => {
@@ -2632,8 +2598,7 @@ export default function AvatarVideoScreen() {
               </View>
             ) : hasLoadedHistory && history.length === 0 ? (
               <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
-                No completed avatar videos yet. Your finished videos will appear here automatically.
-              </Text>
+                {' '}{t('avatarVideo.ui.noCompletedAvatarVideosYetYourFinished')}{' '}</Text>
             ) : hasLoadedHistory ? (
               history.map((item) => (
                 <View
@@ -2658,7 +2623,7 @@ export default function AvatarVideoScreen() {
                         style={{ width: 56, height: 72, borderRadius: 14, backgroundColor: isDark ? '#0C0E13' : '#F8FAFC' }}
                         contentFit="cover"
                         accessible
-                        accessibilityLabel="Avatar source preview"
+                        accessibilityLabel={t('avatarVideo.accessibilityLabel.avatarSourcePreview')}
                       />
                     ) : null}
                     <View style={{ flex: 1, marginLeft: item.avatarImageUrl ? 12 : 0 }}>
@@ -2670,7 +2635,7 @@ export default function AvatarVideoScreen() {
                       </Text>
                       {formatGenerationSeconds(item.generationTime) ? (
                         <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                          Generation time: {formatGenerationSeconds(item.generationTime)}
+                          {' '}{t('avatarVideo.ui.generationTime')}{' '}{formatGenerationSeconds(item.generationTime)}
                         </Text>
                       ) : null}
                       {item.scriptText ? (
@@ -2693,7 +2658,7 @@ export default function AvatarVideoScreen() {
                     />
                     <View style={{ width: 8, height: 8 }} />
                     <AppButton
-                      label="Share"
+                      label={t('avatarVideo.label.share')}
                       iconName="share-social-outline"
                       compact
                       variant="outline"

@@ -16,7 +16,7 @@ import { router } from 'expo-router';
 
 import { AppButton, AppScreen, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { useAppContext } from '@/context';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import {
   cloneAvatarVoice,
   convertTextToSpeech,
@@ -207,6 +207,7 @@ function VoiceChip({
   statusLabel?: string;
   disabled?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <View
       className="rounded-[22px] border p-4"
@@ -264,7 +265,7 @@ function VoiceChip({
               <Ionicons name="volume-high-outline" size={15} color={colors.primary} />
             )}
             <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700', marginLeft: 8 }}>
-              {previewBusy ? 'Loading preview...' : 'Preview'}
+              {previewBusy ? t('textToSpeech.dynamic.loadingPreview') : t('textToSpeech.dynamic.preview')}
             </Text>
           </View>
         </Pressable>
@@ -272,7 +273,7 @@ function VoiceChip({
         {!disabled ? (
           <Pressable accessibilityRole="button" onPress={onPress}>
             <Text style={{ color: selected ? colors.primary : colors.textSecondary, fontSize: 12, fontWeight: '700' }}>
-              {selected ? 'Selected' : 'Use voice'}
+              {selected ? t('textToSpeech.dynamic.selected') : t('textToSpeech.dynamic.useVoice')}
             </Text>
           </Pressable>
         ) : null}
@@ -283,6 +284,7 @@ function VoiceChip({
 
 export default function VoiceScreen() {
   const { colors, isDark } = useAppTheme();
+  const { t } = useI18n();
   const { authUser } = useAppContext();
   const tier = authUser?.subscriptionTier ?? 'free';
   const characterLimit = useMemo(() => getCharacterLimit(tier), [tier]);
@@ -524,24 +526,24 @@ export default function VoiceScreen() {
   const onConvert = useCallback(async () => {
     if (!trimmedText) {
       setConversionStatus(null);
-      setScreenError('Enter some text first.');
-      announceForA11y('Enter some text first.');
+      setScreenError(t('textToSpeech.dynamic.enterTextFirst'));
+      announceForA11y(t('textToSpeech.dynamic.enterTextFirst'));
       return;
     }
     if (isTextTooLong) {
       setConversionStatus(null);
-      setScreenError(`This plan allows up to ${characterLimit.toLocaleString()} characters per request.`);
-      announceForA11y(`This plan allows up to ${characterLimit.toLocaleString()} characters per request.`);
+      setScreenError(t('textToSpeech.dynamic.characterLimit', { count: characterLimit.toLocaleString() }));
+      announceForA11y(t('textToSpeech.dynamic.characterLimit', { count: characterLimit.toLocaleString() }));
       return;
     }
     if (!selectedVoice) {
       setConversionStatus(null);
-      setScreenError('Choose a voice before converting.');
-      announceForA11y('Choose a voice before converting.');
+      setScreenError(t('textToSpeech.dynamic.chooseVoice'));
+      announceForA11y(t('textToSpeech.dynamic.chooseVoice'));
       return;
     }
     if (isTtsLimitReached) {
-      const message = `You've reached your monthly TTS limit. Please upgrade your plan.`;
+      const message = t('textToSpeech.dynamic.monthlyLimit');
       setConversionStatus(null);
       setScreenError(message);
       setShowUpgradePrompt(true);
@@ -550,10 +552,10 @@ export default function VoiceScreen() {
     }
 
     const conversionMessage = currentResult && lastConvertedVoiceKeyRef.current !== selectedVoice.key
-      ? `Creating a new version of your script in ${selectedVoice.label}.`
-      : `Turning your text into speech with ${selectedVoice.label}.`;
+      ? t('textToSpeech.dynamic.creatingVersion', { voice: selectedVoice.label })
+      : t('textToSpeech.dynamic.turningIntoSpeech', { voice: selectedVoice.label });
     setConversionStatus({
-      title: currentResult ? 'Re-voicing your script' : 'Converting to speech',
+      title: currentResult ? t('textToSpeech.dynamic.revoicing') : t('textToSpeech.dynamic.converting'),
       message: conversionMessage,
     });
     announceForA11y(conversionMessage);
@@ -572,15 +574,15 @@ export default function VoiceScreen() {
       setHistory((current) => [result, ...current.filter((item) => item.id !== result.id)]);
       lastConvertedVoiceKeyRef.current = selectedVoice.key;
       setConversionStatus(null);
-      setNotice('Speech is ready. You can play it inline or open the download link.');
+      setNotice(t('textToSpeech.dynamic.speechReady'));
       setTtsUsed((current) => isTtsUnlimited ? current : Math.min(ttsLimit, current + 1));
       void loadTtsUsage(true);
-      announceForA11y('Speech is ready. You can play it now or download it.');
+      announceForA11y(t('textToSpeech.dynamic.speechReadyA11y'));
     } catch (error) {
       if (!isMountedRef.current) return;
       const typed = error as { code?: string; status?: number; message?: string };
       const code = (typed.code ?? '').toUpperCase();
-      const message = typed.message ?? 'Text to Speech conversion failed.';
+      const message = typed.message ?? t('textToSpeech.dynamic.conversionFailed');
       const isUpgradeError = code === 'USAGE_LIMIT_EXCEEDED' || code === 'UPGRADE_REQUIRED';
       setConversionStatus(null);
       setScreenError(message);
@@ -592,15 +594,15 @@ export default function VoiceScreen() {
     } finally {
       if (isMountedRef.current) setIsConverting(false);
     }
-  }, [announceForA11y, characterLimit, currentResult, format, isTextTooLong, isTtsLimitReached, isTtsUnlimited, loadTtsUsage, selectedVoice, trimmedText, ttsLimit]);
+  }, [announceForA11y, characterLimit, currentResult, format, isTextTooLong, isTtsLimitReached, isTtsUnlimited, loadTtsUsage, selectedVoice, t, trimmedText, ttsLimit]);
 
   const onCloneVoice = useCallback(async (recording: { uri: string; fileName: string; mimeType: string }) => {
     setIsCloningVoice(true);
     setIsCloneModalVisible(false);
     setIsCloneProcessingVisible(true);
     setScreenError('');
-    setNotice('We are processing your voice recording now.');
-    announceForA11y('Your voice recording is being processed.');
+    setNotice(t('textToSpeech.dynamic.processingRecording'));
+    announceForA11y(t('textToSpeech.dynamic.processingRecordingA11y'));
 
     try {
       const clone = await cloneAvatarVoice({
@@ -621,27 +623,27 @@ export default function VoiceScreen() {
       });
       setCloneVoiceName('');
       setIsCloneProcessingVisible(false);
-      setNotice(clone.status === 'ready' ? 'Your cloned voice is ready to use.' : 'Your voice sample is processing. It should be ready soon.');
-      announceForA11y(clone.status === 'ready' ? 'Your cloned voice is ready to use.' : 'Your voice sample is processing and will be ready soon.');
+      setNotice(clone.status === 'ready' ? t('textToSpeech.dynamic.cloneReady') : t('textToSpeech.dynamic.sampleProcessing'));
+      announceForA11y(clone.status === 'ready' ? t('textToSpeech.dynamic.cloneReady') : t('textToSpeech.dynamic.sampleProcessingA11y'));
     } catch (error) {
       if (!isMountedRef.current) return;
       setIsCloneProcessingVisible(false);
       setNotice('');
-      setScreenError(error instanceof Error ? error.message : 'Could not clone your voice right now.');
-      announceForA11y(error instanceof Error ? error.message : 'Could not clone your voice right now.');
+      setScreenError(error instanceof Error ? error.message : t('textToSpeech.dynamic.cloneFailed'));
+      announceForA11y(error instanceof Error ? error.message : t('textToSpeech.dynamic.cloneFailed'));
     } finally {
       if (isMountedRef.current) setIsCloningVoice(false);
     }
-  }, [announceForA11y, cloneVoiceName, loadClonedVoices]);
+  }, [announceForA11y, cloneVoiceName, loadClonedVoices, t]);
 
   const readyClones = clonedVoices.filter((voice) => voice.status === 'ready');
   const isLibraryActive = selectedVoice?.type === 'library';
   const isCloneActive = selectedVoice?.type === 'clone';
   const selectedVoiceSummary = selectedVoice
     ? selectedVoice.type === 'library'
-      ? `Library voice: ${selectedVoice.label}`
-      : `Cloned voice: ${selectedVoice.label}`
-    : 'No voice selected';
+      ? t('textToSpeech.dynamic.libraryVoice', { voice: selectedVoice.label })
+      : t('textToSpeech.dynamic.clonedVoice', { voice: selectedVoice.label })
+    : t('textToSpeech.dynamic.noVoiceSelected');
   const selectedLibraryVoice = selectedVoice?.type === 'library'
     ? libraryVoices.find((voice) => voice.id === selectedVoice.voiceId) ?? null
     : null;
@@ -649,10 +651,10 @@ export default function VoiceScreen() {
 
   return (
     <RequireAuthRoute>
-      <AppScreen title="Text to Speech">
+      <AppScreen title={t('textToSpeech.title.textToSpeech')}>
         <VoiceCloneRecorderModal
           visible={isCloneModalVisible}
-          title="Clone my voice"
+          title={t('textToSpeech.title.cloneMyVoice')}
           description="Record your voice live here. We stop automatically after 30 seconds so you can review the take before saving it."
           voiceName={cloneVoiceName}
           voiceNameLabel="Voice name"
@@ -682,7 +684,7 @@ export default function VoiceScreen() {
           >
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close voice picker"
+              accessibilityLabel={t('textToSpeech.accessibilityLabel.closeVoicePicker')}
               onPress={() => setIsVoiceModalVisible(false)}
               style={{ flex: 1 }}
             />
@@ -702,15 +704,13 @@ export default function VoiceScreen() {
               <View className="mb-4 flex-row items-start justify-between">
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                    Select a library voice
-                  </Text>
+                    {' '}{t('textToSpeech.ui.selectALibraryVoice')}{' '}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
-                    Preview voices, then choose the one you want to use for this conversion.
-                  </Text>
+                    {' '}{t('textToSpeech.ui.previewVoicesThenChooseTheOneYou')}{' '}</Text>
                 </View>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Close voice picker"
+                  accessibilityLabel={t('textToSpeech.accessibilityLabel.closeVoicePicker')}
                   onPress={() => setIsVoiceModalVisible(false)}
                   className="h-10 w-10 items-center justify-center rounded-full"
                   style={{
@@ -781,7 +781,7 @@ export default function VoiceScreen() {
           >
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Close recent conversions"
+              accessibilityLabel={t('textToSpeech.accessibilityLabel.closeRecentConversions')}
               onPress={() => setIsHistoryModalVisible(false)}
               style={{ flex: 1 }}
             />
@@ -801,16 +801,14 @@ export default function VoiceScreen() {
               <View className="mb-4 flex-row items-start justify-between">
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={{ color: colors.textPrimary, fontSize: 19, fontWeight: '800' }}>
-                    Recent conversions
-                  </Text>
+                    {' '}{t('textToSpeech.ui.recentConversions')}{' '}</Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
-                    Browse and replay your recent Text to Speech outputs in one place.
-                  </Text>
+                    {' '}{t('textToSpeech.ui.browseAndReplayYourRecentTextTo')}{' '}</Text>
                 </View>
                 <View className="flex-row items-center">
                   <View className="mr-2">
                     <AppButton
-                      label="Refresh"
+                      label={t('textToSpeech.label.refresh')}
                       onPress={() => {
                         void loadHistory();
                       }}
@@ -821,7 +819,7 @@ export default function VoiceScreen() {
                   </View>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Close recent conversions"
+                    accessibilityLabel={t('textToSpeech.accessibilityLabel.closeRecentConversions')}
                     onPress={() => setIsHistoryModalVisible(false)}
                     className="h-10 w-10 items-center justify-center rounded-full"
                     style={{
@@ -839,13 +837,12 @@ export default function VoiceScreen() {
                 <View className="items-center justify-center" style={{ paddingVertical: 28 }}>
                   <ActivityIndicator color={colors.primary} />
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-                    Loading recent conversions...
-                  </Text>
+                    {' '}{t('textToSpeech.ui.loadingRecentConversions')}{' '}</Text>
                 </View>
               ) : history.length === 0 ? (
                 <NoticeCard
-                  title="No recent conversions"
-                  message="Your Text to Speech history is empty right now. Generate audio once and your recent conversions will show up here."
+                  title={t('textToSpeech.title.noRecentConversions')}
+                  message={t('textToSpeech.dynamic.emptyHistory')}
                   tone="info"
                   colors={colors}
                   isDark={isDark}
@@ -868,7 +865,7 @@ export default function VoiceScreen() {
                               {item.voiceName || item.voiceId || 'Voice output'}
                             </Text>
                             <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 4 }}>
-                              {item.format.toUpperCase()} - {item.characterCount ?? item.text.length} chars - {formatRelativeTimestamp(item.createdAt)}
+                              {item.format.toUpperCase()} - {item.characterCount ?? item.text.length} {' '}{t('textToSpeech.ui.chars')}{' '}{formatRelativeTimestamp(item.createdAt)}
                             </Text>
                           </View>
                           <Pressable
@@ -891,7 +888,7 @@ export default function VoiceScreen() {
                         </Text>
                         <View className="mt-4">
                           <AppButton
-                            label={playingResultId === item.id ? 'Stop audio' : 'Play audio'}
+                            label={playingResultId === item.id ? t('textToSpeech.dynamic.stopAudio') : t('textToSpeech.dynamic.playAudio')}
                             onPress={() => {
                               if (!resultPlaybackBusy) {
                                 void onPlayResult(item);
@@ -919,11 +916,9 @@ export default function VoiceScreen() {
             }}
           >
             <Text style={{ color: colors.textPrimary, fontSize: 22, fontWeight: '800' }}>
-              Turn text into audio
-            </Text>
+              {' '}{t('textToSpeech.ui.turnTextIntoAudio')}{' '}</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 8 }}>
-              Use the voice library or one of your ready cloned voices, then generate a downloadable MP3 or WAV in one step.
-            </Text>
+              {' '}{t('textToSpeech.ui.useTheVoiceLibraryOrOneOf')}{' '}</Text>
 
             <View className="mt-4 flex-row flex-wrap">
               <View
@@ -931,7 +926,7 @@ export default function VoiceScreen() {
                 style={{ backgroundColor: `${colors.primary}16` }}
               >
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                  Plan: {formatTierLabel(tier)}
+                  {' '}{t('textToSpeech.ui.plan')}{' '}{formatTierLabel(tier)}
                 </Text>
               </View>
               <View
@@ -939,8 +934,7 @@ export default function VoiceScreen() {
                 style={{ backgroundColor: isDark ? '#171E2A' : '#FFFFFF' }}
               >
                 <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                  Limit: {characterLimit.toLocaleString()} chars
-                </Text>
+                  {' '}{t('textToSpeech.ui.limit')}{' '}{characterLimit.toLocaleString()} {' '}{t('textToSpeech.ui.chars2')}{' '}</Text>
               </View>
               <View
                 className="mb-2 rounded-full px-3 py-2"
@@ -948,10 +942,10 @@ export default function VoiceScreen() {
               >
                 <Text style={{ color: isTtsLimitReached ? '#DC2626' : colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
                   {isUsageLoading
-                    ? 'Loading monthly usage...'
+                    ? t('textToSpeech.dynamic.loadingUsage')
                     : isTtsUnlimited
-                      ? 'Unlimited conversions this month'
-                      : `${remainingConversions} conversion${remainingConversions === 1 ? '' : 's'} remaining this month`}
+                      ? t('textToSpeech.dynamic.unlimitedConversions')
+                      : t('textToSpeech.dynamic.conversionsRemaining', { count: String(remainingConversions ?? 0) })}
                 </Text>
               </View>
               <View
@@ -959,7 +953,7 @@ export default function VoiceScreen() {
                 style={{ backgroundColor: isDark ? '#171E2A' : '#FFFFFF' }}
               >
                 <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                  Format: {format.toUpperCase()}
+                  {' '}{t('textToSpeech.ui.format')}{' '}{format.toUpperCase()}
                 </Text>
               </View>
             </View>
@@ -974,20 +968,19 @@ export default function VoiceScreen() {
           >
             <View className="flex-row items-center justify-between">
               <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800' }}>
-                Script
-              </Text>
+                {' '}{t('textToSpeech.ui.script')}{' '}</Text>
               <Text style={{ color: isTextTooLong ? '#DC2626' : colors.textSecondary, fontSize: 12, fontWeight: '700' }}>
                 {characterCount.toLocaleString()} / {characterLimit.toLocaleString()}
               </Text>
             </View>
             <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-              Remaining characters: {remainingCharacters.toLocaleString()}
+              {' '}{t('textToSpeech.ui.remainingCharacters')}{' '}{remainingCharacters.toLocaleString()}
             </Text>
 
             <TextInput
               value={text}
               onChangeText={setText}
-              placeholder="Type or paste the text you want to turn into speech..."
+              placeholder={t('textToSpeech.placeholder.typeOrPasteTheTextYouWant')}
               placeholderTextColor={colors.textSecondary}
               multiline
               textAlignVertical="top"
@@ -1036,7 +1029,7 @@ export default function VoiceScreen() {
 
             <View className="mt-4">
               <AppButton
-                label={isConverting ? 'Converting...' : 'Convert to speech'}
+                label={isConverting ? t('textToSpeech.dynamic.convertingProgress') : t('textToSpeech.dynamic.convertToSpeech')}
                 onPress={() => {
                   if (!isConverting) {
                     void onConvert();
@@ -1053,7 +1046,7 @@ export default function VoiceScreen() {
               {showUpgradePrompt ? (
                 <View className="mt-3">
                   <AppButton
-                    label="View upgrade options"
+                    label={t('textToSpeech.label.viewUpgradeOptions')}
                     iconName="arrow-up-circle-outline"
                     onPress={() => router.push('/(drawer)/plans')}
                   />
@@ -1064,8 +1057,8 @@ export default function VoiceScreen() {
 
           {isCloneProcessingVisible ? (
             <ProcessingCard
-              title="Processing your voice"
-              message="Your recording is being prepared for voice cloning. This can take a moment."
+              title={t('textToSpeech.title.processingYourVoice')}
+              message={t('textToSpeech.dynamic.preparingClone')}
               colors={colors}
               isDark={isDark}
             />
@@ -1095,8 +1088,7 @@ export default function VoiceScreen() {
               }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800' }}>
-                Latest result
-              </Text>
+                {' '}{t('textToSpeech.ui.latestResult')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
                 {currentResult.format.toUpperCase()} • {currentResult.duration ? `${currentResult.duration}s` : 'Duration pending'} • {formatRelativeTimestamp(currentResult.createdAt)}
               </Text>
@@ -1106,7 +1098,7 @@ export default function VoiceScreen() {
               <View className="mt-4 flex-row flex-wrap">
                 <View className="mr-2 mb-2">
                   <AppButton
-                    label={playingResultId === currentResult.id ? 'Stop audio' : (resultPlaybackBusy ? 'Opening...' : 'Play audio')}
+                    label={playingResultId === currentResult.id ? t('textToSpeech.dynamic.stopAudio') : (resultPlaybackBusy ? t('textToSpeech.dynamic.opening') : t('textToSpeech.dynamic.playAudio'))}
                     onPress={() => {
                       if (!resultPlaybackBusy) {
                         void onPlayResult(currentResult);
@@ -1117,7 +1109,7 @@ export default function VoiceScreen() {
                 </View>
                 <View className="mr-2 mb-2">
                   <AppButton
-                    label="Download"
+                    label={t('textToSpeech.label.download')}
                     onPress={() => {
                       void onDownloadAudio(currentResult.audioUrl);
                     }}
@@ -1138,18 +1130,16 @@ export default function VoiceScreen() {
           >
             <View className="flex-row items-center justify-between">
               <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800' }}>
-                Library voices
-              </Text>
+                {' '}{t('textToSpeech.ui.libraryVoices')}{' '}</Text>
               {isVoicesLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
             </View>
             <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-              Only one voice can be active at a time. Choosing a library voice replaces any cloned voice selection.
-            </Text>
+              {' '}{t('textToSpeech.ui.onlyOneVoiceCanBeActiveAt')}{' '}</Text>
 
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Open library voice selector"
-              accessibilityHint="Shows the full voice library in a modal."
+              accessibilityLabel={t('textToSpeech.accessibilityLabel.openLibraryVoiceSelector')}
+              accessibilityHint={t('textToSpeech.accessibilityHint.showsTheFullVoiceLibraryInA')}
               onPress={() => setIsVoiceModalVisible(true)}
               className="mt-4 rounded-[22px] border p-4"
               style={{
@@ -1201,13 +1191,11 @@ export default function VoiceScreen() {
           >
             <View className="flex-row items-center justify-between">
               <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800' }}>
-                Cloned voices
-              </Text>
+                {' '}{t('textToSpeech.ui.clonedVoices')}{' '}</Text>
               {isClonesLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
             </View>
             <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-              Only one voice can be active at a time. Choosing a cloned voice replaces any library voice selection.
-            </Text>
+              {' '}{t('textToSpeech.ui.onlyOneVoiceCanBeActiveAt2')}{' '}</Text>
 
             {isCloneActive ? (
               <View
@@ -1218,20 +1206,18 @@ export default function VoiceScreen() {
                 }}
               >
                 <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800' }}>
-                  ACTIVE CLONED VOICE
-                </Text>
+                  {' '}{t('textToSpeech.ui.activeCLONEDVOICE')}{' '}</Text>
                 <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '800', marginTop: 6 }}>
                   {selectedVoice?.label}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                  This is the only voice that will be used for the next conversion until you switch back to a library voice.
-                </Text>
+                  {' '}{t('textToSpeech.ui.thisIsTheOnlyVoiceThatWill')}{' '}</Text>
               </View>
             ) : null}
 
             <View className="mt-4">
               <AppButton
-                label={isCloningVoice ? 'Uploading sample...' : 'Clone my voice'}
+                label={isCloningVoice ? t('textToSpeech.dynamic.uploadingSample') : t('textToSpeech.title.cloneMyVoice')}
                 onPress={() => {
                   if (!isCloningVoice) {
                     setCloneVoiceName('');
@@ -1247,16 +1233,16 @@ export default function VoiceScreen() {
             <View style={{ marginTop: 14, gap: 12 }}>
               {clonedVoices.length === 0 ? (
                 <NoticeCard
-                  title="No cloned voices yet"
-                  message="Create or finish processing a cloned voice and it will appear here for Text to Speech."
+                  title={t('textToSpeech.title.noClonedVoicesYet')}
+                  message={t('textToSpeech.dynamic.noClonesMessage')}
                   tone="info"
                   colors={colors}
                   isDark={isDark}
                 />
               ) : readyClones.length === 0 ? (
                 <NoticeCard
-                  title="Cloned voices are processing"
-                  message="Your saved voices are not ready yet. They will show up here automatically as soon as processing finishes."
+                  title={t('textToSpeech.title.clonedVoicesAreProcessing')}
+                  message={t('textToSpeech.dynamic.clonesProcessingMessage')}
                   tone="info"
                   colors={colors}
                   isDark={isDark}
@@ -1274,7 +1260,7 @@ export default function VoiceScreen() {
                     <VoiceChip
                       key={voice.fishAudioId}
                       title={voice.name}
-                      subtitle="Your saved cloned voice"
+                      subtitle={t('textToSpeech.subtitle.yourSavedClonedVoice')}
                       selected={selectedVoice?.key === item.key}
                       onPress={() => {
                         if (!isReady) return;
@@ -1312,11 +1298,9 @@ export default function VoiceScreen() {
             <View className="flex-row items-center justify-between">
               <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={{ color: colors.textPrimary, fontSize: 17, fontWeight: '800' }}>
-                  Recent conversions
-                </Text>
+                  {' '}{t('textToSpeech.ui.recentConversions')}{' '}</Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                  Open your recent Text to Speech jobs in a dedicated modal browser.
-                </Text>
+                  {' '}{t('textToSpeech.ui.openYourRecentTextToSpeechJobs')}{' '}</Text>
               </View>
             </View>
 
@@ -1324,14 +1308,13 @@ export default function VoiceScreen() {
               <View className="items-center justify-center" style={{ paddingVertical: 28 }}>
                 <ActivityIndicator color={colors.primary} />
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-                  Loading recent conversions...
-                </Text>
+                  {' '}{t('textToSpeech.ui.loadingRecentConversions')}{' '}</Text>
               </View>
             ) : history.length === 0 ? (
               <View style={{ marginTop: 14 }}>
                 <NoticeCard
-                  title="No recent conversions"
-                  message="Your Text to Speech history is empty right now. Generate audio once and your recent conversions will show up here."
+                  title={t('textToSpeech.title.noRecentConversions')}
+                  message={t('textToSpeech.dynamic.emptyHistory')}
                   tone="info"
                   colors={colors}
                   isDark={isDark}
@@ -1354,7 +1337,7 @@ export default function VoiceScreen() {
                           {item.voiceName || item.voiceId || 'Voice output'}
                         </Text>
                         <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 4 }}>
-                          {item.format.toUpperCase()} • {item.characterCount ?? item.text.length} chars • {formatRelativeTimestamp(item.createdAt)}
+                          {item.format.toUpperCase()} • {item.characterCount ?? item.text.length} {' '}{t('textToSpeech.ui.chars3')}{' '}{formatRelativeTimestamp(item.createdAt)}
                         </Text>
                       </View>
                       <Pressable
@@ -1377,7 +1360,7 @@ export default function VoiceScreen() {
                     </Text>
                     <View className="mt-4">
                       <AppButton
-                        label={playingResultId === item.id ? 'Stop audio' : 'Play audio'}
+                        label={playingResultId === item.id ? t('textToSpeech.dynamic.stopAudio') : t('textToSpeech.dynamic.playAudio')}
                         onPress={() => {
                           if (!resultPlaybackBusy) {
                             void onPlayResult(item);
@@ -1393,8 +1376,8 @@ export default function VoiceScreen() {
             ) : (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open recent conversions"
-                accessibilityHint="Shows your recent Text to Speech history in a modal."
+                accessibilityLabel={t('textToSpeech.accessibilityLabel.openRecentConversions')}
+                accessibilityHint={t('textToSpeech.accessibilityHint.showsYourRecentTextToSpeechHistory')}
                 onPress={() => setIsHistoryModalVisible(true)}
                 className="mt-4 rounded-[22px] border p-4"
                 style={{
@@ -1428,11 +1411,10 @@ export default function VoiceScreen() {
 
                 <View className="mt-4 flex-row items-center justify-between">
                   <Text style={{ color: colors.textSecondary, fontSize: 12, fontWeight: '700' }}>
-                    {history.length} saved conversion{history.length === 1 ? '' : 's'}
+                    {history.length} {' '}{t('textToSpeech.ui.savedConversion')}{history.length === 1 ? '' : 's'}
                   </Text>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>
-                    Tap to browse
-                  </Text>
+                    {' '}{t('textToSpeech.ui.tapToBrowse')}{' '}</Text>
                 </View>
               </Pressable>
             )}

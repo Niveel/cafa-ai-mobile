@@ -40,7 +40,7 @@ function countWords(value: string) {
   return trimmed.split(/\s+/).filter(Boolean).length;
 }
 
-function formatTierLabel(value?: string | null) {
+function formatTierLabel(value: string | null | undefined, t: (key: string) => string) {
   switch (value) {
     case 'cafa_smart':
       return 'Cafa Smart';
@@ -49,16 +49,16 @@ function formatTierLabel(value?: string | null) {
     case 'cafa_max':
       return 'Cafa Max';
     default:
-      return 'Free';
+      return t('writingTools.dynamic.free');
   }
 }
 
-function formatQuotaLine(quota: WritingToolQuota | null, fallback: string) {
+function formatQuotaLine(quota: WritingToolQuota | null, fallback: string, t: (key: string, params?: Record<string, string>) => string) {
   if (!quota) return fallback;
   const remaining = typeof quota.remaining === 'number'
     ? quota.remaining
     : Math.max(0, quota.limit - quota.used);
-  return `${remaining.toLocaleString()} words remaining this month`;
+  return t('writingTools.dynamic.wordsRemaining', { count: remaining.toLocaleString() });
 }
 
 export default function WritingToolsScreen() {
@@ -103,12 +103,12 @@ export default function WritingToolsScreen() {
       setErrorMessage('');
       setStatusMessage('');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load your quota right now.';
+      const message = error instanceof Error ? error.message : t('writingTools.dynamic.quotaLoadError');
       setErrorMessage(message);
     } finally {
       setIsRefreshingQuota(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadQuotas();
@@ -117,13 +117,13 @@ export default function WritingToolsScreen() {
   const openUpgradePrompt = useCallback((toolLabel: string, error: WritingToolError) => {
     const used = typeof error.data?.used === 'number' ? error.data.used.toLocaleString() : '0';
     const limit = typeof error.data?.limit === 'number' ? error.data.limit.toLocaleString() : '0';
-    const tier = formatTierLabel(typeof error.data?.tier === 'string' ? error.data.tier : null);
+    const tier = formatTierLabel(typeof error.data?.tier === 'string' ? error.data.tier : null, t);
     setUpgradePrompt({
       visible: true,
-      title: `${toolLabel} limit reached`,
-      message: `${toolLabel} is out of words for this month on ${tier}. Usage: ${used} / ${limit}. Upgrade your plan to keep going.`,
+      title: t('writingTools.dynamic.limitReached', { tool: toolLabel }),
+      message: t('writingTools.dynamic.limitMessage', { tool: toolLabel, tier, used, limit }),
     });
-  }, []);
+  }, [t]);
 
   const handleRefreshQuota = useCallback(() => {
     void loadQuotas();
@@ -132,12 +132,12 @@ export default function WritingToolsScreen() {
   const handleDetect = useCallback(async () => {
     const trimmed = detectText.trim();
     if (!trimmed) {
-      setErrorMessage('Paste text to analyze first.');
+      setErrorMessage(t('writingTools.dynamic.pasteAnalyzeFirst'));
       setStatusMessage('');
       return;
     }
     if (trimmed.length < 50) {
-      setErrorMessage('Text must be at least 50 characters for accurate detection.');
+      setErrorMessage(t('writingTools.dynamic.minimumDetectionLength'));
       setStatusMessage('');
       return;
     }
@@ -155,19 +155,19 @@ export default function WritingToolsScreen() {
     } catch (error) {
       const mapped = error as WritingToolError;
       if (mapped.status === 403) {
-        openUpgradePrompt('AI Detection', mapped);
+        openUpgradePrompt(t('writingTools.dynamic.aiDetection'), mapped);
       } else {
-        setErrorMessage(mapped.message || 'Could not run AI detection right now. Please try again.');
+        setErrorMessage(mapped.message || t('writingTools.dynamic.detectionError'));
       }
     } finally {
       setIsSubmitting(false);
     }
-  }, [detectText, openUpgradePrompt]);
+  }, [detectText, openUpgradePrompt, t]);
 
   const handleHumanize = useCallback(async () => {
     const trimmed = humanizeTextInput.trim();
     if (!trimmed) {
-      setErrorMessage('Paste text to rewrite first.');
+      setErrorMessage(t('writingTools.dynamic.pasteRewriteFirst'));
       setStatusMessage('');
       return;
     }
@@ -189,65 +189,65 @@ export default function WritingToolsScreen() {
     } catch (error) {
       const mapped = error as WritingToolError;
       if (mapped.status === 403) {
-        openUpgradePrompt('Humanize', mapped);
+        openUpgradePrompt(t('writingTools.dynamic.humanize'), mapped);
       } else {
-        setErrorMessage(mapped.message || 'Could not rewrite this text right now. Please try again.');
+        setErrorMessage(mapped.message || t('writingTools.dynamic.rewriteError'));
       }
     } finally {
       setIsSubmitting(false);
     }
-  }, [humanizeIntensity, humanizeStyle, humanizeTextInput, openUpgradePrompt]);
+  }, [humanizeIntensity, humanizeStyle, humanizeTextInput, openUpgradePrompt, t]);
 
   const handleClearDetectText = useCallback(() => {
     setDetectText('');
     setDetectResult(null);
     setErrorMessage('');
-    setStatusMessage('AI Detection text cleared.');
-  }, []);
+    setStatusMessage(t('writingTools.dynamic.detectionCleared'));
+  }, [t]);
 
   const handleClearHumanizeText = useCallback(() => {
     setHumanizeTextInput('');
     setHumanizeResult(null);
     setErrorMessage('');
-    setStatusMessage('Humanize text cleared.');
-  }, []);
+    setStatusMessage(t('writingTools.dynamic.humanizeCleared'));
+  }, [t]);
 
   const handleCopyDetectText = useCallback(async () => {
     const input = detectText.trim();
     if (!input) return;
     await Clipboard.setStringAsync(input);
     setErrorMessage('');
-    setStatusMessage('AI Detection text copied to clipboard.');
-  }, [detectText]);
+    setStatusMessage(t('writingTools.dynamic.detectionCopied'));
+  }, [detectText, t]);
 
   const handleCopyHumanizeTextInput = useCallback(async () => {
     const input = humanizeTextInput.trim();
     if (!input) return;
     await Clipboard.setStringAsync(input);
     setErrorMessage('');
-    setStatusMessage('Humanize text copied to clipboard.');
-  }, [humanizeTextInput]);
+    setStatusMessage(t('writingTools.dynamic.humanizeCopied'));
+  }, [humanizeTextInput, t]);
 
   const handleCopyHumanizeResult = useCallback(async () => {
     const output = humanizeResult?.result?.trim();
     if (!output) return;
     await Clipboard.setStringAsync(output);
     setErrorMessage('');
-    setStatusMessage('Humanized text copied to clipboard.');
-  }, [humanizeResult?.result]);
+    setStatusMessage(t('writingTools.dynamic.resultCopied'));
+  }, [humanizeResult?.result, t]);
 
   const handleSendToHumanize = useCallback(() => {
     const trimmed = detectText.trim();
     if (!trimmed) {
-      setErrorMessage('Paste text to analyze first.');
+      setErrorMessage(t('writingTools.dynamic.pasteAnalyzeFirst'));
       setStatusMessage('');
       return;
     }
     setHumanizeTextInput(trimmed);
     setMode('humanize');
     setErrorMessage('');
-    setStatusMessage('Moved detection text into Humanize.');
-  }, [detectText]);
+    setStatusMessage(t('writingTools.dynamic.movedToHumanize'));
+  }, [detectText, t]);
 
   const renderOptionChip = (
     value: string,
@@ -291,8 +291,8 @@ export default function WritingToolsScreen() {
       />
 
       <AppScreen
-        title="Writing Tools"
-        subtitle="Run AI detection or rewrite text for more natural flow. Each tool uses its own monthly word quota."
+        title={t('writingTools.title.writingTools')}
+        subtitle={t('writingTools.subtitle.runAIDetectionOrRewriteTextFor')}
       >
         <ScrollView showsVerticalScrollIndicator={false}>
           <View
@@ -305,8 +305,8 @@ export default function WritingToolsScreen() {
             <View className="flex-row">
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open AI Detection"
-                accessibilityHint="Switches to the AI Detection tool."
+                accessibilityLabel={t('writingTools.accessibilityLabel.openAIDetection')}
+                accessibilityHint={t('writingTools.accessibilityHint.switchesToTheAIDetectionTool')}
                 accessibilityState={{ selected: mode === 'detect' }}
                 onPress={() => {
                   setMode('detect');
@@ -321,13 +321,12 @@ export default function WritingToolsScreen() {
                 }}
               >
                 <Text style={{ color: mode === 'detect' ? '#FFFFFF' : colors.textPrimary, textAlign: 'center', fontWeight: '700' }}>
-                  AI Detection
-                </Text>
+                  {' '}{t('writingTools.ui.aiDetection')}{' '}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Open Humanize"
-                accessibilityHint="Switches to the Humanize tool."
+                accessibilityLabel={t('writingTools.accessibilityLabel.openHumanize')}
+                accessibilityHint={t('writingTools.accessibilityHint.switchesToTheHumanizeTool')}
                 accessibilityState={{ selected: mode === 'humanize' }}
                 onPress={() => {
                   setMode('humanize');
@@ -342,8 +341,7 @@ export default function WritingToolsScreen() {
                 }}
               >
                 <Text style={{ color: mode === 'humanize' ? '#FFFFFF' : colors.textPrimary, textAlign: 'center', fontWeight: '700' }}>
-                  Humanize
-                </Text>
+                  {' '}{t('writingTools.ui.humanize')}{' '}</Text>
               </Pressable>
             </View>
           </View>
@@ -358,20 +356,20 @@ export default function WritingToolsScreen() {
             <View className="mb-3 flex-row items-center justify-between">
               <View style={{ flex: 1, paddingRight: 12 }}>
                 <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
-                  {mode === 'detect' ? 'AI Detection quota' : 'Humanize quota'}
+                  {t(mode === 'detect' ? 'writingTools.dynamic.detectionQuota' : 'writingTools.dynamic.humanizeQuota')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  {formatQuotaLine(activeQuota, 'Checking remaining words...')}
+                  {formatQuotaLine(activeQuota, t('writingTools.dynamic.checkingWords'), t)}
                 </Text>
                 {activeQuota ? (
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                    Plan: {formatTierLabel(activeQuota.tier)} | Used: {activeQuota.used.toLocaleString()} / {activeQuota.limit.toLocaleString()}
+                    {' '}{t('writingTools.ui.plan')}{' '}{formatTierLabel(activeQuota.tier, t)} {' '}{t('writingTools.ui.used')}{' '}{activeQuota.used.toLocaleString()} / {activeQuota.limit.toLocaleString()}
                   </Text>
                 ) : null}
               </View>
               <TouchableOpacity
                 accessibilityRole="button"
-                accessibilityLabel="Refresh quota"
+                accessibilityLabel={t('writingTools.accessibilityLabel.refreshQuota')}
                 onPress={handleRefreshQuota}
                 disabled={isRefreshingQuota}
                 className="rounded-full px-3 py-2"
@@ -398,12 +396,11 @@ export default function WritingToolsScreen() {
             >
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
                 {mode === 'detect'
-                  ? 'Paste at least 50 characters before running detection.'
-                  : 'Humanize rewrites text without automatically chaining from detection.'}
+                  ? t('writingTools.dynamic.detectionHelp')
+                  : t('writingTools.dynamic.humanizeHelp')}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-                Current draft: {activeWords.toLocaleString()} words
-              </Text>
+                {' '}{t('writingTools.ui.currentDraft')}{' '}{activeWords.toLocaleString()} {' '}{t('writingTools.ui.words')}{' '}</Text>
             </View>
           </View>
 
@@ -432,21 +429,18 @@ export default function WritingToolsScreen() {
               }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
-                Detect AI-generated text
-              </Text>
+                {' '}{t('writingTools.ui.detectAIGeneratedText')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                The backend checks whether the pasted text reads as AI-generated and returns human/AI probability with confidence.
-              </Text>
+                {' '}{t('writingTools.ui.theBackendChecksWhetherThePastedText')}{' '}</Text>
 
               <View className="mt-4 flex-row items-center justify-between">
                 <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                  Text to analyze
-                </Text>
+                  {' '}{t('writingTools.ui.textToAnalyze')}{' '}</Text>
                 <View className="flex-row items-center">
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Copy AI Detection text"
-                    accessibilityHint="Copies the text in the AI Detection input to the clipboard."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.copyAIDetectionText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.copiesTheTextInTheAIDetection')}
                     disabled={!detectText.trim()}
                     onPress={() => {
                       void handleCopyDetectText();
@@ -459,13 +453,12 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                      Copy
-                    </Text>
+                      {' '}{t('writingTools.ui.copy')}{' '}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Clear AI Detection text"
-                    accessibilityHint="Clears all pasted text and detection results."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.clearAIDetectionText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.clearsAllPastedTextAndDetectionResults')}
                     disabled={!detectText.trim()}
                     onPress={handleClearDetectText}
                     className="ml-2 rounded-full px-3 py-2"
@@ -476,8 +469,7 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                      Clear
-                    </Text>
+                      {' '}{t('writingTools.ui.clear')}{' '}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -487,10 +479,10 @@ export default function WritingToolsScreen() {
                 onChangeText={setDetectText}
                 multiline
                 textAlignVertical="top"
-                placeholder="Paste text to analyze..."
+                placeholder={t('writingTools.placeholder.pasteTextToAnalyze')}
                 placeholderTextColor={colors.textSecondary}
-                accessibilityLabel="AI Detection input"
-                accessibilityHint="Paste or type text to check whether it appears AI-generated."
+                accessibilityLabel={t('writingTools.accessibilityLabel.aiDetectionInput')}
+                accessibilityHint={t('writingTools.accessibilityHint.pasteOrTypeTextToCheckWhether')}
                 style={{
                   minHeight: 180,
                   marginTop: 10,
@@ -505,7 +497,7 @@ export default function WritingToolsScreen() {
               />
 
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>
-                Characters: {detectText.trim().length} | Words: {countWords(detectText)}
+                {' '}{t('writingTools.ui.characters')}{' '}{detectText.trim().length} {' '}{t('writingTools.ui.words2')}{' '}{countWords(detectText)}
               </Text>
 
               {!!errorMessage && mode === 'detect' ? (
@@ -516,7 +508,7 @@ export default function WritingToolsScreen() {
 
               <View className="mt-4 flex-row flex-wrap items-start">
                 <AppButton
-                  label={isSubmitting ? 'Checking...' : 'Run AI Detection'}
+                  label={t(isSubmitting ? 'writingTools.dynamic.checking' : 'writingTools.dynamic.runDetection')}
                   iconName="search-outline"
                   onPress={() => {
                     if (!isSubmitting) void handleDetect();
@@ -524,7 +516,7 @@ export default function WritingToolsScreen() {
                 />
                 <View style={{ width: '100%', height: 10 }} />
                 <AppButton
-                  label="Humanize This"
+                  label={t('writingTools.label.humanizeThis')}
                   iconName="arrow-forward-outline"
                   variant="outline"
                   onPress={handleSendToHumanize}
@@ -541,41 +533,40 @@ export default function WritingToolsScreen() {
                 >
                   <View className="flex-row items-center justify-between">
                     <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700' }}>
-                      Result
-                    </Text>
+                      {' '}{t('writingTools.ui.result')}{' '}</Text>
                     <View
                       className="rounded-full px-3 py-1.5"
                       style={{ backgroundColor: detectResult.isAiGenerated ? '#FEE2E2' : '#DCFCE7' }}
                     >
                       <Text style={{ color: detectResult.isAiGenerated ? '#B91C1C' : '#166534', fontSize: 12, fontWeight: '700' }}>
-                        {detectResult.isAiGenerated ? 'Likely AI-generated' : 'Likely human-written'}
+                        {t(detectResult.isAiGenerated ? 'writingTools.dynamic.likelyAi' : 'writingTools.dynamic.likelyHuman')}
                       </Text>
                     </View>
                   </View>
 
                   <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 10 }}>
-                    AI probability: {detectResult.aiProbability}%
+                    {' '}{t('writingTools.ui.aiProbability')}{' '}{detectResult.aiProbability}%
                   </Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                    Human probability: {detectResult.humanProbability}%
+                    {' '}{t('writingTools.ui.humanProbability')}{' '}{detectResult.humanProbability}%
                   </Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 4 }}>
-                    Confidence: {detectResult.confidence}
+                    {' '}{t('writingTools.ui.confidence')}{' '}{detectResult.confidence}
                   </Text>
                   {typeof detectResult.details?.averageGeneratedProb === 'number' ? (
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>
-                      Average generated probability: {detectResult.details.averageGeneratedProb.toFixed(4)}
+                      {' '}{t('writingTools.ui.averageGeneratedProbability')}{' '}{detectResult.details.averageGeneratedProb.toFixed(4)}
                     </Text>
                   ) : null}
                   {typeof detectResult.details?.completelyGeneratedProb === 'number' ? (
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                      Completely generated probability: {detectResult.details.completelyGeneratedProb.toFixed(4)}
+                      {' '}{t('writingTools.ui.completelyGeneratedProbability')}{' '}{detectResult.details.completelyGeneratedProb.toFixed(4)}
                     </Text>
                   ) : null}
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Humanize detected text"
-                    accessibilityHint="Switches to the Humanize tab and pastes this detection text there."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.humanizeDetectedText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.switchesToTheHumanizeTabAndPastes')}
                     onPress={handleSendToHumanize}
                     className="mt-4 self-start rounded-full px-4 py-2.5"
                     style={{
@@ -585,8 +576,7 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                      Send to Humanize
-                    </Text>
+                      {' '}{t('writingTools.ui.sendToHumanize')}{' '}</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -600,21 +590,18 @@ export default function WritingToolsScreen() {
               }}
             >
               <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
-                Humanize your writing
-              </Text>
+                {' '}{t('writingTools.ui.humanizeYourWriting')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                Rewrite for more natural flow without changing the facts you care about.
-              </Text>
+                {' '}{t('writingTools.ui.rewriteForMoreNaturalFlowWithoutChanging')}{' '}</Text>
 
               <View className="mt-4 flex-row items-center justify-between">
                 <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                  Text to rewrite
-                </Text>
+                  {' '}{t('writingTools.ui.textToRewrite')}{' '}</Text>
                 <View className="flex-row items-center">
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Copy Humanize text"
-                    accessibilityHint="Copies the text in the Humanize input to the clipboard."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.copyHumanizeText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.copiesTheTextInTheHumanizeInput')}
                     disabled={!humanizeTextInput.trim()}
                     onPress={() => {
                       void handleCopyHumanizeTextInput();
@@ -627,13 +614,12 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                      Copy
-                    </Text>
+                      {' '}{t('writingTools.ui.copy')}{' '}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Clear Humanize text"
-                    accessibilityHint="Clears the pasted text and any humanize result."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.clearHumanizeText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.clearsThePastedTextAndAnyHumanize')}
                     disabled={!humanizeTextInput.trim()}
                     onPress={handleClearHumanizeText}
                     className="ml-2 rounded-full px-3 py-2"
@@ -644,8 +630,7 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
-                      Clear
-                    </Text>
+                      {' '}{t('writingTools.ui.clear')}{' '}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -655,10 +640,10 @@ export default function WritingToolsScreen() {
                 onChangeText={setHumanizeTextInput}
                 multiline
                 textAlignVertical="top"
-                placeholder="Paste text to rewrite..."
+                placeholder={t('writingTools.placeholder.pasteTextToRewrite')}
                 placeholderTextColor={colors.textSecondary}
-                accessibilityLabel="Humanize input"
-                accessibilityHint="Paste or type text to rewrite for more natural flow."
+                accessibilityLabel={t('writingTools.accessibilityLabel.humanizeInput')}
+                accessibilityHint={t('writingTools.accessibilityHint.pasteOrTypeTextToRewriteFor')}
                 style={{
                   minHeight: 180,
                   marginTop: 10,
@@ -673,15 +658,13 @@ export default function WritingToolsScreen() {
               />
 
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-                Style
-              </Text>
+                {' '}{t('writingTools.ui.style')}{' '}</Text>
               <View className="mt-2 flex-row flex-wrap">
                 {HUMANIZE_STYLES.map((value) => renderOptionChip(value, humanizeStyle === value, () => setHumanizeStyle(value)))}
               </View>
 
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 14 }}>
-                Intensity
-              </Text>
+                {' '}{t('writingTools.ui.intensity')}{' '}</Text>
               <View className="mt-2 flex-row flex-wrap">
                 {HUMANIZE_INTENSITIES.map((value) => renderOptionChip(value, humanizeIntensity === value, () => setHumanizeIntensity(value)))}
               </View>
@@ -694,7 +677,7 @@ export default function WritingToolsScreen() {
 
               <View className="mt-4 flex-row">
                 <AppButton
-                  label={isSubmitting ? 'Rewriting...' : 'Humanize Text'}
+                  label={t(isSubmitting ? 'writingTools.dynamic.rewriting' : 'writingTools.dynamic.humanizeText')}
                   iconName="create-outline"
                   onPress={() => {
                     if (!isSubmitting) void handleHumanize();
@@ -712,8 +695,7 @@ export default function WritingToolsScreen() {
                 >
                   <View className="flex-row items-center justify-between">
                     <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700', flex: 1, paddingRight: 10 }}>
-                      Rewrite result
-                    </Text>
+                      {' '}{t('writingTools.ui.rewriteResult')}{' '}</Text>
                     <View
                       className="rounded-full px-3 py-1.5"
                       style={{ backgroundColor: humanizeResult.modelTier === 'enhanced' ? '#DBEAFE' : '#E2E8F0' }}
@@ -726,12 +708,11 @@ export default function WritingToolsScreen() {
 
                   {!humanizeResult.factCheckPassed ? (
                     <Text style={{ color: '#B45309', fontSize: 12, marginTop: 10 }}>
-                      Please double-check this rewrite before using it. The fact-preservation check flagged it for review.
-                    </Text>
+                      {' '}{t('writingTools.ui.pleaseDoubleCheckThisRewriteBeforeUsing')}{' '}</Text>
                   ) : null}
 
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-                    Style: {humanizeResult.style} | Intensity: {humanizeResult.intensity}
+                    {' '}{t('writingTools.ui.style2')}{' '}{humanizeResult.style} {' '}{t('writingTools.ui.intensity2')}{' '}{humanizeResult.intensity}
                   </Text>
 
                   <Text style={{ color: colors.textPrimary, fontSize: 14, lineHeight: 22, marginTop: 12 }}>
@@ -739,8 +720,8 @@ export default function WritingToolsScreen() {
                   </Text>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel="Copy humanized text"
-                    accessibilityHint="Copies the rewritten result to the clipboard."
+                    accessibilityLabel={t('writingTools.accessibilityLabel.copyHumanizedText')}
+                    accessibilityHint={t('writingTools.accessibilityHint.copiesTheRewrittenResultToTheClipboard')}
                     onPress={() => {
                       void handleCopyHumanizeResult();
                     }}
@@ -752,8 +733,7 @@ export default function WritingToolsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                      Copy Result
-                    </Text>
+                      {' '}{t('writingTools.ui.copyResult')}{' '}</Text>
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -768,14 +748,12 @@ export default function WritingToolsScreen() {
             }}
           >
             <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700' }}>
-              Plan usage
-            </Text>
+              {' '}{t('writingTools.ui.planUsage')}{' '}</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-              These tools share the same monthly cycle shown on your billing page. Use the plans screen to upgrade if you are close to a limit.
-            </Text>
+              {' '}{t('writingTools.ui.theseToolsShareTheSameMonthlyCycle')}{' '}</Text>
             <View className="mt-4 flex-row">
               <AppButton
-                label="Open Plans"
+                label={t('writingTools.label.openPlans')}
                 iconName="card-outline"
                 variant="outline"
                 onPress={() => {

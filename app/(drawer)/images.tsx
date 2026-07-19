@@ -369,8 +369,8 @@ export default function ImagesScreen() {
         && (error as { code?: string } | undefined)?.code === IOS_PHOTO_PERMISSION_DENIED_CODE
       ) {
         Alert.alert(
-          'Photos Permission Needed',
-          'Allow Photos access in Settings to save images and videos.',
+          t('images.photosPermissionTitle'),
+          t('images.photosPermissionMessage'),
           [
             { text: 'Not now', style: 'cancel' },
             { text: 'Open Settings', onPress: () => { void Linking.openSettings(); } },
@@ -418,7 +418,7 @@ export default function ImagesScreen() {
 
       const uniqueIds = Array.from(new Set(allIds));
       if (!uniqueIds.length) {
-        showNotice('No images to delete.');
+        showNotice(t('images.noneToDelete'));
         return;
       }
 
@@ -430,17 +430,17 @@ export default function ImagesScreen() {
       setImages([]);
       setCurrentPage(0);
       setHasNextPage(false);
-      showNotice('All saved images deleted.');
+      showNotice(t('images.deleteAllSuccess'));
       hapticSuccess();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not delete images.';
+      const message = error instanceof Error ? error.message : t('images.deleteFailed');
       console.log(`[images-delete-all:error] message="${message}"`);
-      showNotice('Could not delete all images.', 5000);
+      showNotice(t('images.deleteAllFailed'), 5000);
       hapticError();
     } finally {
       setIsDeleteBusy(false);
     }
-  }, [showNotice]);
+  }, [showNotice, t]);
 
   const downloadAllAsZip = useCallback(async () => {
     if (Platform.OS !== 'android') return;
@@ -678,10 +678,10 @@ export default function ImagesScreen() {
       <View className="flex-1" style={{ backgroundColor: colors.background, paddingHorizontal: 10 }}>
         <AppPromptModal
           visible={Boolean(deleteTarget)}
-          title="Delete image?"
-          message="This image will be permanently removed from your saved history."
-          confirmLabel="Delete"
-          cancelLabel="Cancel"
+          title={t('images.deleteTitle')}
+          message={t('images.deleteMessage')}
+          confirmLabel={t('images.delete')}
+          cancelLabel={t('common.cancel')}
           confirmTone="danger"
           iconName="trash-outline"
           onCancel={() => setDeleteTarget(null)}
@@ -695,10 +695,10 @@ export default function ImagesScreen() {
         />
         <AppPromptModal
           visible={showDeleteAllPrompt}
-          title="Delete all images?"
-          message="This will permanently remove all saved images from your history."
-          confirmLabel="Delete all"
-          cancelLabel="Cancel"
+          title={t('images.deleteAllTitle')}
+          message={t('images.deleteAllMessage')}
+          confirmLabel={t('images.deleteAll')}
+          cancelLabel={t('common.cancel')}
           confirmTone="danger"
           iconName="warning-outline"
           onCancel={() => setShowDeleteAllPrompt(false)}
@@ -713,7 +713,7 @@ export default function ImagesScreen() {
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.imagesSubtitle')}
           </Text>
-          <View className="mt-2 self-start flex-row">
+          <View className="mt-2 flex-row flex-wrap" style={{ gap: 8 }}>
             {Platform.OS === 'android' ? (
               <AppButton
                 label={isZipBusy ? t('images.zipBusy') : t('images.downloadAllZip')}
@@ -723,13 +723,13 @@ export default function ImagesScreen() {
               />
             ) : null}
             {images.length ? (
-              <View style={{ marginLeft: Platform.OS === 'android' ? 8 : 0 }}>
+              <View>
                 <AppButton
-                  label={isDeleteBusy ? 'Deleting...' : 'Delete all'}
+                  label={isDeleteBusy ? t('images.deleting') : t('images.deleteAll')}
                   onPress={() => {
                     if (isDeleteBusy) return;
                     if (!images.length) {
-                      showNotice('No images to delete.');
+                      showNotice(t('images.noneToDelete'));
                       return;
                     }
                     setShowDeleteAllPrompt(true);

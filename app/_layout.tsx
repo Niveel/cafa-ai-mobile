@@ -13,7 +13,7 @@ import { AppPromptModal } from '@/components';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
 import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
 import { initializeTikTokEvents, setTikTokTrackingConsent } from '@/services/tiktokEvents';
 
@@ -87,6 +87,7 @@ function PostHogScreenTracker() {
 
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
+  const { t } = useI18n();
   const { isReady: appIsReady } = useAppContext();
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const [storeUpdateUrl, setStoreUpdateUrl] = useState<string | null>(null);
@@ -168,14 +169,14 @@ function AppNavigator() {
       />
       <AppPromptModal
         visible={updateModalVisible}
-        title="Update available"
+        title={t('update.title')}
         message={
           latestStoreVersion
-            ? `A newer app version (${latestStoreVersion}) is available. Please update for the best experience.`
-            : 'A newer app version is available. Please update for the best experience.'
+            ? t('update.messageWithVersion', { version: latestStoreVersion })
+            : t('update.message')
         }
-        confirmLabel="Update now"
-        cancelLabel="Later"
+        confirmLabel={t('update.confirm')}
+        cancelLabel={t('update.later')}
         iconName="cloud-download-outline"
         onCancel={() => setUpdateModalVisible(false)}
         onConfirm={() => {

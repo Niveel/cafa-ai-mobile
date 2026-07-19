@@ -4,58 +4,60 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
 import { AppScreen, RequireAuthRoute } from '@/components';
-import { useAppTheme } from '@/hooks';
+import { useAppTheme, useI18n } from '@/hooks';
 
 type RepoCard = {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
   route: '/(drawer)/artifacts' | '/(drawer)/videos' | '/(drawer)/images';
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
-  eyebrow: string;
+  eyebrowKey: string;
 };
 
 const REPO_CARDS: RepoCard[] = [
   {
-    title: 'Artifacts',
-    description: 'Browse generated files, exports, and document outputs in one organized repository view.',
+    titleKey: 'repo.card.artifacts.title',
+    descriptionKey: 'repo.card.artifacts.description',
     route: '/(drawer)/artifacts',
     icon: 'document-attach-outline',
     accent: '#5B34A8',
-    eyebrow: 'Files',
+    eyebrowKey: 'repo.card.artifacts.eyebrow',
   },
   {
-    title: 'Videos',
-    description: 'Review saved video generations, manage downloads, and revisit recent motion outputs.',
+    titleKey: 'repo.card.videos.title',
+    descriptionKey: 'repo.card.videos.description',
     route: '/(drawer)/videos',
     icon: 'videocam-outline',
     accent: '#9F2F2F',
-    eyebrow: 'Motion',
+    eyebrowKey: 'repo.card.videos.eyebrow',
   },
   {
-    title: 'Images',
-    description: 'Open your image history, inspect results, and manage saved visual generations quickly.',
+    titleKey: 'repo.card.images.title',
+    descriptionKey: 'repo.card.images.description',
     route: '/(drawer)/images',
     icon: 'images-outline',
     accent: '#176D86',
-    eyebrow: 'Gallery',
+    eyebrowKey: 'repo.card.images.eyebrow',
   },
 ];
 
 function RepoHubCard({
-  title,
-  description,
+  titleKey,
+  descriptionKey,
   route,
   icon,
   accent,
-  eyebrow,
+  eyebrowKey,
   cardWidth,
 }: RepoCard & { cardWidth: number }) {
+  const { t } = useI18n();
+  const title = t(titleKey);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${title}`}
-      accessibilityHint={`Navigates to ${title}.`}
+      accessibilityLabel={t('hub.openLabel', { title })}
+      accessibilityHint={t('hub.openHint', { title })}
       onPress={() => {
         router.push(route);
       }}
@@ -93,7 +95,7 @@ function RepoHubCard({
             style={{ backgroundColor: 'rgba(15,23,42,0.18)' }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700', letterSpacing: 0.3 }}>
-              {eyebrow}
+              {t(eyebrowKey)}
             </Text>
           </View>
         </View>
@@ -105,12 +107,12 @@ function RepoHubCard({
           numberOfLines={4}
           style={{ color: 'rgba(255,255,255,0.84)', fontSize: 12, lineHeight: 18, marginTop: 8 }}
         >
-          {description}
+          {t(descriptionKey)}
         </Text>
 
         <View className="mt-5 flex-row items-center justify-between">
           <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
-            Open
+            {t('hub.open')}
           </Text>
           <View
             className="h-8 w-8 items-center justify-center rounded-full"
@@ -126,20 +128,21 @@ function RepoHubCard({
 
 export default function RepoScreen() {
   const { colors } = useAppTheme();
+  const { t } = useI18n();
   const { width } = useWindowDimensions();
   const cardWidth = useMemo(() => Math.floor((width - 20 - 12) / 2), [width]);
 
   return (
     <RequireAuthRoute>
-      <AppScreen title="Repo">
+      <AppScreen title={t('drawer.repo')}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
           <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 16 }}>
-            Everything you have generated lives here, grouped into focused collections for easier browsing.
+            {t('repo.subtitle')}
           </Text>
 
           <View className="flex-row flex-wrap justify-between">
             {REPO_CARDS.map((card) => (
-              <RepoHubCard key={card.title} {...card} cardWidth={cardWidth} />
+              <RepoHubCard key={card.titleKey} {...card} cardWidth={cardWidth} />
             ))}
           </View>
         </ScrollView>
