@@ -3,14 +3,16 @@ import { AppState, useColorScheme } from 'react-native';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent, identifyUser, resetAnalyticsUser } from '@/lib/analytics/posthog';
 
-import { AppLanguage, colorsByMode, ThemeColors, ThemeMode, translate } from '@/config';
+import { AppLanguage, colorsByMode, loadCatalog, ThemeColors, ThemeMode, translate } from '@/config';
 import { setupAuthInterceptor } from '@/services';
 import {
   fetchCurrentUser,
   syncSubscriptionState,
   invalidateAuthenticatedChatCache,
   invalidateGuestChatCache,
+  getUserPersonalization,
   logout as logoutRequest,
+  updateUserPersonalization,
 } from '@/features';
 import { clearSessionTokens, getRefreshToken } from '@/services/storage/session';
 import {
@@ -68,15 +70,36 @@ export function AppProvider({ children }: AppProviderProps) {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const initialThemeMode = systemColorScheme === 'dark' ? 'dark' : 'light';
   const [themeMode, setThemeMode] = useState<ThemeMode>(initialThemeMode);
-  const [language, setLanguage] = useState<AppLanguage>('en');
+  const [language, setActiveLanguage] = useState<AppLanguage>('en');
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
   const [animationLevel, setAnimationLevel] = useState<AnimationLevel>('full');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const hasTrackedAppOpenRef = useRef(false);
   const lastSubscriptionSyncAtRef = useRef(0);
+  const languageRequestIdRef = useRef(0);
   const isDark = themeMode === 'dark';
   const colors = colorsByMode[themeMode];
+
+  const activateLanguage = useCallback(async (nextLanguage: AppLanguage) => {
+    const requestId = ++languageRequestIdRef.current;
+    try {
+      await loadCatalog(nextLanguage);
+    } catch {
+      if (requestId === languageRequestIdRef.current) setActiveLanguage('en');
+      return false;
+    }
+    if (requestId !== languageRequestIdRef.current) return false;
+    setActiveLanguage(nextLanguage);
+    return true;
+  }, []);
+
+  const setLanguage = useCallback((nextLanguage: AppLanguage) => {
+    void activateLanguage(nextLanguage);
+    if (isAuthenticated) {
+      void updateUserPersonalization({ language: nextLanguage }).catch(() => undefined);
+    }
+  }, [activateLanguage, isAuthenticated]);
 
   const hydrateAuth = useCallback(async () => {
     try {
@@ -93,6 +116,15 @@ export function AppProvider({ children }: AppProviderProps) {
       const me = await fetchCurrentUser();
       setIsAuthenticated(true);
       setAuthUser(me);
+      const languageRequestId = languageRequestIdRef.current;
+      try {
+        const personalization = await getUserPersonalization();
+        if (languageRequestId === languageRequestIdRef.current) {
+          await activateLanguage(personalization.language);
+        }
+      } catch {
+        // Keep the offline/local language when backend personalization is unavailable.
+      }
       try {
         const synced = await syncSubscriptionState();
         setAuthUser((previous) => {
@@ -113,7 +145,7 @@ export function AppProvider({ children }: AppProviderProps) {
       setIsAuthenticated(false);
       setAuthUser(null);
     }
-  }, []);
+  }, [activateLanguage]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
@@ -148,7 +180,7 @@ export function AppProvider({ children }: AppProviderProps) {
           getOnboardingCompleted(),
         ]);
         setThemeMode(prefs.themeMode);
-        setLanguage(prefs.language);
+        await activateLanguage(prefs.language);
         setHapticsEnabled(prefs.hapticsEnabled);
         setAnimationLevel(prefs.animationLevel);
         setHasCompletedOnboarding(onboardingDone);
@@ -161,7 +193,7 @@ export function AppProvider({ children }: AppProviderProps) {
     };
 
     void hydrateApp();
-  }, [hydrateAuth]);
+  }, [activateLanguage, hydrateAuth]);
 
   useEffect(() => {
     applyHapticsEnabled(hapticsEnabled);
@@ -291,6 +323,7 @@ export function AppProvider({ children }: AppProviderProps) {
       login,
       signOut,
       setAuthSubscriptionTier,
+      setLanguage,
       signup,
       themeMode,
     ],

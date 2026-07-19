@@ -1,0 +1,24 @@
+{
+  "sourceLanguage": "en",
+  "catalogPattern": "config/locales/{language}.json",
+  "translateOnlyMissingKeys": true,
+  "glossary": "config/locales/glossary.json",
+  "translationMemory": "config/locales/translation-memory.json",
+  "humanReviewRequiredPrefixes": [
+    "accessibility.",
+    "auth.",
+    "billing.",
+    "legal.",
+    "plans.",
+    "security.",
+    "settings.security."
+  ],
+  "humanReviewRequiredTerms": [
+    "accessibilityLabel",
+    "accessibilityHint",
+    "payment",
+    "privacy",
+    "subscription",
+    "terms"
+  ]
+}

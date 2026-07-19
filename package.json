@@ -7,7 +7,9 @@
     "android": "expo start --go --android",
     "ios": "expo start --go --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "validate:i18n": "node scripts/localization/validate-locales.cjs",
+    "audit:i18n": "node scripts/localization/audit-hardcoded-ui.cjs"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^13.0.0",
