@@ -464,7 +464,7 @@ export default function ArtifactsScreen() {
                       fontWeight: '700',
                     }}
                   >
-                    {collection === 'artifacts' ? 'Artifacts' : 'Documents'}
+                    {t(collection === 'artifacts' ? 'artifacts.tab.artifacts' : 'artifacts.tab.documents')}
                   </Text>
                 </Pressable>
               );
@@ -478,16 +478,16 @@ export default function ArtifactsScreen() {
               <TextInput
                 value={searchText}
                 onChangeText={setSearchText}
-                placeholder={activeCollection === 'documents' ? 'Search documents' : 'Search artifacts'}
+                placeholder={t(activeCollection === 'documents' ? 'artifacts.searchDocuments' : 'artifacts.searchArtifacts')}
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="search"
-                accessibilityLabel={activeCollection === 'documents' ? 'Search documents' : 'Search artifacts'}
+                accessibilityLabel={t(activeCollection === 'documents' ? 'artifacts.searchDocuments' : 'artifacts.searchArtifacts')}
                 accessibilityHint={
                   activeCollection === 'documents'
-                    ? 'Searches loaded documents by title, type, format, and filename'
-                    : 'Searches artifacts from backend by filename, MIME type, or URL'
+                    ? t('artifacts.searchDocumentsHint')
+                    : t('artifacts.searchArtifactsHint')
                 }
                 clearButtonMode="while-editing"
                 style={{ color: colors.textPrimary, fontSize: 12 }}
@@ -503,7 +503,7 @@ export default function ArtifactsScreen() {
           onEndReachedThreshold={0.6}
           refreshing={isRefreshing}
           onRefresh={onRefresh}
-          accessibilityLabel={isShowingDocuments ? 'Documents list' : 'Artifacts list'}
+          accessibilityLabel={t(isShowingDocuments ? 'artifacts.documentsList' : 'artifacts.artifactsList')}
           contentContainerStyle={{ paddingBottom: 36, paddingTop: 2 }}
           renderItem={({ item }) => {
             if (isDocumentHistoryItem(item)) {
@@ -616,9 +616,6 @@ export default function ArtifactsScreen() {
                     />
                   </View>
                 ) : null}
-                <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
-                  {(item.kind || 'artifact').toUpperCase()} {item.mimeType ? `- ${item.mimeType}` : ''}
-                </Text>
                 <Text style={{ marginTop: 4, color: colors.textSecondary, fontSize: 11 }}>
                   {formatDate(item.createdAt)} {item.size ? `- ${formatSize(item.size)}` : ''}
                 </Text>
@@ -629,7 +626,7 @@ export default function ArtifactsScreen() {
                     disabled={isDownloading}
                     accessibilityRole="button"
                     accessibilityLabel={`Download ${title}`}
-                    accessibilityHint="Downloads this artifact to your device"
+                    accessibilityHint={t('artifacts.downloadHint')}
                     className="self-start rounded-full px-3 py-2"
                     style={{
                       backgroundColor: isDark ? 'rgba(95,127,184,0.2)' : 'rgba(32,64,121,0.12)',
@@ -651,8 +648,8 @@ export default function ArtifactsScreen() {
                       } as never);
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`Open source chat for ${title}`}
-                    accessibilityHint="Navigates to the chat where this artifact was created"
+                    accessibilityLabel={t('artifacts.openSourceChatLabel', { title })}
+                    accessibilityHint={t('artifacts.openSourceChatHint')}
                     className="ml-2 self-start rounded-full px-3 py-2"
                     style={{
                       backgroundColor: isDark ? 'rgba(95,127,184,0.12)' : 'rgba(32,64,121,0.08)',
@@ -661,7 +658,7 @@ export default function ArtifactsScreen() {
                     }}
                   >
                     <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                      Open source chat
+                      {t('artifacts.openSourceChat')}
                     </Text>
                   </Pressable>
                 </View>
@@ -675,14 +672,14 @@ export default function ArtifactsScreen() {
               ) : (
                 <View className="items-center">
                   <Text style={{ color: colors.textSecondary, fontSize: 14, textAlign: 'center' }}>
-                    {isShowingDocuments ? 'No documents found yet.' : t('artifacts.empty')}
+                    {isShowingDocuments ? t('artifacts.documentsEmpty') : t('artifacts.empty')}
                   </Text>
                   {hasActiveFilters ? (
                     <Pressable
                       onPress={clearFilters}
                       accessibilityRole="button"
-                      accessibilityLabel="Clear artifact filters"
-                      accessibilityHint="Clears search and reloads artifacts"
+                      accessibilityLabel={t('artifacts.clearFiltersLabel')}
+                      accessibilityHint={t('artifacts.clearFiltersHint')}
                       className="mt-3 rounded-full px-3 py-2"
                       style={{
                         borderWidth: 1,
@@ -691,7 +688,7 @@ export default function ArtifactsScreen() {
                       }}
                     >
                       <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '700' }}>
-                        Clear filters
+                        {t('artifacts.clearFilters')}
                       </Text>
                     </Pressable>
                   ) : null}
@@ -701,13 +698,13 @@ export default function ArtifactsScreen() {
                       router.push('/(drawer)');
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel="Open chat"
-                    accessibilityHint="Navigates to chat so you can request new generated artifacts"
+                    accessibilityLabel={t('artifacts.openChat')}
+                    accessibilityHint={t('artifacts.openChatHint')}
                     className="mt-3 rounded-full px-3 py-2"
                     style={{ backgroundColor: colors.primary }}
                   >
                     <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
-                      Open chat
+                      {t('artifacts.openChat')}
                     </Text>
                   </Pressable>
                 </View>

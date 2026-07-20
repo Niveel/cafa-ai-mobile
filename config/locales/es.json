@@ -1028,5 +1028,22 @@
   "cafaLive.runtime.nativeRequired": "Se requiere compilación nativa",
   "settings.data.tiktokMeasurement": "Medición de anuncios de TikTok",
   "settings.data.tiktokMeasurementBody": "Comparte eventos de registro y suscripción con TikTok. Nunca se incluyen chats, mensajes, contenido multimedia, correo electrónico ni datos de pago.",
-  "images.deleteAllSuccess": "Se eliminaron todas las imágenes guardadas.", "images.deleteFailed": "No se pudieron eliminar las imágenes.", "images.deleteAllFailed": "No se pudieron eliminar todas las imágenes.", "videos.deleteAllSuccess": "Se eliminaron todos los vídeos guardados.", "videos.deleteFailed": "No se pudieron eliminar los vídeos.", "videos.deleteAllFailed": "No se pudieron eliminar todos los vídeos."
+  "images.deleteAllSuccess": "Se eliminaron todas las imágenes guardadas.",
+  "images.deleteFailed": "No se pudieron eliminar las imágenes.",
+  "images.deleteAllFailed": "No se pudieron eliminar todas las imágenes.",
+  "videos.deleteAllSuccess": "Se eliminaron todos los vídeos guardados.",
+  "videos.deleteFailed": "No se pudieron eliminar los vídeos.",
+  "videos.deleteAllFailed": "No se pudieron eliminar todos los vídeos.",
+  "artifacts.tab.artifacts": "Artefactos",
+  "artifacts.tab.documents": "Documentos",
+  "artifacts.searchArtifacts": "Buscar artefactos",
+  "artifacts.searchDocuments": "Buscar documentos",
+  "artifacts.searchArtifactsHint": "Busca artefactos por nombre, tipo de archivo o URL.",
+  "artifacts.searchDocumentsHint": "Busca documentos cargados por título, tipo, formato y nombre de archivo.",
+  "artifacts.artifactsList": "Lista de artefactos",
+  "artifacts.documentsList": "Lista de documentos",
+  "artifacts.openSourceChat": "Abrir chat de origen",
+  "artifacts.openSourceChatLabel": "Abrir el chat de origen de {{title}}",
+  "artifacts.openSourceChatHint": "Abre el chat donde se creó este artefacto.",
+  "artifacts.documentsEmpty": "Aún no se encontraron documentos.", "artifacts.downloadHint": "Descarga este artefacto en tu dispositivo.", "artifacts.clearFiltersLabel": "Borrar filtros de artefactos", "artifacts.clearFiltersHint": "Borra la búsqueda y vuelve a cargar los artefactos.", "artifacts.clearFilters": "Borrar filtros", "artifacts.openChat": "Abrir chat", "artifacts.openChatHint": "Abre el chat para que puedas solicitar nuevos artefactos."
 }

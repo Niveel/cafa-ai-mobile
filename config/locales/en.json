@@ -1066,5 +1066,22 @@
   "cafaLive.runtime.nativeRequired": "Native build required",
   "settings.data.tiktokMeasurement": "TikTok ad measurement",
   "settings.data.tiktokMeasurementBody": "Share registration and subscription events with TikTok. Chats, prompts, media, email, and payment details are never included.",
-  "images.deleteAllSuccess": "All saved images deleted.", "images.deleteFailed": "Could not delete images.", "images.deleteAllFailed": "Could not delete all images.", "videos.deleteAllSuccess": "All saved videos deleted.", "videos.deleteFailed": "Could not delete videos.", "videos.deleteAllFailed": "Could not delete all videos."
+  "images.deleteAllSuccess": "All saved images deleted.",
+  "images.deleteFailed": "Could not delete images.",
+  "images.deleteAllFailed": "Could not delete all images.",
+  "videos.deleteAllSuccess": "All saved videos deleted.",
+  "videos.deleteFailed": "Could not delete videos.",
+  "videos.deleteAllFailed": "Could not delete all videos.",
+  "artifacts.tab.artifacts": "Artifacts",
+  "artifacts.tab.documents": "Documents",
+  "artifacts.searchArtifacts": "Search artifacts",
+  "artifacts.searchDocuments": "Search documents",
+  "artifacts.searchArtifactsHint": "Searches artifacts by filename, file type, or URL.",
+  "artifacts.searchDocumentsHint": "Searches loaded documents by title, type, format, and filename.",
+  "artifacts.artifactsList": "Artifacts list",
+  "artifacts.documentsList": "Documents list",
+  "artifacts.openSourceChat": "Open source chat",
+  "artifacts.openSourceChatLabel": "Open source chat for {{title}}",
+  "artifacts.openSourceChatHint": "Navigates to the chat where this artifact was created.",
+  "artifacts.documentsEmpty": "No documents found yet.", "artifacts.downloadHint": "Downloads this artifact to your device.", "artifacts.clearFiltersLabel": "Clear artifact filters", "artifacts.clearFiltersHint": "Clears search and reloads artifacts.", "artifacts.clearFilters": "Clear filters", "artifacts.openChat": "Open chat", "artifacts.openChatHint": "Navigates to chat so you can request new generated artifacts."
 }

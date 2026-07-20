@@ -1028,5 +1028,22 @@
   "cafaLive.runtime.nativeRequired": "Versão nativa necessária",
   "settings.data.tiktokMeasurement": "Medição de anúncios do TikTok",
   "settings.data.tiktokMeasurementBody": "Partilha eventos de registo e subscrição com o TikTok. Conversas, pedidos, multimédia, e-mail e dados de pagamento nunca são incluídos.",
-  "images.deleteAllSuccess": "Todas as imagens guardadas foram eliminadas.", "images.deleteFailed": "Não foi possível eliminar as imagens.", "images.deleteAllFailed": "Não foi possível eliminar todas as imagens.", "videos.deleteAllSuccess": "Todos os vídeos guardados foram eliminados.", "videos.deleteFailed": "Não foi possível eliminar os vídeos.", "videos.deleteAllFailed": "Não foi possível eliminar todos os vídeos."
+  "images.deleteAllSuccess": "Todas as imagens guardadas foram eliminadas.",
+  "images.deleteFailed": "Não foi possível eliminar as imagens.",
+  "images.deleteAllFailed": "Não foi possível eliminar todas as imagens.",
+  "videos.deleteAllSuccess": "Todos os vídeos guardados foram eliminados.",
+  "videos.deleteFailed": "Não foi possível eliminar os vídeos.",
+  "videos.deleteAllFailed": "Não foi possível eliminar todos os vídeos.",
+  "artifacts.tab.artifacts": "Artefactos",
+  "artifacts.tab.documents": "Documentos",
+  "artifacts.searchArtifacts": "Pesquisar artefactos",
+  "artifacts.searchDocuments": "Pesquisar documentos",
+  "artifacts.searchArtifactsHint": "Pesquisa artefactos por nome, tipo de ficheiro ou URL.",
+  "artifacts.searchDocumentsHint": "Pesquisa documentos carregados por título, tipo, formato e nome de ficheiro.",
+  "artifacts.artifactsList": "Lista de artefactos",
+  "artifacts.documentsList": "Lista de documentos",
+  "artifacts.openSourceChat": "Abrir conversa de origem",
+  "artifacts.openSourceChatLabel": "Abrir a conversa de origem de {{title}}",
+  "artifacts.openSourceChatHint": "Abre a conversa onde este artefacto foi criado.",
+  "artifacts.documentsEmpty": "Ainda não foram encontrados documentos.", "artifacts.downloadHint": "Transfere este artefacto para o seu dispositivo.", "artifacts.clearFiltersLabel": "Limpar filtros de artefactos", "artifacts.clearFiltersHint": "Limpa a pesquisa e recarrega os artefactos.", "artifacts.clearFilters": "Limpar filtros", "artifacts.openChat": "Abrir conversa", "artifacts.openChatHint": "Abre a conversa para pedir novos artefactos."
 }

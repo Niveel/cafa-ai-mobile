@@ -1028,5 +1028,22 @@
   "cafaLive.runtime.nativeRequired": "Version native requise",
   "settings.data.tiktokMeasurement": "Mesure publicitaire TikTok",
   "settings.data.tiktokMeasurementBody": "Partage les événements d’inscription et d’abonnement avec TikTok. Les conversations, requêtes, médias, adresses e-mail et données de paiement ne sont jamais incluses.",
-  "images.deleteAllSuccess": "Toutes les images enregistrées ont été supprimées.", "images.deleteFailed": "Impossible de supprimer les images.", "images.deleteAllFailed": "Impossible de supprimer toutes les images.", "videos.deleteAllSuccess": "Toutes les vidéos enregistrées ont été supprimées.", "videos.deleteFailed": "Impossible de supprimer les vidéos.", "videos.deleteAllFailed": "Impossible de supprimer toutes les vidéos."
+  "images.deleteAllSuccess": "Toutes les images enregistrées ont été supprimées.",
+  "images.deleteFailed": "Impossible de supprimer les images.",
+  "images.deleteAllFailed": "Impossible de supprimer toutes les images.",
+  "videos.deleteAllSuccess": "Toutes les vidéos enregistrées ont été supprimées.",
+  "videos.deleteFailed": "Impossible de supprimer les vidéos.",
+  "videos.deleteAllFailed": "Impossible de supprimer toutes les vidéos.",
+  "artifacts.tab.artifacts": "Artefacts",
+  "artifacts.tab.documents": "Documents",
+  "artifacts.searchArtifacts": "Rechercher des artefacts",
+  "artifacts.searchDocuments": "Rechercher des documents",
+  "artifacts.searchArtifactsHint": "Recherche les artefacts par nom, type de fichier ou URL.",
+  "artifacts.searchDocumentsHint": "Recherche les documents chargés par titre, type, format et nom de fichier.",
+  "artifacts.artifactsList": "Liste des artefacts",
+  "artifacts.documentsList": "Liste des documents",
+  "artifacts.openSourceChat": "Ouvrir la conversation source",
+  "artifacts.openSourceChatLabel": "Ouvrir la conversation source de {{title}}",
+  "artifacts.openSourceChatHint": "Ouvre la conversation dans laquelle cet artefact a été créé.",
+  "artifacts.documentsEmpty": "Aucun document trouvé pour le moment.", "artifacts.downloadHint": "Télécharge cet artefact sur votre appareil.", "artifacts.clearFiltersLabel": "Effacer les filtres d’artefacts", "artifacts.clearFiltersHint": "Efface la recherche et recharge les artefacts.", "artifacts.clearFilters": "Effacer les filtres", "artifacts.openChat": "Ouvrir la conversation", "artifacts.openChatHint": "Ouvre la conversation pour demander de nouveaux artefacts."
 }
