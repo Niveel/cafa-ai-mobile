@@ -22,10 +22,9 @@ import {
   getOnboardingCompleted,
   setOnboardingCompleted,
   clearPendingDetectedLanguageSync,
-  completeLanguageDetection,
   detectVisitorLanguage,
-  getLanguageDetectionCompleted,
   getPendingDetectedLanguageSync,
+  saveDetectedLanguageForAccountSync,
   type AnimationLevel,
 } from '@/services';
 import { AuthUser } from '@/types';
@@ -68,6 +67,14 @@ const AppContext = createContext<AppContextValue | undefined>(undefined);
 type AppProviderProps = {
   children: ReactNode;
 };
+
+function logLanguageDetection(...details: unknown[]) {
+  if (__DEV__) console.log('[language-detection]', ...details);
+}
+
+function warnLanguageDetection(...details: unknown[]) {
+  if (__DEV__) console.warn('[language-detection]', ...details);
+}
 
 export function AppProvider({ children }: AppProviderProps) {
   const systemColorScheme = useColorScheme();
@@ -125,10 +132,13 @@ export function AppProvider({ children }: AppProviderProps) {
       try {
         const pendingDetectedLanguage = await getPendingDetectedLanguageSync();
         if (pendingDetectedLanguage) {
+          logLanguageDetection('syncing detected language after login', pendingDetectedLanguage);
           await activateLanguage(pendingDetectedLanguage);
           await updateUserPersonalization({ language: pendingDetectedLanguage });
           await clearPendingDetectedLanguageSync();
+          logLanguageDetection('backend personalization sync complete', pendingDetectedLanguage);
         } else {
+          logLanguageDetection('no pending detected language; loading account personalization');
           const personalization = await getUserPersonalization();
           if (languageRequestId === languageRequestIdRef.current) {
             await activateLanguage(personalization.language);
@@ -187,23 +197,33 @@ export function AppProvider({ children }: AppProviderProps) {
 
     const hydrateApp = async () => {
       try {
-        const [prefs, onboardingDone, languageDetectionCompleted] = await Promise.all([
+        const [prefs, onboardingDone] = await Promise.all([
           getAppPreferences(),
           getOnboardingCompleted(),
-          getLanguageDetectionCompleted(),
         ]);
+        logLanguageDetection('startup state', JSON.stringify({
+          onboardingCompleted: onboardingDone,
+          storedLanguage: prefs.language,
+        }));
         setThemeMode(prefs.themeMode);
         let startupLanguage = prefs.language;
-        if (!onboardingDone && !languageDetectionCompleted) {
-          try {
-            startupLanguage = await detectVisitorLanguage();
-            await setAppPreferences({ ...prefs, language: startupLanguage });
-            await completeLanguageDetection(startupLanguage);
-          } catch {
-            // Keep English/the stored preference and retry detection on the next launch.
-          }
+        try {
+          logLanguageDetection('app load; starting IP language check');
+          const detection = await detectVisitorLanguage();
+          startupLanguage = detection.language;
+          await setAppPreferences({ ...prefs, language: startupLanguage });
+          await saveDetectedLanguageForAccountSync(startupLanguage);
+          logLanguageDetection('saved app-load result', JSON.stringify({
+            detectedCountryCode: detection.detectedCountryCode,
+            detectedCountryName: detection.detectedCountryName,
+            language: startupLanguage,
+          }));
+        } catch (error) {
+          warnLanguageDetection('request or persistence failed; will retry next app load', error);
+          // Keep the stored preference and retry detection on the next app load.
         }
         await activateLanguage(startupLanguage);
+        logLanguageDetection('startup language active', startupLanguage);
         setHapticsEnabled(prefs.hapticsEnabled);
         setAnimationLevel(prefs.animationLevel);
         setHasCompletedOnboarding(onboardingDone);

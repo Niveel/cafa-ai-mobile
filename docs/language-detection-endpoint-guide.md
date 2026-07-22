@@ -77,7 +77,7 @@ This document covers the public endpoint that detects a visitor's likely preferr
 ## Frontend Integration Flow
 
 ```text
-App opens for the first time (or first time in this session)
+App launches or refreshes
          ↓
 Call GET /tools/check-language
          ↓
@@ -90,15 +90,15 @@ Do not show a confirmation popup, language suggestion, “Keep English” action
 
 If the detected language is already active, no visible action is necessary. Users can still change the language later through the normal language picker.
 
-**Important — only call this once on first visit:**
-The frontend is responsible for storing a local first-launch flag so automatic detection does not overwrite a language the user selects later.
+**Important — call this on every app load:**
+Run detection during startup before rendering onboarding or the main app. Persist and apply the returned language on every launch or refresh. A manual language selection remains active for the current session but may be replaced by a new detection result on the next app load.
 
 ---
 
 ## Reliability Notes
 
 - This endpoint **never returns an error** — if IP detection fails for any reason (network issue, private IP, or unexpected data), it returns a valid `200` response with `suggestedLanguageCode: "en"` as a safe fallback.
-- Rate limited the same as other lightweight public endpoints — safe to call once on first visit.
+- Rate limited the same as other lightweight public endpoints — safe to call once per app load.
 - Language detection is based on the visitor's IP-derived country and is applied automatically. The user can change it later from the app's language picker.
 
 ---
