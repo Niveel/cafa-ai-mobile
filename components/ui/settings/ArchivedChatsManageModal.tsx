@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAppTheme } from '@/hooks';
@@ -9,8 +9,11 @@ type ArchivedChatsManageModalProps = {
   visible: boolean;
   items: ArchivedChatSnapshot[];
   loading: boolean;
+  bulkUnarchiving: boolean;
   busyIds: string[];
   onClose: () => void;
+  onDismiss?: () => void;
+  onUnarchiveAll: () => void;
   onUnarchive: (chatId: string) => void;
   onDelete: (chatId: string) => void;
   t: (key: string, params?: Record<string, string>) => string;
@@ -28,8 +31,11 @@ export function ArchivedChatsManageModal({
   visible,
   items,
   loading,
+  bulkUnarchiving,
   busyIds,
   onClose,
+  onDismiss,
+  onUnarchiveAll,
   onUnarchive,
   onDelete,
   t,
@@ -38,7 +44,14 @@ export function ArchivedChatsManageModal({
   const busySet = useMemo(() => new Set(busyIds), [busyIds]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+      onDismiss={onDismiss}
+    >
       <View className="flex-1 justify-end">
         <Pressable
           accessibilityRole="button"
@@ -75,6 +88,25 @@ export function ArchivedChatsManageModal({
             {t('settings.data.archivedManageHint')}
           </Text>
 
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.data.unarchiveAll')}
+            onPress={onUnarchiveAll}
+            disabled={loading || bulkUnarchiving || items.length === 0}
+            className="mb-3 h-10 flex-row items-center justify-center rounded-full"
+            style={{
+              borderWidth: 1.2,
+              borderColor: colors.primary,
+              backgroundColor: `${colors.primary}14`,
+              opacity: loading || bulkUnarchiving || items.length === 0 ? 0.6 : 1,
+            }}
+          >
+            {bulkUnarchiving ? <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} /> : null}
+            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+              {bulkUnarchiving ? t('settings.data.unarchivingAll') : t('settings.data.unarchiveAll')}
+            </Text>
+          </TouchableOpacity>
+
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8, gap: 8 }}>
             {loading ? (
               <View className="rounded-2xl border px-3 py-3" style={{ borderColor: colors.border }}>
@@ -86,7 +118,7 @@ export function ArchivedChatsManageModal({
               </View>
             ) : (
               items.map((item) => {
-                const busy = busySet.has(item.id);
+                const busy = bulkUnarchiving || busySet.has(item.id);
                 return (
                   <View key={item.id} className="rounded-2xl border px-3 py-3" style={{ borderColor: colors.border }}>
                     <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
@@ -143,4 +175,3 @@ export function ArchivedChatsManageModal({
     </Modal>
   );
 }
-

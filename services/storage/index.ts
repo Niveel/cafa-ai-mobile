@@ -8,4 +8,5 @@ export * from './archivedChats';
 export * from './billingCheckout';
 export * from './downloads';
 export * from './onboarding';
+export * from './languageDetection';
 export * from './avatarVideoJob';

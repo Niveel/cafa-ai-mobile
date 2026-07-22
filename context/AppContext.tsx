@@ -21,6 +21,11 @@ import {
   setAppPreferences,
   getOnboardingCompleted,
   setOnboardingCompleted,
+  clearPendingDetectedLanguageSync,
+  completeLanguageDetection,
+  detectVisitorLanguage,
+  getLanguageDetectionCompleted,
+  getPendingDetectedLanguageSync,
   type AnimationLevel,
 } from '@/services';
 import { AuthUser } from '@/types';
@@ -118,9 +123,16 @@ export function AppProvider({ children }: AppProviderProps) {
       setAuthUser(me);
       const languageRequestId = languageRequestIdRef.current;
       try {
-        const personalization = await getUserPersonalization();
-        if (languageRequestId === languageRequestIdRef.current) {
-          await activateLanguage(personalization.language);
+        const pendingDetectedLanguage = await getPendingDetectedLanguageSync();
+        if (pendingDetectedLanguage) {
+          await activateLanguage(pendingDetectedLanguage);
+          await updateUserPersonalization({ language: pendingDetectedLanguage });
+          await clearPendingDetectedLanguageSync();
+        } else {
+          const personalization = await getUserPersonalization();
+          if (languageRequestId === languageRequestIdRef.current) {
+            await activateLanguage(personalization.language);
+          }
         }
       } catch {
         // Keep the offline/local language when backend personalization is unavailable.
@@ -175,12 +187,23 @@ export function AppProvider({ children }: AppProviderProps) {
 
     const hydrateApp = async () => {
       try {
-        const [prefs, onboardingDone] = await Promise.all([
+        const [prefs, onboardingDone, languageDetectionCompleted] = await Promise.all([
           getAppPreferences(),
           getOnboardingCompleted(),
+          getLanguageDetectionCompleted(),
         ]);
         setThemeMode(prefs.themeMode);
-        await activateLanguage(prefs.language);
+        let startupLanguage = prefs.language;
+        if (!onboardingDone && !languageDetectionCompleted) {
+          try {
+            startupLanguage = await detectVisitorLanguage();
+            await setAppPreferences({ ...prefs, language: startupLanguage });
+            await completeLanguageDetection(startupLanguage);
+          } catch {
+            // Keep English/the stored preference and retry detection on the next launch.
+          }
+        }
+        await activateLanguage(startupLanguage);
         setHapticsEnabled(prefs.hapticsEnabled);
         setAnimationLevel(prefs.animationLevel);
         setHasCompletedOnboarding(onboardingDone);

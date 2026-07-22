@@ -106,6 +106,7 @@ export const apiEndpoints = {
   },
 
   tools: {
+    checkLanguage: `${API_BASE_PATH}/tools/check-language`,
     detectAi: `${API_BASE_PATH}/tools/detect-ai`,
     detectAiQuota: `${API_BASE_PATH}/tools/detect-ai/quota`,
     humanize: `${API_BASE_PATH}/tools/humanize`,

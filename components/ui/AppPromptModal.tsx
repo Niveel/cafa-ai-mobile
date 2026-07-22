@@ -20,6 +20,7 @@ type AppPromptModalProps = {
   cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  onDismiss?: () => void;
   confirmTone?: 'primary' | 'danger';
   iconName?: keyof typeof Ionicons.glyphMap;
 };
@@ -32,6 +33,7 @@ export function AppPromptModal({
   cancelLabel,
   onConfirm,
   onCancel,
+  onDismiss,
   confirmTone = 'primary',
   iconName = 'help-circle-outline',
 }: AppPromptModalProps) {
@@ -72,6 +74,7 @@ export function AppPromptModal({
       transparent
       animationType="none"
       onRequestClose={onCancel}
+      onDismiss={onDismiss}
       statusBarTranslucent
     >
       <Animated.View

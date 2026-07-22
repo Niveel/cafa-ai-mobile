@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, Text, TouchableOpacity, View } from 'react-native';
 
 import {
   archiveAuthenticatedConversation,
@@ -59,7 +59,11 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
   const [showDeleteAllPrompt, setShowDeleteAllPrompt] = useState(false);
   const [showArchivedManager, setShowArchivedManager] = useState(false);
   const [deleteArchivedId, setDeleteArchivedId] = useState<string | null>(null);
+  const [pendingIosDeleteArchivedId, setPendingIosDeleteArchivedId] = useState<string | null>(null);
+  const [reopenArchivedManagerAfterPrompt, setReopenArchivedManagerAfterPrompt] = useState(false);
   const [working, setWorking] = useState(false);
+  const [archivingAll, setArchivingAll] = useState(false);
+  const [unarchivingAll, setUnarchivingAll] = useState(false);
   const [tiktokTrackingEnabled, setTikTokTrackingEnabled] = useState(false);
 
   const archivedCount = archivedItems.length;
@@ -97,6 +101,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     setShowArchiveAllPrompt(false);
     if (!isAuthenticated) return;
     setWorking(true);
+    setArchivingAll(true);
     setStatusText('');
     try {
       const activeChats = await listAllAuthenticatedConversations();
@@ -135,6 +140,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : t('settings.data.archiveAllError'));
     } finally {
+      setArchivingAll(false);
       setWorking(false);
     }
   }, [isAuthenticated, onChatsMutated, t]);
@@ -199,6 +205,36 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
     [applyBusy, onChatsMutated, t],
   );
 
+  const unarchiveAllChats = useCallback(async () => {
+    if (!isAuthenticated || unarchivingAll || archivedItems.length === 0) return;
+    setUnarchivingAll(true);
+    setStatusText('');
+    try {
+      const result = await runInBatches(archivedItems, 6, async (chat) => {
+        await archiveAuthenticatedConversation(chat.id, false);
+      });
+
+      if (result.done.length) {
+        const next = await removeArchivedChatSnapshots(result.done.map((chat) => chat.id));
+        setArchivedItems(next);
+        onChatsMutated?.();
+      }
+
+      if (result.failed.length) {
+        setStatusText(t('settings.data.unarchiveAllPartial', {
+          success: String(result.done.length),
+          failed: String(result.failed.length),
+        }));
+      } else {
+        setStatusText(t('settings.data.unarchiveAllSuccess'));
+      }
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : t('settings.data.unarchiveAllError'));
+    } finally {
+      setUnarchivingAll(false);
+    }
+  }, [archivedItems, isAuthenticated, onChatsMutated, t, unarchivingAll]);
+
   const deleteArchivedChat = useCallback(
     async (chatId: string) => {
       applyBusy(chatId, true);
@@ -252,7 +288,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         accessibilityLabel={t('settings.data.deleteAll')}
         disabled={!canRun}
         onPress={() => setShowDeleteAllPrompt(true)}
-        className="h-11 items-center justify-center rounded-full px-3"
+        className="h-11 flex-row items-center justify-center rounded-full px-3"
         style={{
           borderWidth: 1.2,
           borderColor: '#E11D48',
@@ -268,7 +304,7 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         accessibilityLabel={t('settings.data.archiveAll')}
         disabled={!canRun}
         onPress={() => setShowArchiveAllPrompt(true)}
-        className="h-11 items-center justify-center rounded-full px-3"
+        className="h-11 flex-row items-center justify-center rounded-full px-3"
         style={{
           borderWidth: 1.2,
           borderColor: colors.primary,
@@ -276,7 +312,10 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
           opacity: canRun ? 1 : 0.7,
         }}
       >
-        <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>{t('settings.data.archiveAll')}</Text>
+        {archivingAll ? <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} /> : null}
+        <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>
+          {archivingAll ? t('settings.data.archivingAll') : t('settings.data.archiveAll')}
+        </Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -340,6 +379,12 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         confirmTone="danger"
         iconName="trash-outline"
         onCancel={() => setDeleteArchivedId(null)}
+        onDismiss={() => {
+          if (!reopenArchivedManagerAfterPrompt) return;
+          setReopenArchivedManagerAfterPrompt(false);
+          setShowArchivedManager(true);
+          void loadArchived();
+        }}
         onConfirm={() => {
           if (!deleteArchivedId) return;
           const chatId = deleteArchivedId;
@@ -352,12 +397,29 @@ export function DataControlsSection({ visible, isAuthenticated, isDark, colors, 
         visible={showArchivedManager}
         items={archivedItems}
         loading={loadingArchived}
+        bulkUnarchiving={unarchivingAll}
         busyIds={busyIds}
         onClose={() => setShowArchivedManager(false)}
+        onDismiss={() => {
+          if (!pendingIosDeleteArchivedId) return;
+          setDeleteArchivedId(pendingIosDeleteArchivedId);
+          setPendingIosDeleteArchivedId(null);
+        }}
         onUnarchive={(chatId) => {
           void unarchiveChat(chatId);
         }}
-        onDelete={(chatId) => setDeleteArchivedId(chatId)}
+        onUnarchiveAll={() => {
+          void unarchiveAllChats();
+        }}
+        onDelete={(chatId) => {
+          if (Platform.OS === 'ios') {
+            setPendingIosDeleteArchivedId(chatId);
+            setReopenArchivedManagerAfterPrompt(true);
+            setShowArchivedManager(false);
+            return;
+          }
+          setDeleteArchivedId(chatId);
+        }}
         t={t}
       />
     </View>
