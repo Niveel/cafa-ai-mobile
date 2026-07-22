@@ -15,7 +15,7 @@ import { RevenueCatProvider } from '@/context/RevenueCatContext';
 import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
-import { initializeTikTokEvents, setTikTokTrackingConsent } from '@/services/tiktokEvents';
+import { initializeTikTokEvents } from '@/services/tiktokEvents';
 
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
@@ -92,7 +92,6 @@ function AppNavigator() {
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const [storeUpdateUrl, setStoreUpdateUrl] = useState<string | null>(null);
   const [latestStoreVersion, setLatestStoreVersion] = useState<string | null>(null);
-  const [tiktokConsentVisible, setTikTokConsentVisible] = useState(false);
   const isCheckingForStoreUpdateRef = useRef(false);
 
   useEffect(() => {
@@ -132,7 +131,6 @@ function AppNavigator() {
   useEffect(() => {
     if (!appIsReady || Platform.OS !== 'android') return;
     void initializeTikTokEvents()
-      .then((consent) => setTikTokConsentVisible(consent === null))
       .catch((error) => {
         if (__DEV__) console.warn('[tiktok-events:init]', error);
       });
@@ -151,22 +149,6 @@ function AppNavigator() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(drawer)" />
       </Stack>
-      <AppPromptModal
-        visible={tiktokConsentVisible}
-        title="Allow personalized ad measurement?"
-        message="Cafa AI can share app activity, such as registration and subscription events, with TikTok to measure ads and improve campaigns. We do not send your chats, prompts, generated media, email address, or payment details."
-        confirmLabel="Allow"
-        cancelLabel="Not now"
-        iconName="analytics-outline"
-        onCancel={() => {
-          setTikTokConsentVisible(false);
-          void setTikTokTrackingConsent(false);
-        }}
-        onConfirm={() => {
-          setTikTokConsentVisible(false);
-          void setTikTokTrackingConsent(true);
-        }}
-      />
       <AppPromptModal
         visible={updateModalVisible}
         title={t('update.title')}
