@@ -40,14 +40,15 @@ const TOOL_CARDS: ToolCard[] = [
     accent: '#A44A1A',
     eyebrowKey: 'tools.card.editImage.eyebrow',
   },
-  {
-    titleKey: 'tools.card.writing.title',
-    descriptionKey: 'tools.card.writing.description',
-    route: '/(drawer)/writing-tools',
-    icon: 'create-outline',
-    accent: '#0F6B57',
-    eyebrowKey: 'tools.card.writing.eyebrow',
-  },
+  // Writing Tools is temporarily hidden from the Tools hub.
+  // {
+  //   titleKey: 'tools.card.writing.title',
+  //   descriptionKey: 'tools.card.writing.description',
+  //   route: '/(drawer)/writing-tools',
+  //   icon: 'create-outline',
+  //   accent: '#0F6B57',
+  //   eyebrowKey: 'tools.card.writing.eyebrow',
+  // },
   {
     titleKey: 'tools.card.voice.title',
     descriptionKey: 'tools.card.voice.description',
