@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
+import { File, Paths } from 'expo-file-system';
 import { router } from 'expo-router';
 
 import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute } from '@/components';
 import { deleteAvatarVideo, getAvatarHistory } from '@/features';
 import { useAppTheme } from '@/hooks';
 import type { AvatarHistoryItem } from '@/types';
-import { hapticError, hapticSuccess } from '@/utils';
+import { hapticError, hapticSuccess, saveMediaToCafaAlbum } from '@/utils';
 
 function dateLabel(value: string) {
   const date = new Date(value);
@@ -21,10 +22,15 @@ export default function AvatarHistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async (refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError('');
     try {
       const page = await getAvatarHistory(1, 50, { forceRefresh: refresh });
@@ -38,6 +44,38 @@ export default function AvatarHistoryScreen() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const downloadVideo = useCallback(async (video: AvatarHistoryItem) => {
+    if (!video.videoUrl || downloadingId) return;
+    setDownloadingId(video.id);
+    setError('');
+    try {
+      const fileName = `cafa-avatar-${video.id.replace(/[^a-zA-Z0-9_-]+/g, '-')}.mp4`;
+      if (Platform.OS === 'web') {
+        const response = await fetch(video.videoUrl);
+        if (!response.ok) throw new Error(`Video download failed (${response.status}).`);
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+      } else {
+        const target = new File(Paths.cache, fileName);
+        target.create({ intermediates: true, overwrite: true });
+        const downloaded = await File.downloadFileAsync(video.videoUrl, target, { idempotent: true });
+        await saveMediaToCafaAlbum(downloaded.uri);
+      }
+      hapticSuccess();
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Could not download this avatar video.');
+      hapticError();
+    } finally {
+      setDownloadingId(null);
+    }
+  }, [downloadingId]);
 
   const confirmDelete = useCallback((video: AvatarHistoryItem) => {
     Alert.alert('Delete avatar video?', 'This video will be permanently removed from your history.', [
@@ -96,7 +134,10 @@ export default function AvatarHistoryScreen() {
                   {video.scriptText ? <Text numberOfLines={3} style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>{video.scriptText}</Text> : null}
                 </View>
               </View>
-              <View style={{ marginTop: 14, alignItems: 'flex-start' }}>
+              <View style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {video.videoUrl ? (
+                  <AppButton label={downloadingId === video.id ? 'Saving...' : 'Download'} iconName="download-outline" compact variant="outline" loading={downloadingId === video.id} onPress={() => { void downloadVideo(video); }} />
+                ) : null}
                 <AppButton label={deletingId === video.id ? 'Deleting...' : 'Delete'} iconName="trash-outline" compact variant="outline" loading={deletingId === video.id} onPress={() => confirmDelete(video)} />
               </View>
             </View>

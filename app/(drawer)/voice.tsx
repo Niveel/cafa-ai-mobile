@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 
@@ -33,6 +34,7 @@ import type {
   TtsConversionResult,
   TtsFormat,
 } from '@/types';
+import { hapticError, hapticSuccess, saveFileToDownloadsCafaFolder } from '@/utils';
 
 type AudioPlayer = {
   addListener: (eventName: string, listener: (status: { didJustFinish?: boolean }) => void) => { remove: () => void };
@@ -515,11 +517,44 @@ export default function VoiceScreen() {
     }
   }, [playingResultId, stopResultPlayback]);
 
-  const onDownloadAudio = useCallback(async (url: string) => {
+  const onDownloadAudio = useCallback(async (url: string, format: TtsFormat = 'mp3', id?: string) => {
+    const fileName = `cafa-voice-${(id || Date.now().toString()).replace(/[^a-zA-Z0-9_-]+/g, '-')}.${format}`;
     try {
-      await Linking.openURL(url);
+      setScreenError('');
+      if (Platform.OS === 'web') {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Audio download failed (${response.status}).`);
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+      } else {
+        const target = new File(Paths.cache, fileName);
+        target.create({ intermediates: true, overwrite: true });
+        const downloaded = await File.downloadFileAsync(url, target, { idempotent: true });
+        if (Platform.OS === 'android') {
+          await saveFileToDownloadsCafaFolder({
+            localFileUri: downloaded.uri,
+            fileName,
+            mimeType: format === 'wav' ? 'audio/wav' : 'audio/mpeg',
+          });
+        } else {
+          await Sharing.shareAsync(downloaded.uri, {
+            mimeType: format === 'wav' ? 'audio/wav' : 'audio/mpeg',
+            dialogTitle: 'Save audio',
+            UTI: format === 'wav' ? 'com.microsoft.waveform-audio' : 'public.mp3',
+          });
+        }
+      }
+      setNotice('Audio downloaded successfully.');
+      hapticSuccess();
     } catch (error) {
-      setScreenError(error instanceof Error ? error.message : 'Could not open the generated audio right now.');
+      setScreenError(error instanceof Error ? error.message : 'Could not download the generated audio right now.');
+      hapticError();
     }
   }, []);
 
@@ -871,7 +906,7 @@ export default function VoiceScreen() {
                           <Pressable
                             accessibilityRole="button"
                             onPress={() => {
-                              void onDownloadAudio(item.audioUrl);
+                              void onDownloadAudio(item.audioUrl, item.format, item.id);
                             }}
                             className="rounded-full px-3 py-2"
                             style={{
@@ -1111,7 +1146,7 @@ export default function VoiceScreen() {
                   <AppButton
                     label={t('textToSpeech.label.download')}
                     onPress={() => {
-                      void onDownloadAudio(currentResult.audioUrl);
+                      void onDownloadAudio(currentResult.audioUrl, currentResult.format, currentResult.id);
                     }}
                     iconName="download-outline"
                     variant="outline"
@@ -1343,7 +1378,7 @@ export default function VoiceScreen() {
                       <Pressable
                         accessibilityRole="button"
                         onPress={() => {
-                          void onDownloadAudio(item.audioUrl);
+                          void onDownloadAudio(item.audioUrl, item.format, item.id);
                         }}
                         className="rounded-full px-3 py-2"
                         style={{
