@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '@/lib';
-import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { clearSessionTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '@/services/storage/session';
+import { apiClient, apiEndpoints, mapApiError, requestAccessTokenRefresh } from '@/services/api';
+import { getAccessToken } from '@/services/storage/session';
 import { ApiResponse } from '@/types';
 import { Platform } from 'react-native';
 
@@ -149,16 +149,6 @@ type AuthReplayResponse = ApiResponse<{
   };
 }>;
 
-type AuthRefreshResponse = {
-  data?: {
-    accessToken?: string;
-    refreshToken?: string;
-  };
-  message?: string;
-  code?: string;
-  error?: string;
-};
-
 type AuthSendError = Error & { status?: number; code?: string };
 type ChatCacheOptions = { force?: boolean };
 type AuthStreamTransportError = Error & { code?: string };
@@ -177,7 +167,6 @@ type AuthNonStreamChatResponse = ApiResponse<{
 }>;
 const AUTH_NON_STREAM_FOLLOWUP_TIMEOUT_MS = 5 * 60 * 1000;
 
-let authRefreshPromise: Promise<string> | null = null;
 const AUTH_STREAM_DEBUG = false;
 const AUTH_LIST_TTL_MS = 20_000;
 const AUTH_DETAIL_TTL_MS = 12_000;
@@ -504,44 +493,7 @@ function mapReplayArtifactsToAttachments(
 }
 
 async function refreshAccessTokenForStreamSend() {
-  if (authRefreshPromise) return authRefreshPromise;
-
-  authRefreshPromise = (async () => {
-    const refreshToken = await getRefreshToken();
-    const response = await fetch(`${API_BASE_URL}${apiEndpoints.auth.refreshToken}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(refreshToken ? { refreshToken } : {}),
-    });
-
-    if (!response.ok) {
-      throw createAuthSendError('Session expired. Please log in again.', response.status);
-    }
-
-    const payload = (await response.json().catch(() => null)) as AuthRefreshResponse | null;
-    const nextAccessToken = payload?.data?.accessToken;
-    const nextRefreshToken = payload?.data?.refreshToken;
-
-    if (!nextAccessToken) {
-      throw createAuthSendError(payload?.message ?? 'Session expired. Please log in again.');
-    }
-
-    await setAccessToken(nextAccessToken);
-    if (nextRefreshToken) {
-      await setRefreshToken(nextRefreshToken);
-    }
-
-    return nextAccessToken;
-  })()
-    .catch(async (error) => {
-      await clearSessionTokens();
-      throw error;
-    })
-    .finally(() => {
-      authRefreshPromise = null;
-    });
-
-  return authRefreshPromise;
+  return requestAccessTokenRefresh();
 }
 
 export async function listAuthenticatedConversations(options?: ChatCacheOptions) {

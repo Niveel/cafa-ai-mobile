@@ -26,7 +26,13 @@ function withAuthHeader(config: InternalAxiosRequestConfig, token: string) {
   return config;
 }
 
-async function requestAccessTokenRefresh() {
+function isTerminalRefreshFailure(error: unknown) {
+  if (!(error instanceof AxiosError)) return false;
+  const status = error.response?.status;
+  return status === 400 || status === 401 || status === 403;
+}
+
+export async function requestAccessTokenRefresh() {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -54,9 +60,16 @@ async function requestAccessTokenRefresh() {
     }
 
     return nextAccessToken;
-  })().finally(() => {
-    refreshPromise = null;
-  });
+  })()
+    .catch(async (error) => {
+      if (isTerminalRefreshFailure(error)) {
+        await clearSessionTokens();
+      }
+      throw error;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
 
   return refreshPromise;
 }
@@ -75,8 +88,9 @@ export function setupAuthInterceptor() {
     async (error: AxiosError<ApiErrorPayload>) => {
       const originalConfig = error.config as RetryableRequestConfig | undefined;
       const status = error.response?.status;
-      const code = error.response?.data?.code ?? error.response?.data?.error;
-      const shouldTryRefresh = code === 'TOKEN_EXPIRED' || (status === 401 && !code);
+      // Backends do not always distinguish expired tokens from other unauthorized
+      // access-token failures. Any authenticated 401 should get one silent refresh.
+      const shouldTryRefresh = status === 401;
 
       if (!originalConfig || originalConfig.skipAuthRefresh || originalConfig._retry || !shouldTryRefresh) {
         throw error;
@@ -88,7 +102,6 @@ export function setupAuthInterceptor() {
         const nextAccessToken = await requestAccessTokenRefresh();
         return apiClient.request(withAuthHeader(originalConfig, nextAccessToken));
       } catch (refreshError) {
-        await clearSessionTokens();
         throw refreshError;
       }
     },

@@ -1,8 +1,7 @@
 import { AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
-import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { getAccessToken } from '@/services/storage/session';
+import { apiClient, apiEndpoints, authenticatedFetch, mapApiError } from '@/services/api';
 import type {
   ApiResponse,
   AvatarClonedVoice,
@@ -302,10 +301,6 @@ export async function cloneAvatarVoice(payload: { audio: { uri: string; fileName
 
 export async function previewAvatarVoice(payload: { voiceId?: string; fishAudioId?: string }) {
   const endpoint = `${API_BASE_URL}${apiEndpoints.avatar.voicePreview}`;
-  const accessToken = await getAccessToken();
-  if (!accessToken) {
-    throw new Error('Missing access token for voice preview.');
-  }
   if (!payload.voiceId?.trim() && !payload.fishAudioId?.trim()) {
     throw new Error('A voice ID or cloned voice ID is required for preview.');
   }
@@ -315,12 +310,11 @@ export async function previewAvatarVoice(payload: { voiceId?: string; fishAudioI
     payload,
   });
 
-  const response = await fetch(endpoint, {
+  const response = await authenticatedFetch(endpoint, {
     method: 'POST',
     headers: {
       Accept: 'audio/mpeg',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload.voiceId?.trim() ? { voiceId: payload.voiceId.trim() } : { fishAudioId: payload.fishAudioId?.trim() }),
   });

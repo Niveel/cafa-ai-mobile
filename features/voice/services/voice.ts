@@ -3,8 +3,7 @@ import { AxiosResponse } from 'axios';
 import { API_BASE_URL } from '@/lib';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
-import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { getAccessToken } from '@/services/storage/session';
+import { apiClient, apiEndpoints, authenticatedFetch, mapApiError } from '@/services/api';
 import { TranscriptionResult, TtsConversionResult, TtsConvertRequest, TtsHistoryPage, VoiceDescriptor } from '@/types';
 import { getAvatarVoiceCatalog, getAvatarVoiceClones, previewAvatarVoice } from '@/features/avatar/services/avatar';
 
@@ -47,21 +46,15 @@ export async function transcribeAudio(file: Blob) {
 export async function synthesizeVoice(payload: { text: string; voice?: string; speed?: number }) {
   const endpoint = `${API_BASE_URL}${apiEndpoints.voice.synthesize}`;
   const timeoutMs = 60_000;
-  const accessToken = await getAccessToken();
-  if (!accessToken) {
-    throw new Error('Missing access token for voice synthesis.');
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await authenticatedFetch(endpoint, {
       method: 'POST',
       headers: {
         Accept: 'audio/wav',
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(payload),
       signal: controller.signal,

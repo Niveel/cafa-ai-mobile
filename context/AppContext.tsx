@@ -160,12 +160,19 @@ export function AppProvider({ children }: AppProviderProps) {
       } catch (syncError) {
         void syncError;
       }
-    } catch {
+    } catch (error) {
       invalidateAuthenticatedChatCache();
       invalidateGuestChatCache();
-      await clearSessionTokens();
-      setIsAuthenticated(false);
-      setAuthUser(null);
+      const status = (error as { status?: number } | null)?.status;
+      if (status === 401 || status === 403) {
+        await clearSessionTokens();
+        setIsAuthenticated(false);
+        setAuthUser(null);
+      } else {
+        // A network interruption or backend outage must not destroy a valid
+        // refresh session. Keep the local authenticated state and retry later.
+        setIsAuthenticated(true);
+      }
     }
   }, [activateLanguage]);
 

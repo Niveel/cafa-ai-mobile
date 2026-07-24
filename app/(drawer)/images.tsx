@@ -25,7 +25,7 @@ import { API_BASE_URL } from '@/lib/client/base-url';
 import { getArtifactsPage } from '@/features';
 import { deleteImage, deleteImagesBulk, getImageHistoryPage } from '@/features/images';
 import { getAccessToken } from '@/services/storage/session';
-import { apiEndpoints } from '@/services/api';
+import { apiEndpoints, authenticatedFetch } from '@/services/api';
 import { ImageHistoryItem } from '@/types';
 import {
   hapticError,
@@ -463,14 +463,11 @@ export default function ImagesScreen() {
     let downloadEndpoint = pollEndpoint;
     let suggestedName = `cafa-ai-images-${Date.now()}.zip`;
     try {
-      const accessToken = await getAccessToken();
       const headers: Record<string, string> = {
         Accept: 'application/json, application/zip, application/octet-stream',
         'Content-Type': 'application/json',
       };
-      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-
-      const startResponse = await fetch(startEndpoint, {
+      const startResponse = await authenticatedFetch(startEndpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({ all: true, sort: 'newest' }),
@@ -524,7 +521,7 @@ export default function ImagesScreen() {
       const maxAttempts = 55;
 
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        const response = await fetch(pollEndpoint, { method: 'GET', headers });
+        const response = await authenticatedFetch(pollEndpoint, { method: 'GET', headers });
         const contentType = response.headers.get('content-type') || '';
 
         if (response.status === 202 || contentType.includes('application/json')) {

@@ -1,8 +1,7 @@
 import { AxiosResponse } from 'axios';
 
 import { API_BASE_URL } from '@/lib';
-import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
-import { getAccessToken } from '@/services/storage/session';
+import { apiClient, apiEndpoints, authenticatedFetch, mapApiError } from '@/services/api';
 import type {
   ApiResponse,
   CafaLifeHistoryPayload,
@@ -87,23 +86,17 @@ export async function previewCafaLifeVoice(voice: string) {
     throw new Error('Choose a voice before previewing it.');
   }
 
-  const accessToken = await getAccessToken();
-  if (!accessToken) {
-    throw new Error('Please log in again to preview voices.');
-  }
-
   const endpoint = `${API_BASE_URL}${apiEndpoints.cafaLife.voicePreview}`;
   logCafaLifeDev('[cafa-life:voice-preview:request]', {
     endpoint,
     voice: trimmedVoice,
   });
 
-  const response = await fetch(endpoint, {
+  const response = await authenticatedFetch(endpoint, {
     method: 'POST',
     headers: {
       Accept: 'audio/mpeg',
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ voice: trimmedVoice }),
   });
