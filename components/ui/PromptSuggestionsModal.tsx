@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -209,7 +210,7 @@ export function PromptSuggestionsModal({
 
           {loading ? (
             <View className="flex-1 items-center justify-center px-8">
-              <Ionicons name="bulb-outline" size={28} color={colors.primary} />
+              <ActivityIndicator size="large" color={colors.primary} />
               <Text
                 accessibilityRole="text"
                 accessibilityLiveRegion="polite"

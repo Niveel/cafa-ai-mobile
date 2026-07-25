@@ -491,7 +491,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const composerInputRef = useRef<TextInput>(null);
   const inputValueRef = useRef('');
   const promptSuggestionAbortRef = useRef<AbortController | null>(null);
-  const promptSuggestionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -604,10 +603,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [language, screenMode]);
 
   const clearPromptSuggestions = useCallback((options?: { keepModalOpen?: boolean }) => {
-    if (promptSuggestionDebounceRef.current) {
-      clearTimeout(promptSuggestionDebounceRef.current);
-      promptSuggestionDebounceRef.current = null;
-    }
     if (promptSuggestionAbortRef.current) {
       promptSuggestionAbortRef.current.abort();
       promptSuggestionAbortRef.current = null;
@@ -620,75 +615,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, []);
 
   useEffect(() => {
-    const trimmed = input.trim();
-    if (trimmed.length < 3) {
-      clearPromptSuggestions({ keepModalOpen: trimmed.length > 0 });
-      return;
-    }
-
-    if (promptSuggestionDebounceRef.current) {
-      clearTimeout(promptSuggestionDebounceRef.current);
-    }
-
-    promptSuggestionDebounceRef.current = setTimeout(() => {
-      promptSuggestionAbortRef.current?.abort();
-      const controller = new AbortController();
-      promptSuggestionAbortRef.current = controller;
-      setIsPromptSuggestionsLoading(true);
-
-      void (async () => {
-        const authToken = isAuthenticated ? undefined : (await ensureGuestSession()).guestSessionToken;
-        return fetchPromptSuggestions({
-          partialText: trimmed,
-          context: promptSuggestionContext,
-          authToken,
-          signal: controller.signal,
-        });
-      })()
-        .then((nextSuggestions) => {
-          if (controller.signal.aborted) return;
-          if (__DEV__) {
-            console.log('[prompt-suggestions]', {
-              screenMode,
-              partialText: trimmed,
-              suggestions: nextSuggestions,
-            });
-          }
-          setPromptSuggestions(nextSuggestions);
-        })
-        .catch((error: unknown) => {
-          const maybeError = error as { code?: string; name?: string };
-          if (controller.signal.aborted || maybeError?.code === 'ERR_CANCELED' || maybeError?.name === 'CanceledError') {
-            return;
-          }
-          if (__DEV__) {
-            console.log('[prompt-suggestions:error]', {
-              screenMode,
-              partialText: trimmed,
-              error,
-            });
-          }
-          setPromptSuggestions([]);
-        })
-        .finally(() => {
-          if (promptSuggestionAbortRef.current === controller) {
-            promptSuggestionAbortRef.current = null;
-          }
-          if (!controller.signal.aborted) {
-            setIsPromptSuggestionsLoading(false);
-          }
-        });
-    }, 500);
-
     return () => {
-      if (promptSuggestionDebounceRef.current) {
-        clearTimeout(promptSuggestionDebounceRef.current);
-        promptSuggestionDebounceRef.current = null;
-      }
       promptSuggestionAbortRef.current?.abort();
       promptSuggestionAbortRef.current = null;
     };
-  }, [clearPromptSuggestions, input, isAuthenticated, promptSuggestionContext, screenMode]);
+  }, []);
 
   useEffect(() => {
     if (!isDedicatedMediaScreen) return;
@@ -4827,12 +4758,66 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   };
 
   const openPromptSuggestions = useCallback(() => {
-    if (!input.trim()) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
+
     hapticSelection();
     setPromptSuggestionsVisible(true);
-  }, [input]);
+    setPromptSuggestions([]);
+    setIsPromptSuggestionsLoading(true);
+
+    promptSuggestionAbortRef.current?.abort();
+    const controller = new AbortController();
+    promptSuggestionAbortRef.current = controller;
+
+    void (async () => {
+      const authToken = isAuthenticated ? undefined : (await ensureGuestSession()).guestSessionToken;
+      return fetchPromptSuggestions({
+        partialText: trimmed,
+        context: promptSuggestionContext,
+        authToken,
+        signal: controller.signal,
+      });
+    })()
+      .then((nextSuggestions) => {
+        if (controller.signal.aborted) return;
+        if (__DEV__) {
+          console.log('[prompt-suggestions]', {
+            screenMode,
+            partialText: trimmed,
+            suggestions: nextSuggestions,
+          });
+        }
+        setPromptSuggestions(nextSuggestions);
+      })
+      .catch((error: unknown) => {
+        const maybeError = error as { code?: string; name?: string };
+        if (controller.signal.aborted || maybeError?.code === 'ERR_CANCELED' || maybeError?.name === 'CanceledError') {
+          return;
+        }
+        if (__DEV__) {
+          console.log('[prompt-suggestions:error]', {
+            screenMode,
+            partialText: trimmed,
+            error,
+          });
+        }
+        setPromptSuggestions([]);
+      })
+      .finally(() => {
+        if (promptSuggestionAbortRef.current === controller) {
+          promptSuggestionAbortRef.current = null;
+        }
+        if (!controller.signal.aborted) {
+          setIsPromptSuggestionsLoading(false);
+        }
+      });
+  }, [input, isAuthenticated, promptSuggestionContext, screenMode]);
 
   const closePromptSuggestions = useCallback(() => {
+    promptSuggestionAbortRef.current?.abort();
+    promptSuggestionAbortRef.current = null;
+    setIsPromptSuggestionsLoading(false);
     setPromptSuggestionsVisible(false);
     requestAnimationFrame(() => {
       composerInputRef.current?.focus();
