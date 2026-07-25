@@ -23,8 +23,6 @@ import {
 import type {
   DedicatedMediaScreen,
   DocumentWizardArtifact,
-  MediaPromptRewriteIntent,
-  MediaPromptRewriteResult,
   PromptSuggestionContext,
 } from '@/types';
 import * as Clipboard from 'expo-clipboard';
@@ -121,7 +119,6 @@ import {
   getGuestConversation,
   getVoiceCatalog,
   pollVideoJob,
-  rewriteMediaPrompt,
   getArtifactsPage,
   sendAuthenticatedMessageStream,
   sendAuthenticatedMessageNonStream,
@@ -774,56 +771,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return null;
   }, [isLikelyImageEditIntent, screenMode]);
 
-  const getScreenHandoffConfigFromIntent = useCallback((
-    intent: MediaPromptRewriteIntent,
-  ): ScreenHandoffConfig | null => {
-    if (screenMode === 'image-to-video') {
-      if (intent === 'edit-image') {
-        return {
-          target: 'edit-image',
-          title: 'Better in Edit Image',
-          description: 'This request looks like editing an image. Use the Edit Image screen. For this task.',
-          ctaLabel: 'Open Edit Image',
-          iconName: 'color-wand-outline',
-        };
-      }
-      if (intent === 'unsupported') {
-        return {
-          target: 'index',
-          title: 'Use main chat for this',
-          description: 'This screen is only for generating a video from an image. For anything else, continue in the main chat.',
-          ctaLabel: 'Open main chat',
-          iconName: 'chatbubble-ellipses-outline',
-        };
-      }
-      return null;
-    }
-
-    if (screenMode === 'edit-image') {
-      if (intent === 'image-to-video') {
-        return {
-          target: 'image-to-video',
-          title: 'Better in Image-to-Video',
-          description: 'This request looks like turning an image into a video. Use the dedicated image-to-video screen. For this task.',
-          ctaLabel: 'Open Image-to-Video',
-          iconName: 'film-outline',
-        };
-      }
-      if (intent === 'unsupported') {
-        return {
-          target: 'index',
-          title: 'Use main chat for this',
-          description: 'This screen is only for editing an image. For general requests, continue in the main chat.',
-          ctaLabel: 'Open main chat',
-          iconName: 'chatbubble-ellipses-outline',
-        };
-      }
-      return null;
-    }
-
-    return null;
-  }, [screenMode]);
-
   const getScreenHandoffConfigFromAssistantText = useCallback((
     content: string,
   ): ScreenHandoffConfig | null => {
@@ -942,73 +889,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       console.log('[chat-upload:selection]', payload);
     }
   }, []);
-
-  const resolveMediaPromptRewrite = useCallback(async (
-    currentScreenMode: ChatScreenMode,
-    prompt: string,
-  ): Promise<MediaPromptRewriteResult | null> => {
-    if (currentScreenMode !== 'image-to-video' && currentScreenMode !== 'edit-image') {
-      return null;
-    }
-
-    try {
-      const result = await rewriteMediaPrompt({
-        screen: currentScreenMode,
-        prompt,
-        language,
-      });
-      if (__DEV__) {
-        try {
-          console.log('[media-prompt-rewrite:result]', JSON.stringify({
-            screen: currentScreenMode,
-            prompt,
-            response: result,
-            source: 'backend',
-          }));
-        } catch {
-          console.log('[media-prompt-rewrite:result]', {
-            screen: currentScreenMode,
-            prompt,
-            response: result,
-            source: 'backend',
-          });
-        }
-      }
-      return result;
-    } catch (error) {
-      const typed = error as { status?: number; code?: string; message?: string } | undefined;
-      const status = typed?.status ?? null;
-      const code = (typed?.code ?? '').toUpperCase();
-
-      if (status === 404 || status === 501 || code === 'ERR_BAD_REQUEST' || code === 'NOT_FOUND') {
-        return null;
-      }
-
-      if (__DEV__) {
-        try {
-          console.log('[media-prompt-rewrite:fallback]', JSON.stringify({
-          screen: currentScreenMode,
-          prompt,
-          status,
-          code: typed?.code ?? null,
-          message: typed?.message ?? null,
-          source: 'frontend-fallback',
-        }));
-      } catch {
-        console.log('[media-prompt-rewrite:fallback]', {
-          screen: currentScreenMode,
-          prompt,
-          status,
-          code: typed?.code ?? null,
-          message: typed?.message ?? null,
-          source: 'frontend-fallback',
-        });
-      }
-    }
-
-    return null;
-    }
-  }, [language]);
 
   useEffect(() => {
     rotateStarterPrompts();
@@ -2975,84 +2855,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         };
 
         try {
-          let effectivePrompt = trimmed;
-          let mediaPromptRewriteResult: MediaPromptRewriteResult | null = null;
-
-          if (screenMode === 'image-to-video' || screenMode === 'edit-image') {
-            mediaPromptRewriteResult = await resolveMediaPromptRewrite(screenMode, trimmed);
-            const rewrittenPrompt = mediaPromptRewriteResult?.rewrittenPrompt?.trim();
-            if (rewrittenPrompt) {
-              effectivePrompt = rewrittenPrompt;
-            }
-          }
-
-          const backendIntentHandoff = mediaPromptRewriteResult && !mediaPromptRewriteResult.belongsToCurrentScreen
-            ? getScreenHandoffConfigFromIntent(mediaPromptRewriteResult.intent)
-            : null;
-
-          if (backendIntentHandoff) {
-            lastEndpoint = `${API_BASE_URL}/media/prompts/rewrite`;
-            logSendPayload({
-              endpoint: lastEndpoint,
-              mode: 'frontend-intent-handoff-blocked',
-              conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
-              screenMode,
-              message: trimmed,
-              language,
-              model: activeModel,
-              reference: composerMediaReference ?? null,
-              attachments: attachmentsForSend.map((asset) => ({
-                id: asset.id,
-                label: asset.label,
-                fileName: asset.fileName,
-                mimeType: asset.mimeType,
-                uri: asset.uri,
-              })),
-              handoffTarget: backendIntentHandoff.target,
-              rewrittenPrompt: effectivePrompt,
-              interpretedIntent: mediaPromptRewriteResult?.intent ?? null,
-            });
-            const userMessage: UiMessage = {
-              id: `user-${Date.now()}`,
-              role: 'user',
-              content: trimmed,
-              createdAt: Date.now(),
-              attachments: attachmentsForSend.map((asset) => ({
-                id: asset.id,
-                originalName: asset.fileName ?? asset.label,
-                mimeType: asset.mimeType,
-                fileType: (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? 'image' : 'document',
-                url: asset.uri,
-                thumbnailUrl: asset.uri,
-              })),
-            };
-            const assistantMessage: UiMessage = {
-              id: `assistant-handoff-${Date.now()}`,
-              role: 'assistant',
-              content: '',
-              createdAt: Date.now() + 1,
-              screenHandoff: backendIntentHandoff,
-            };
-            setAttachmentMenuOpen(false);
-            setModelMenuOpen(false);
-            if (attachmentsForSend.length) {
-              setAttachedAssets([]);
-            }
-            inputValueRef.current = '';
-            setInput('');
-            setMessages((prev) => {
-              const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
-              return [...withoutSyntheticWelcome, userMessage, assistantMessage];
-            });
-            autoScrollEnabledRef.current = true;
-            setShowScrollToBottom(false);
-            scrollToBottom();
-            return;
-          }
+          const effectivePrompt = trimmed;
 
           const imageRequirement = getImageRequirementConfig(effectivePrompt, attachmentsForSend);
           if (imageRequirement) {
-            lastEndpoint = mediaPromptRewriteResult ? `${API_BASE_URL}/media/prompts/rewrite` : `${API_BASE_URL}/chat/image-required`;
+            lastEndpoint = `${API_BASE_URL}/chat/image-required`;
             logSendPayload({
               endpoint: lastEndpoint,
               mode: 'frontend-image-required-blocked',
@@ -3061,8 +2868,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               message: trimmed,
               language,
               model: activeModel,
-              rewrittenPrompt: effectivePrompt !== trimmed ? effectivePrompt : undefined,
-              interpretedIntent: mediaPromptRewriteResult?.intent ?? null,
               attachments: attachmentsForSend.map((asset) => ({
                 id: asset.id,
                 label: asset.label,
@@ -3107,7 +2912,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               language,
               model: activeModel,
               reference: composerMediaReference ?? null,
-              rewrittenPrompt: effectivePrompt !== trimmed ? effectivePrompt : undefined,
               attachments: attachmentsForSend.map((asset) => ({
                 id: asset.id,
                 label: asset.label,
