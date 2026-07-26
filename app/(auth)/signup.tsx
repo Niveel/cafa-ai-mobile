@@ -89,19 +89,8 @@ export default function SignupScreen() {
                         });
                       } catch (error) {
                         const mapped = error as { code?: string; status?: number; message?: string };
-                        const code = (mapped?.code ?? '').toUpperCase();
                         const message = mapped?.message ?? t('auth.signupFailed');
                         const devOtp = extractDevOtpFromMessage(message);
-                        const isEmailConflict =
-                          mapped?.status === 409 ||
-                          code.includes('EMAIL') ||
-                          code.includes('EXIST') ||
-                          code.includes('CONFLICT') ||
-                          message.toLowerCase().includes('already exists');
-
-                        const finalMessage = isEmailConflict
-                          ? 'A user with this email already exists'
-                          : message;
 
                         console.log(
                           `[signup-screen:error] endpoint=${API_BASE_URL}${apiEndpoints.auth.register} code=${mapped?.code ?? 'unknown'} status=${mapped?.status ?? 'unknown'} message="${message}"`,
@@ -117,7 +106,7 @@ export default function SignupScreen() {
                           });
                           return;
                         }
-                        setAuthError(finalMessage);
+                        setAuthError(message);
                       }
                     }}
                   >

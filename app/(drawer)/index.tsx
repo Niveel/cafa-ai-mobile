@@ -33,7 +33,7 @@ import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
@@ -434,6 +434,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [upgradeNoticeResetHours, setUpgradeNoticeResetHours] = useState<number | null>(null);
   const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
   const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
+  const [guestAllowanceHydrated, setGuestAllowanceHydrated] = useState(false);
+  const [guestMessageCount, setGuestMessageCount] = useState(0);
+  const [guestAllowanceNotice, setGuestAllowanceNotice] = useState<16 | 20 | 23 | 25 | null>(null);
   const [downloadToastNotice, setDownloadToastNotice] = useState('');
   const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null);
   const [sharingMediaMessageId, setSharingMediaMessageId] = useState<string | null>(null);
@@ -500,6 +503,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     responseCount: 0,
     shown: false,
   });
+  const guestMessageCountRef = useRef(0);
   const menuTouchRef = useRef(false);
   const documentDraftHydratedRef = useRef(false);
   const conversationHydrationRequestRef = useRef(0);
@@ -552,6 +556,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const GUEST_UPSELL_STATE_KEY = 'cafa_ai_guest_upsell_state_v1';
   const GUEST_UPSELL_AFTER_RESPONSES = 3;
   const GUEST_UPSELL_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const GUEST_MESSAGE_COUNT_KEY = 'cafa_ai_guest_message_count_v1';
+  const GUEST_MESSAGE_LIMIT = 25;
+  const guestModeLocked = !isAuthenticated
+    && guestAllowanceHydrated
+    && guestMessageCount >= GUEST_MESSAGE_LIMIT;
+  const guestAllowanceNoticeIsLocked = guestAllowanceNotice === GUEST_MESSAGE_LIMIT;
+  const guestAllowanceNoticeTitle = guestAllowanceNoticeIsLocked
+    ? t('chat.guestLimit.lockedTitle')
+    : t('chat.guestLimit.warningTitle');
+  const guestAllowanceNoticeBody = guestAllowanceNoticeIsLocked
+    ? t('chat.guestLimit.lockedBody')
+    : t('chat.guestLimit.warningBody', {
+        remaining: String(Math.max(0, GUEST_MESSAGE_LIMIT - guestMessageCount)),
+      });
   const keyboardComposerOffset = Platform.OS === 'ios' ? iosComposerOffset : androidComposerOffset;
   const safeBottomInset = Math.max(insets.bottom, 0);
   const composerBottomInset = keyboardComposerOffset > 0 ? keyboardComposerOffset : 0;
@@ -561,7 +579,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const composerPlaceholder = useMemo(() => screenConfig.placeholder, [screenConfig.placeholder]);
   const useCompactComposerPlaceholder = screenMode === 'image-to-video' || screenMode === 'edit-image';
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
-  const isSendDisabled = (!input.trim() && attachedAssets.length === 0) || isSending || isUnderstandingPrompt || !!statusNotice;
+  const isSendDisabled = (!input.trim() && attachedAssets.length === 0)
+    || isSending
+    || isUnderstandingPrompt
+    || !!statusNotice
+    || (!isAuthenticated && (!guestAllowanceHydrated || guestModeLocked));
   const clearDedicatedMediaValidationMessages = useCallback((options: { clearPromptRequired?: boolean; clearImageRequired?: boolean }) => {
     if (!options.clearPromptRequired && !options.clearImageRequired) return;
 
@@ -2103,6 +2125,47 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
   }, [GUEST_UPSELL_STATE_KEY, GUEST_UPSELL_WINDOW_MS, isAuthenticated]);
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      setGuestAllowanceNotice(null);
+      setGuestAllowanceHydrated(true);
+      return;
+    }
+
+    let cancelled = false;
+    setGuestAllowanceHydrated(false);
+    void (async () => {
+      let storedCount = 0;
+      try {
+        const raw = await AsyncStorage.getItem(GUEST_MESSAGE_COUNT_KEY);
+        const parsed = Number.parseInt(raw ?? '0', 10);
+        storedCount = Number.isFinite(parsed)
+          ? Math.min(GUEST_MESSAGE_LIMIT, Math.max(0, parsed))
+          : 0;
+      } catch {
+        // Keep guest chat safe and usable if storage is temporarily unavailable.
+      }
+
+      if (cancelled) return;
+      guestMessageCountRef.current = storedCount;
+      setGuestMessageCount(storedCount);
+      setGuestAllowanceNotice(storedCount >= GUEST_MESSAGE_LIMIT ? 25 : null);
+      setGuestAllowanceHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [GUEST_MESSAGE_COUNT_KEY, GUEST_MESSAGE_LIMIT, isAuthenticated]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (guestModeLocked) {
+        setGuestAllowanceNotice(25);
+      }
+    }, [guestModeLocked]),
+  );
+
   const renderInlineMarkdown = useCallback((
     content: string,
     options?: { textColor?: string; isCode?: boolean },
@@ -2761,6 +2824,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
 
+        if (!isAuthenticated) {
+          if (!guestAllowanceHydrated) return;
+          if (guestMessageCountRef.current >= GUEST_MESSAGE_LIMIT) {
+            setGuestAllowanceNotice(25);
+            return;
+          }
+        }
+
         if (
           !options?.skipDocumentFormWarning
           && screenMode === 'chat'
@@ -3354,6 +3425,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 }
                 guestUpsellStateRef.current = nextUpsellState;
                 void AsyncStorage.setItem(GUEST_UPSELL_STATE_KEY, JSON.stringify(nextUpsellState));
+
+                const nextGuestMessageCount = Math.min(
+                  GUEST_MESSAGE_LIMIT,
+                  guestMessageCountRef.current + 1,
+                );
+                guestMessageCountRef.current = nextGuestMessageCount;
+                setGuestMessageCount(nextGuestMessageCount);
+                void AsyncStorage.setItem(GUEST_MESSAGE_COUNT_KEY, String(nextGuestMessageCount));
+                if (
+                  nextGuestMessageCount === 16
+                  || nextGuestMessageCount === 20
+                  || nextGuestMessageCount === 23
+                  || nextGuestMessageCount === GUEST_MESSAGE_LIMIT
+                ) {
+                  setGuestUpsellVisible(false);
+                  setGuestAllowanceNotice(nextGuestMessageCount as 16 | 20 | 23 | 25);
+                }
               }
               if (event.type === 'error') {
                 throw new Error(event.message || 'Guest chat stream failed.');
@@ -6245,10 +6333,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       </Modal>
 
       <Modal
-        visible={!isAuthenticated && guestUpsellVisible}
+        visible={!isAuthenticated && (guestUpsellVisible || guestAllowanceNotice !== null)}
         transparent
         animationType="slide"
-        onRequestClose={() => setGuestUpsellVisible(false)}
+        onRequestClose={() => {
+          if (guestAllowanceNoticeIsLocked) return;
+          setGuestUpsellVisible(false);
+          setGuestAllowanceNotice(null);
+        }}
         statusBarTranslucent
       >
         <View
@@ -6263,7 +6355,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={t('modal.closeDialog')}
-            onPress={() => setGuestUpsellVisible(false)}
+            onPress={() => {
+              if (guestAllowanceNoticeIsLocked) return;
+              setGuestUpsellVisible(false);
+              setGuestAllowanceNotice(null);
+            }}
             style={{ position: 'absolute', inset: 0 }}
           />
 
@@ -6295,51 +6391,58 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 <AppLogo compact showWordmark={false} />
               </View>
               <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', flex: 1 }}>
-                {t('chat.guestUpsell.title')}
+                {guestAllowanceNotice !== null ? guestAllowanceNoticeTitle : t('chat.guestUpsell.title')}
               </Text>
-              <Pressable
-                onPress={() => {
-                  hapticSelection();
-                  setGuestUpsellVisible(false);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={t('chat.limit.dismiss')}
-                className="h-8 w-8 items-center justify-center rounded-full"
-                style={{ backgroundColor: isDark ? '#0C0C0F' : '#F3F4F6' }}
-              >
-                <Ionicons name="close" size={16} color={colors.textSecondary} />
-              </Pressable>
+              {!guestAllowanceNoticeIsLocked ? (
+                <Pressable
+                  onPress={() => {
+                    hapticSelection();
+                    setGuestUpsellVisible(false);
+                    setGuestAllowanceNotice(null);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('chat.limit.dismiss')}
+                  className="h-8 w-8 items-center justify-center rounded-full"
+                  style={{ backgroundColor: isDark ? '#0C0C0F' : '#F3F4F6' }}
+                >
+                  <Ionicons name="close" size={16} color={colors.textSecondary} />
+                </Pressable>
+              ) : null}
             </View>
 
             <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21 }}>
-              {t('chat.guestUpsell.body')}
+              {guestAllowanceNotice !== null ? guestAllowanceNoticeBody : t('chat.guestUpsell.body')}
             </Text>
 
             <View className="mt-5 flex-row justify-end gap-2">
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t('chat.limit.dismiss')}
-                onPress={() => {
-                  hapticSelection();
-                  setGuestUpsellVisible(false);
-                }}
-                className="h-10 items-center justify-center rounded-full px-4"
-                style={{
-                  borderWidth: 1.5,
-                  borderColor: colors.primary,
-                  backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
-                }}
-              >
-                <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>
-                  {t('chat.limit.dismiss')}
-                </Text>
-              </Pressable>
+              {!guestAllowanceNoticeIsLocked ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('chat.limit.dismiss')}
+                  onPress={() => {
+                    hapticSelection();
+                    setGuestUpsellVisible(false);
+                    setGuestAllowanceNotice(null);
+                  }}
+                  className="h-10 items-center justify-center rounded-full px-4"
+                  style={{
+                    borderWidth: 1.5,
+                    borderColor: colors.primary,
+                    backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 13 }}>
+                    {t('chat.limit.dismiss')}
+                  </Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('auth.signup')}
                 onPress={() => {
                   hapticSelection();
                   setGuestUpsellVisible(false);
+                  setGuestAllowanceNotice(null);
                   router.push('/(auth)/signup');
                 }}
                 className="h-10 items-center justify-center rounded-full px-4"
@@ -6359,6 +6462,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 onPress={() => {
                   hapticSelection();
                   setGuestUpsellVisible(false);
+                  setGuestAllowanceNotice(null);
                   router.push('/(auth)/login');
                 }}
                 className="h-10 items-center justify-center rounded-full px-4"

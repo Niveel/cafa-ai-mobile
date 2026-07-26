@@ -255,5 +255,5 @@ function resolveTokenValue(value: unknown): string {
 
 function getUserFacingLoginError(message: string, fallback: string) {
   if (!message.trim()) return fallback;
-  return __DEV__ ? message : fallback;
+  return message;
 }
