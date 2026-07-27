@@ -22,7 +22,7 @@ import {
   getOnboardingCompleted,
   setOnboardingCompleted,
   clearPendingDetectedLanguageSync,
-  detectVisitorLanguageOncePerLaunch,
+  detectVisitorLanguageForLaunch,
   getPendingDetectedLanguageSync,
   saveDetectedLanguageForAccountSync,
   type AnimationLevel,
@@ -215,19 +215,21 @@ export function AppProvider({ children }: AppProviderProps) {
         setThemeMode(prefs.themeMode);
         let startupLanguage = prefs.language;
         try {
-          logLanguageDetection('app load; starting IP language check');
-          const detection = await detectVisitorLanguageOncePerLaunch();
-          startupLanguage = detection.language;
-          await setAppPreferences({ ...prefs, language: startupLanguage });
-          await saveDetectedLanguageForAccountSync(startupLanguage);
-          logLanguageDetection('saved app-load result', JSON.stringify({
-            detectedCountryCode: detection.detectedCountryCode,
-            detectedCountryName: detection.detectedCountryName,
-            language: startupLanguage,
-          }));
+          logLanguageDetection('app load; checking IP language cadence');
+          const detection = await detectVisitorLanguageForLaunch();
+          if (detection) {
+            startupLanguage = detection.language;
+            await setAppPreferences({ ...prefs, language: startupLanguage });
+            await saveDetectedLanguageForAccountSync(startupLanguage);
+            logLanguageDetection('saved app-load result', JSON.stringify({
+              detectedCountryCode: detection.detectedCountryCode,
+              detectedCountryName: detection.detectedCountryName,
+              language: startupLanguage,
+            }));
+          }
         } catch (error) {
-          warnLanguageDetection('request or persistence failed; will retry next app load', error);
-          // Keep the stored preference and retry detection on the next app load.
+          warnLanguageDetection('request or persistence failed; will retry on a future eligible app load', error);
+          // Keep the stored preference and preserve the reduced launch cadence.
         }
         await activateLanguage(startupLanguage);
         logLanguageDetection('startup language active', startupLanguage);

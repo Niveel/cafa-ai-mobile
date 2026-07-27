@@ -1,5 +1,6 @@
 import { isAppLanguage, type AppLanguage } from '@/config';
 import { apiClient, apiEndpoints } from '@/services/api';
+import { shouldDetectCountryThisLaunch } from '@/services/storage/languageDetection';
 
 function logLanguageDetection(...details: unknown[]) {
   if (__DEV__) console.log('[language-detection]', ...details);
@@ -26,7 +27,7 @@ export type VisitorLanguageDetection = {
   raw: LanguageDetectionResponse;
 };
 
-let launchDetectionPromise: Promise<VisitorLanguageDetection> | null = null;
+let launchDetectionPromise: Promise<VisitorLanguageDetection | null> | null = null;
 
 export async function detectVisitorLanguage(): Promise<VisitorLanguageDetection> {
   logLanguageDetection('requesting', apiEndpoints.tools.checkLanguage);
@@ -54,17 +55,24 @@ export async function detectVisitorLanguage(): Promise<VisitorLanguageDetection>
 }
 
 /**
- * Detects the visitor's country/language at most once for the lifetime of the
- * current JavaScript runtime. Background/foreground transitions and React
- * provider remounts reuse the original result. A genuinely fresh app launch
- * creates a new runtime, allowing one new request.
+ * Detects the visitor's country/language on alternating fresh launches. The
+ * persisted cadence produces five requests per ten launches, while the cached
+ * promise ensures background/foreground transitions and React provider
+ * remounts cannot advance the cadence or create duplicate requests.
  *
  * The rejected promise is intentionally retained too: transient failures must
  * wait until the next fresh launch instead of causing background retries.
  */
-export function detectVisitorLanguageOncePerLaunch(): Promise<VisitorLanguageDetection> {
+export function detectVisitorLanguageForLaunch(): Promise<VisitorLanguageDetection | null> {
   if (!launchDetectionPromise) {
-    launchDetectionPromise = detectVisitorLanguage();
+    launchDetectionPromise = shouldDetectCountryThisLaunch().then((shouldDetect) => {
+      if (!shouldDetect) {
+        logLanguageDetection('skipping country check on this launch');
+        return null;
+      }
+
+      return detectVisitorLanguage();
+    });
   }
 
   return launchDetectionPromise;
