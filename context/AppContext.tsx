@@ -22,7 +22,7 @@ import {
   getOnboardingCompleted,
   setOnboardingCompleted,
   clearPendingDetectedLanguageSync,
-  detectVisitorLanguage,
+  detectVisitorLanguageOncePerLaunch,
   getPendingDetectedLanguageSync,
   saveDetectedLanguageForAccountSync,
   type AnimationLevel,
@@ -216,7 +216,7 @@ export function AppProvider({ children }: AppProviderProps) {
         let startupLanguage = prefs.language;
         try {
           logLanguageDetection('app load; starting IP language check');
-          const detection = await detectVisitorLanguage();
+          const detection = await detectVisitorLanguageOncePerLaunch();
           startupLanguage = detection.language;
           await setAppPreferences({ ...prefs, language: startupLanguage });
           await saveDetectedLanguageForAccountSync(startupLanguage);

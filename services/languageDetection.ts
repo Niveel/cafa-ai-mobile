@@ -26,6 +26,8 @@ export type VisitorLanguageDetection = {
   raw: LanguageDetectionResponse;
 };
 
+let launchDetectionPromise: Promise<VisitorLanguageDetection> | null = null;
+
 export async function detectVisitorLanguage(): Promise<VisitorLanguageDetection> {
   logLanguageDetection('requesting', apiEndpoints.tools.checkLanguage);
   const response = await apiClient.get<LanguageDetectionResponse>(apiEndpoints.tools.checkLanguage);
@@ -49,4 +51,21 @@ export async function detectVisitorLanguage(): Promise<VisitorLanguageDetection>
   }));
 
   return result;
+}
+
+/**
+ * Detects the visitor's country/language at most once for the lifetime of the
+ * current JavaScript runtime. Background/foreground transitions and React
+ * provider remounts reuse the original result. A genuinely fresh app launch
+ * creates a new runtime, allowing one new request.
+ *
+ * The rejected promise is intentionally retained too: transient failures must
+ * wait until the next fresh launch instead of causing background retries.
+ */
+export function detectVisitorLanguageOncePerLaunch(): Promise<VisitorLanguageDetection> {
+  if (!launchDetectionPromise) {
+    launchDetectionPromise = detectVisitorLanguage();
+  }
+
+  return launchDetectionPromise;
 }
