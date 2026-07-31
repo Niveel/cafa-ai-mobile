@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -8,6 +8,7 @@ type VideoGenerationPlaceholderProps = {
   height: number;
   isDark: boolean;
   accentColor: string;
+  timingNote: string;
 };
 
 export function VideoGenerationPlaceholder({
@@ -15,6 +16,7 @@ export function VideoGenerationPlaceholder({
   height,
   isDark,
   accentColor,
+  timingNote,
 }: VideoGenerationPlaceholderProps) {
   const shimmerX = useSharedValue(-width);
   const pulse = useSharedValue(0.5);
@@ -43,7 +45,7 @@ export function VideoGenerationPlaceholder({
       }}
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Cafa AI is generating video preview"
+      accessibilityLabel={`Cafa AI is generating video preview. ${timingNote}`}
     >
       <Animated.View
         style={[
@@ -73,6 +75,12 @@ export function VideoGenerationPlaceholder({
           <Ionicons name="videocam-outline" size={18} color={accentColor} />
         </View>
         <ActivityIndicator size="small" color={accentColor} />
+        <Text
+          className="mt-2 text-center text-xs"
+          style={{ color: isDark ? '#A7A8B3' : '#656674' }}
+        >
+          {timingNote}
+        </Text>
       </View>
     </View>
   );

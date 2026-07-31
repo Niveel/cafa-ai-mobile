@@ -208,6 +208,7 @@
   "chat.videoGenerationInProgress": "Une video est deja en cours de generation. Veuillez patienter.",
   "chat.videoGenerationCooldown": "Attendez {{seconds}} s avant de lancer une autre video.",
   "chat.videoGenerationDelayed": "La generation video prend plus de temps que prevu. Revenez bientot, elle apparaitra automatiquement.",
+  "chat.videoGenerationTimingNote": "La génération vidéo prend généralement environ 2 minutes.",
   "chat.limit.upgradeCta": "Mettre a niveau",
   "chat.limit.restoreSync": "Restaurer les achats et synchroniser",
   "chat.limit.dismiss": "Fermer",

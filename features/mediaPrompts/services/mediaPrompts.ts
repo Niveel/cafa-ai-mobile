@@ -44,7 +44,10 @@ export async function rewriteMediaPrompt(request: MediaPromptRewriteRequest) {
       throw mapped;
     }
 
-    return data;
+    return {
+      result: data,
+      rawResponse: payload,
+    };
   } catch (error) {
     throw mapApiError(error);
   }

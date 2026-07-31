@@ -113,6 +113,7 @@ import {
   generateImage,
   getDedicatedMediaConversation,
   generateVideoFromImageDirect,
+  rewriteMediaPrompt,
   syncSubscriptionState,
   getSubscriptionOverview,
   getAuthenticatedConversation,
@@ -674,124 +675,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       setStarterPrompts(selected);
     }
   }, [screenMode]);
-
-  const isLikelyImageEditIntent = useCallback((value: string) => {
-    const normalized = value
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!normalized) return false;
-
-    // Classic edit verbs paired with an image element cue
-    const editVerb =
-      /\b(edit|retouch|enhance|improve|fix|clean|cleanup|touch ?up|remove|replace|erase|crop|upscale|sharpen|brighten|darken|blur|restore|adjust|colorize|desaturate|saturate|stylize|filter|transform|overlay|swap|inpaint|outpaint|fill|extend|expand|redraw|repaint|recolor)\b/.test(normalized);
-    const imageCue =
-      /\b(image|photo|picture|background|foreground|lighting|light|shadow|color|colour|hue|tone|tint|shade|contrast|exposure|saturation|brightness|face|skin|eye|hair|object|element|subject|logo|texture|style|look|appearance|scene|sky|floor|wall|outfit|clothes)\b/.test(normalized);
-
-    if (editVerb && imageCue) return true;
-
-    // Natural transformation phrasing: "make it/the X", "change X to Y", "turn X into Y", "add X", "set X to Y"
-    const naturalEdit =
-      /\b(make (it|the|this|them|everything|all)|change (it|the|this|them|all|color|colour|background|lighting|light|style|look|appearance) to|turn (it|the|this|them) into|set (the|all|it) (color|colour|hue|tone|lighting|light|style) to|add (a |some )?(filter|effect|overlay|texture|color|colour|tint|shadow|glow|blur)|convert (to|into)|apply (a |the )?(filter|effect|style|look)|give it (a |the )?|put (a |the )?)/.test(normalized);
-
-    return naturalEdit;
-  }, []);
-
-  const getImageRequirementConfig = useCallback((
-    prompt: string,
-    attachments: AttachedAsset[],
-  ): ImageRequirementConfig | null => {
-    const hasImageAttachment = attachments.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
-    if (hasImageAttachment) return null;
-
-    const isVideoIntent = Boolean(extractVideoPrompt(prompt)) || isLikelyVideoGenerationIntent(prompt);
-    const isEditIntent = isLikelyImageEditIntent(prompt);
-
-    if (screenMode === 'image-to-video' && isVideoIntent) {
-      return {
-        title: 'Add an image first',
-        description: 'Upload an image before sending this prompt so Cafa AI can generate a video from it.',
-        ctaLabel: 'Upload image',
-        iconName: 'image-outline',
-      };
-    }
-
-    if (screenMode === 'edit-image' && isEditIntent) {
-      return {
-        title: 'Add an image first',
-        description: 'Upload an image before sending this prompt so Cafa AI can edit it for you.',
-        ctaLabel: 'Upload image',
-        iconName: 'image-outline',
-      };
-    }
-
-    return null;
-  }, [isLikelyImageEditIntent, screenMode]);
-
-  const getScreenHandoffConfig = useCallback((
-    prompt: string,
-    attachments: AttachedAsset[],
-  ): ScreenHandoffConfig | null => {
-    const hasImageAttachment = attachments.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
-    const isVideoIntent = Boolean(extractVideoPrompt(prompt)) || isLikelyVideoGenerationIntent(prompt);
-    const isEditIntent = isLikelyImageEditIntent(prompt);
-
-    if (screenMode === 'image-to-video') {
-      if (hasImageAttachment && isEditIntent) {
-        return {
-          target: 'edit-image',
-          title: 'Better in Edit Image',
-          description: 'This request looks like editing an uploaded image. Use the Edit Image screen. For this task.',
-          ctaLabel: 'Open Edit Image',
-          iconName: 'color-wand-outline',
-        };
-      }
-      if (!hasImageAttachment && isVideoIntent) {
-        return null;
-      }
-      if (!isVideoIntent) {
-        return {
-          target: 'index',
-          title: 'Use main chat for this',
-          description: 'This screen is only for generating a video from an uploaded image. For anything else, continue in the main chat.',
-          ctaLabel: 'Open main chat',
-          iconName: 'chatbubble-ellipses-outline',
-        };
-      }
-      return null;
-    }
-
-    if (screenMode === 'edit-image') {
-      if (hasImageAttachment && isVideoIntent) {
-        return {
-          target: 'image-to-video',
-          title: 'Better in Image-to-Video',
-          description: 'This request looks like turning an uploaded image into a video. Use the dedicated image-to-video screen. For this task.',
-          ctaLabel: 'Open Image-to-Video',
-          iconName: 'film-outline',
-        };
-      }
-      if (hasImageAttachment) {
-        return null;
-      }
-      if (!hasImageAttachment && isEditIntent) {
-        return null;
-      }
-      if (!isEditIntent) {
-        return {
-          target: 'index',
-          title: 'Use main chat for this',
-          description: 'This screen is only for editing an uploaded image. For general requests, continue in the main chat.',
-          ctaLabel: 'Open main chat',
-          iconName: 'chatbubble-ellipses-outline',
-        };
-      }
-      return null;
-    }
-
-    return null;
-  }, [isLikelyImageEditIntent, screenMode]);
 
   const getScreenHandoffConfigFromAssistantText = useCallback((
     content: string,
@@ -2926,14 +2809,81 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         };
 
         try {
-          const effectivePrompt = trimmed;
+          let effectivePrompt = trimmed;
+          const hasImageAttachment = attachmentsForSend.some((asset) =>
+            (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
+          );
+          let imageRequirement: ImageRequirementConfig | null = null;
+          let screenHandoff: ScreenHandoffConfig | null = null;
 
-          const imageRequirement = getImageRequirementConfig(effectivePrompt, attachmentsForSend);
-          if (imageRequirement) {
-            lastEndpoint = `${API_BASE_URL}/chat/image-required`;
+          if (screenMode !== 'chat') {
+            lastEndpoint = `${API_BASE_URL}/media/prompts/rewrite`;
             logSendPayload({
               endpoint: lastEndpoint,
-              mode: 'frontend-image-required-blocked',
+              mode: 'backend-media-intent-detect',
+              screen: screenMode,
+              prompt: trimmed,
+              language,
+            });
+            const interpretationResponse = await rewriteMediaPrompt({
+              screen: screenMode,
+              prompt: trimmed,
+              language,
+            });
+            const interpretation = interpretationResponse.result;
+            if (__DEV__) {
+              try {
+                console.log('[media-intent:backend-response]', JSON.stringify({
+                  endpoint: lastEndpoint,
+                  request: { screen: screenMode, prompt: trimmed, language },
+                  response: interpretationResponse.rawResponse,
+                }));
+              } catch {
+                console.log('[media-intent:backend-response]', interpretationResponse.rawResponse);
+              }
+            }
+            effectivePrompt = interpretation.rewrittenPrompt.trim() || trimmed;
+
+            if (!interpretation.belongsToCurrentScreen) {
+              screenHandoff = interpretation.intent === 'edit-image'
+                ? {
+                    target: 'edit-image',
+                    title: 'Better in Edit Image',
+                    description: interpretation.reason || 'This request is better handled in the Edit Image screen.',
+                    ctaLabel: 'Open Edit Image',
+                    iconName: 'color-wand-outline',
+                  }
+                : interpretation.intent === 'image-to-video'
+                  ? {
+                      target: 'image-to-video',
+                      title: 'Better in Image-to-Video',
+                      description: interpretation.reason || 'This request is better handled in the Image-to-Video screen.',
+                      ctaLabel: 'Open Image-to-Video',
+                      iconName: 'film-outline',
+                    }
+                  : {
+                      target: 'index',
+                      title: 'Use main chat for this',
+                      description: interpretation.reason || 'This request is better handled in the main chat.',
+                      ctaLabel: 'Open main chat',
+                      iconName: 'chatbubble-ellipses-outline',
+                    };
+            } else if (interpretation.requiresImage && !hasImageAttachment) {
+              imageRequirement = {
+                title: 'Add an image first',
+                description: screenMode === 'image-to-video'
+                  ? 'Upload an image before sending this prompt so Cafa AI can generate a video from it.'
+                  : 'Upload an image before sending this prompt so Cafa AI can edit it for you.',
+                ctaLabel: 'Upload image',
+                iconName: 'image-outline',
+              };
+            }
+          }
+
+          if (imageRequirement) {
+            logSendPayload({
+              endpoint: lastEndpoint,
+              mode: 'backend-media-intent-image-required',
               conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
               screenMode,
               message: trimmed,
@@ -2966,17 +2916,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             return;
           }
 
-          const screenHandoff = screenMode === 'chat'
-            ? null
-            : getScreenHandoffConfig(effectivePrompt, attachmentsForSend);
           if (screenHandoff) {
-            lastEndpoint = `${API_BASE_URL}/chat/intent-handoff`;
-            const hasImageAttachment = attachmentsForSend.some((asset) => (asset.mimeType ?? '').toLowerCase().startsWith('image/'));
-            const isVideoIntent = Boolean(extractVideoPrompt(effectivePrompt)) || isLikelyVideoGenerationIntent(effectivePrompt);
-            const isEditIntent = isLikelyImageEditIntent(effectivePrompt);
             logSendPayload({
               endpoint: lastEndpoint,
-              mode: 'frontend-intent-handoff-blocked',
+              mode: 'backend-media-intent-handoff',
               conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
               screenMode,
               message: trimmed,
@@ -2991,13 +2934,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 uri: asset.uri,
               })),
               handoffTarget: screenHandoff.target,
-              frontendAnalysis: {
-                source: 'frontend-fallback',
-                hasImageAttachment,
-                isVideoIntent,
-                isEditIntent,
-                analyzedPrompt: effectivePrompt,
-              },
             });
             const userMessage: UiMessage = {
               id: `user-${Date.now()}`,
@@ -6721,6 +6657,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           height={133}
                           isDark={isDark}
                           accentColor={colors.primary}
+                          timingNote={t('chat.videoGenerationTimingNote')}
                         />
                       ) : null}
 
