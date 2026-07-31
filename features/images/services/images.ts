@@ -8,6 +8,7 @@ import { ApiResponse, EditImageRequest, EditImageResult, GenerateImageRequest, I
 
 const MEDIA_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MEDIA_MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const IMAGE_GENERATION_TIMEOUT_MS = 60_000;
 
 type ApiMappedError = Error & {
   code?: string;
@@ -59,7 +60,9 @@ export async function generateImage(request: GenerateImageRequest) {
   });
   try {
     const response: AxiosResponse<ApiResponse<ImageHistoryItem> & { error?: string; code?: string }> =
-      await apiClient.post(apiEndpoints.images.generate, request);
+      await apiClient.post(apiEndpoints.images.generate, request, {
+        timeout: IMAGE_GENERATION_TIMEOUT_MS,
+      });
     const payload = response.data;
     const generated = payload?.data;
 
