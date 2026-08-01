@@ -519,6 +519,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const chooserCancelOptionRef = useRef<View | null>(null);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
+  const speechRecognitionRequestedRef = useRef(false);
   const activeReadAloudRequestRef = useRef(0);
   const assistantFirstDeltaRef = useRef(false);
   const pendingDeltaRef = useRef('');
@@ -4678,21 +4679,33 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return;
     }
 
-    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!permission.granted) {
-      hapticError();
-      showTransientNotice(t('chat.speechPermError'));
-      return;
-    }
+    try {
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!permission.granted) {
+        hapticError();
+        showTransientNotice(t('chat.speechPermError'));
+        return;
+      }
 
-    hapticImpact();
-    speechDraftRef.current = '';
-    ExpoSpeechRecognitionModule.start({
-      lang: 'en-US',
-      interimResults: true,
-      continuous: false,
-      maxAlternatives: 1,
-    });
+      hapticImpact();
+      speechDraftRef.current = '';
+      speechRecognitionRequestedRef.current = true;
+      ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: true,
+        continuous: false,
+        maxAlternatives: 1,
+      });
+    } catch (error) {
+      speechRecognitionRequestedRef.current = false;
+      isRecordingRef.current = false;
+      setIsRecording(false);
+      hapticError();
+      showTransientNotice(t('chat.speechError'));
+      if (__DEV__) {
+        console.log('[speech-recognition:start-error]', error);
+      }
+    }
   };
 
   const takePhotoAttachment = async () => {
@@ -5474,6 +5487,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   });
 
   useSpeechRecognitionEvent('end', () => {
+    speechRecognitionRequestedRef.current = false;
     isRecordingRef.current = false;
     setIsRecording(false);
     const transcript = speechDraftRef.current.trim();
@@ -5486,11 +5500,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     hapticSuccess();
   });
 
-  useSpeechRecognitionEvent('error', () => {
+  useSpeechRecognitionEvent('error', (event) => {
+    if (!speechRecognitionRequestedRef.current && !isRecordingRef.current) {
+      if (__DEV__) {
+        console.log('[speech-recognition:ignored-idle-error]', event);
+      }
+      return;
+    }
+    speechRecognitionRequestedRef.current = false;
     isRecordingRef.current = false;
     setIsRecording(false);
     hapticError();
     showTransientNotice(t('chat.speechError'));
+    if (__DEV__) {
+      console.log('[speech-recognition:session-error]', event);
+    }
   });
 
   useEffect(() => {
@@ -5501,6 +5525,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
       if (codeCopyTimeoutRef.current) clearTimeout(codeCopyTimeoutRef.current);
       if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
+      speechRecognitionRequestedRef.current = false;
       ExpoSpeechRecognitionModule.abort();
       activeReadAloudRequestRef.current += 1;
       stopReadAloudPlayback();
