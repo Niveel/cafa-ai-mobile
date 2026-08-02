@@ -8,7 +8,7 @@ import { ApiResponse, EditImageRequest, EditImageResult, GenerateImageRequest, I
 
 const MEDIA_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MEDIA_MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const IMAGE_GENERATION_TIMEOUT_MS = 60_000;
+const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 
 type ApiMappedError = Error & {
   code?: string;
