@@ -1,4 +1,4 @@
-import { AxiosResponse } from 'axios';
+import { AxiosError, AxiosResponse } from 'axios';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 
 import { AnalyticsEvents } from '@/lib/analytics/events';
@@ -8,7 +8,7 @@ import { ApiResponse, EditImageRequest, EditImageResult, GenerateImageRequest, I
 
 const MEDIA_ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MEDIA_MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
+const IMAGE_GENERATION_TIMEOUT_MS = 240_000;
 
 type ApiMappedError = Error & {
   code?: string;
@@ -83,6 +83,21 @@ export async function generateImage(request: GenerateImageRequest) {
     captureEvent(AnalyticsEvents.imageGenerationCompleted, { imageId: (generated as { id?: string })?.id ?? null });
     return generated;
   } catch (error) {
+    const isTimeout =
+      error instanceof AxiosError
+      && (
+        error.code === 'ECONNABORTED'
+        || error.code === 'ETIMEDOUT'
+        || (error.message ?? '').toLowerCase().includes('timeout')
+      );
+    if (isTimeout) {
+      const timeoutError = new Error(
+        'Image generation timed out. The server took too long to respond. Please try again.',
+      ) as Error & { code?: string; status?: number };
+      timeoutError.code = 'IMAGE_GENERATION_TIMEOUT';
+      captureEvent(AnalyticsEvents.imageGenerationFailed, { code: timeoutError.code, status: null });
+      throw timeoutError;
+    }
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
     captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
     throw mapped;

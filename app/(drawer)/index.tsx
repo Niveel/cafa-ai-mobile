@@ -1937,6 +1937,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (code === 'VIDEO_FROM_IMAGE_NETWORK_ERROR' || code === 'NETWORK_ERROR') {
       return 'Upload failed before reaching the server. Check connection and try again.';
     }
+    if (code === 'IMAGE_GENERATION_TIMEOUT') {
+      return 'Image generation is taking longer than expected. Please try again.';
+    }
     if (typed?.status === 403 || code === 'FORBIDDEN' || code === 'UPGRADE_REQUIRED' || message === 'forbidden') {
       return 'You do not have permission for this action on your current plan.';
     }
