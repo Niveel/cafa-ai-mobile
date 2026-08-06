@@ -40,4 +40,12 @@ export const AnalyticsEvents = {
   subscriptionCheckoutStarted: 'subscription_checkout_started',
   subscriptionCheckoutReady: 'subscription_checkout_ready',
   subscriptionUsageLoaded: 'subscription_usage_loaded',
+  // AdMob analytics events
+  adBannerLoaded: 'ad_banner_loaded',
+  adBannerFailed: 'ad_banner_failed',
+  rewardedAdLoaded: 'rewarded_ad_loaded',
+  rewardedAdStarted: 'rewarded_ad_started',
+  rewardedAdEarned: 'rewarded_ad_earned',
+  rewardedAdClosed: 'rewarded_ad_closed',
+  rewardedAdFailed: 'rewarded_ad_failed',
 } as const;

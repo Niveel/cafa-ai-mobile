@@ -16,6 +16,7 @@ import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
 import { initializeTikTokEvents } from '@/services/tiktokEvents';
+import { initializeAds } from '@/services/ads';
 
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
@@ -126,6 +127,11 @@ function AppNavigator() {
       void runCheck();
     });
     return () => sub.remove();
+  }, [appIsReady]);
+
+  useEffect(() => {
+    if (!appIsReady) return;
+    void initializeAds();
   }, [appIsReady]);
 
   useEffect(() => {

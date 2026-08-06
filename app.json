@@ -179,6 +179,13 @@
         {
           "appId": "7650349998273527815"
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "${EXPO_PUBLIC_ADMOB_ANDROID_APP_ID}",
+          "iosAppId": "${EXPO_PUBLIC_ADMOB_IOS_APP_ID}"
+        }
       ]
     ],
     "experiments": {
