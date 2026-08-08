@@ -22,7 +22,7 @@ const ADMOB_IOS_APP_ID = validAdMobAppId(
 const config: ExpoConfig = {
   name: 'Cafa AI',
   slug: 'cafa-ai',
-  version: '2.4.2',
+  version: '2.4.3',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'cafa-ai',
