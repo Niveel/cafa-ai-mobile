@@ -14,7 +14,11 @@
  */
 
 import { isRunningInExpoGo } from 'expo';
-import { TestIds } from 'react-native-google-mobile-ads';
+
+// Official Google test unit IDs. Keeping these local avoids importing the
+// native ads package while Expo Go is starting.
+const TEST_BANNER_ID = 'ca-app-pub-3940256099942544/6300978111';
+const TEST_REWARDED_ID = 'ca-app-pub-3940256099942544/5224354917';
 
 const ANDROID_APP_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID;
 const IOS_APP_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID;
@@ -45,20 +49,22 @@ export const AdMobConfig = {
   androidAppId: ANDROID_APP_ID ?? '',
   iosAppId: IOS_APP_ID ?? '',
 
-  bannerAdUnitId: getUnitId(ANDROID_BANNER_ID, IOS_BANNER_ID, TestIds.BANNER),
-  rewardedAdUnitId: getUnitId(ANDROID_REWARDED_ID, IOS_REWARDED_ID, TestIds.REWARDED),
+  bannerAdUnitId: getUnitId(ANDROID_BANNER_ID, IOS_BANNER_ID, TEST_BANNER_ID),
+  rewardedAdUnitId: getUnitId(ANDROID_REWARDED_ID, IOS_REWARDED_ID, TEST_REWARDED_ID),
 
   /** Screens where banner ads may appear for authenticated free users. */
   allowedBannerRoutes: new Set<string>([
-    '/(drawer)/repo',
+    // usePathname() omits Expo Router group segments such as "(drawer)".
+    '/repo',
+    '/tools',
   ]),
 
   /** Screens where rewarded ads may be triggered for authenticated free users. */
   allowedRewardedRoutes: new Set<string>([
-    '/(drawer)/repo',
-    '/(drawer)/tools',
-    '/(drawer)/images',
-    '/(drawer)/videos',
-    '/(drawer)/artifacts',
+    '/repo',
+    '/tools',
+    '/images',
+    '/videos',
+    '/artifacts',
   ]),
 } as const;

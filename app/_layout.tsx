@@ -16,7 +16,6 @@ import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
 import { initializeTikTokEvents } from '@/services/tiktokEvents';
-import { initializeAds } from '@/services/ads';
 
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const POSTHOG_HOST = process.env.EXPO_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
@@ -129,10 +128,13 @@ function AppNavigator() {
     return () => sub.remove();
   }, [appIsReady]);
 
-  useEffect(() => {
-    if (!appIsReady) return;
-    void initializeAds();
-  }, [appIsReady]);
+  // NOTE: initializeAds() is called lazily from the banner component
+  // to avoid a startup crash when the AdMob/UMP native SDK isn't ready.
+  // Do NOT call it automatically here.
+  // useEffect(() => {
+  //   if (!appIsReady) return;
+  //   void initializeAds();
+  // }, [appIsReady]);
 
   useEffect(() => {
     if (!appIsReady || Platform.OS !== 'android') return;

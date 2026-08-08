@@ -3,13 +3,15 @@
   "main": "expo-router/entry",
   "version": "2.4.2",
   "scripts": {
-    "start": "expo start --go",
-    "android": "expo start --go --android",
-    "ios": "expo start --go --ios",
+    "start": "expo start --dev-client",
+    "android": "expo start --dev-client --android",
+    "ios": "expo start --dev-client --ios",
+    "start:go": "expo start --go",
     "web": "expo start --web",
     "lint": "expo lint",
     "validate:i18n": "node scripts/localization/validate-locales.cjs",
-    "audit:i18n": "node scripts/localization/audit-hardcoded-ui.cjs"
+    "audit:i18n": "node scripts/localization/audit-hardcoded-ui.cjs",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^13.0.0",
@@ -98,6 +100,7 @@
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   },
   "overrides": {

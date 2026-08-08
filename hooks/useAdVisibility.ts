@@ -11,7 +11,7 @@
  * Paid Smart, Pro, and Max users must never see ads.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAppContext } from '@/context/AppContext';
 import { useRevenueCat } from '@/context/RevenueCatContext';
 import { AdMobConfig } from '@/services/ads/admobConfig';
@@ -31,10 +31,11 @@ export function useAdVisibility(options: AdVisibilityOptions): {
 } {
   const { isAuthenticated, authUser } = useAppContext();
   const { activeTier, isPro } = useRevenueCat();
+  const { pathname, isModalOpen = false, isKeyboardOpen = false } = options;
+  const backendTier = authUser?.subscriptionTier ?? 'free';
+  const isAllowed = AdMobConfig.allowedBannerRoutes.has(pathname);
 
-  return useMemo(() => {
-    const { pathname, isModalOpen, isKeyboardOpen } = options;
-
+  const decision = useMemo(() => {
     if (!isAuthenticated) {
       return { showAds: false, reason: 'unauthenticated' };
     }
@@ -43,12 +44,10 @@ export function useAdVisibility(options: AdVisibilityOptions): {
       return { showAds: false, reason: 'paid-user' };
     }
 
-    const backendTier = authUser?.subscriptionTier ?? 'free';
     if (backendTier !== 'free') {
       return { showAds: false, reason: 'paid-user-backend' };
     }
 
-    const isAllowed = AdMobConfig.allowedBannerRoutes.has(pathname);
     if (!isAllowed) {
       return { showAds: false, reason: 'route-not-allowed' };
     }
@@ -62,5 +61,26 @@ export function useAdVisibility(options: AdVisibilityOptions): {
     }
 
     return { showAds: true, reason: 'visible' };
-  }, [isAuthenticated, isPro, activeTier, authUser?.subscriptionTier, options]);
+  }, [activeTier, backendTier, isAllowed, isAuthenticated, isKeyboardOpen, isModalOpen, isPro]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    console.log('[ads:visibility]', {
+      pathname,
+      authenticated: isAuthenticated,
+      revenueCatTier: activeTier,
+      revenueCatIsPro: isPro,
+      revenueCatFree: !isPro && activeTier === 'free',
+      backendTier,
+      backendFree: backendTier === 'free',
+      allowedBannerRoutes: [...AdMobConfig.allowedBannerRoutes],
+      routeAllowed: isAllowed,
+      modalOpen: isModalOpen,
+      keyboardOpen: isKeyboardOpen,
+      showAds: decision.showAds,
+      reason: decision.reason,
+    });
+  }, [activeTier, backendTier, decision.reason, decision.showAds, isAllowed, isAuthenticated, isKeyboardOpen, isModalOpen, isPro, pathname]);
+
+  return decision;
 }

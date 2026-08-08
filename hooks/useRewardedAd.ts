@@ -17,8 +17,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RewardedAd, RewardedAdEventType, AdEventType, RewardedAdReward } from 'react-native-google-mobile-ads';
+import type { RewardedAd as RewardedAdInstance, RewardedAdReward } from 'react-native-google-mobile-ads';
 import { AdMobConfig } from '@/services/ads/admobConfig';
+import { getGoogleMobileAds } from '@/services/ads/googleMobileAds';
 import { captureEvent } from '@/lib/analytics/posthog';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 
@@ -35,7 +36,7 @@ export function useRewardedAd() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rewardedAdRef = useRef<RewardedAd | null>(null);
+  const rewardedAdRef = useRef<RewardedAdInstance | null>(null);
   const rewardEarnedRef = useRef(false);
   const showingRef = useRef(false);
 
@@ -51,6 +52,9 @@ export function useRewardedAd() {
     setError(null);
 
     try {
+      const ads = getGoogleMobileAds();
+      if (!ads) return;
+      const { RewardedAd, RewardedAdEventType, AdEventType } = ads;
       const ad = RewardedAd.createForAdRequest(AdMobConfig.rewardedAdUnitId);
       rewardedAdRef.current = ad;
 

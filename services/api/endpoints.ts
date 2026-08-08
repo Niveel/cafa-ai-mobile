@@ -91,6 +91,13 @@ export const apiEndpoints = {
     contact: `${API_BASE_PATH}/support/contact`,
   },
 
+  ads: {
+    rewardEligibility: `${API_BASE_PATH}/ads/rewards/eligibility`,
+    rewardSessions: `${API_BASE_PATH}/ads/rewards/sessions`,
+    rewardClaim: (sessionId: string) =>
+      `${API_BASE_PATH}/ads/rewards/sessions/${encodeURIComponent(sessionId)}/claim`,
+  },
+
   cafaLife: {
     token: `${API_BASE_PATH}/cafa-life/token`,
     history: `${API_BASE_PATH}/cafa-life/history`,

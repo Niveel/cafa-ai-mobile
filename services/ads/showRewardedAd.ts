@@ -1,135 +1,115 @@
-/**
- * Example integration for showing a rewarded ad and granting a reward.
- *
- * This is a documented example / service boundary. It is NOT yet wired into
- * any screen. Future screens can import this helper to trigger rewarded ads.
- *
- * IMPORTANT SECURITY REQUIREMENT:
- * The reward must be validated and granted by the backend. Do NOT grant
- * credits, generations, or features solely on the client-side completion
- * event. The client event is a signal to call the backend, which must:
- * 1. Verify the user is authenticated and on the free tier.
- * 2. Verify the reward type is eligible.
- * 3. Apply the credit / generation / feature to the user's account.
- * 4. Return the updated usage/quota so the UI can refresh.
- *
- * Rewards must only be granted after the rewarded-ad completion event.
- * Never grant rewards for unlocking purchases, subscriptions, or permanent
- * premium access.
- *
- * Example usage in a future screen:
- *
- * import { showRewardedAd } from '@/services/ads/showRewardedAd';
- *
- * async function handleWatchAdForImage() {
- *   await showRewardedAd({
- *     rewardType: 'image_generation',
- *     onRewardEarned: async (reward) => {
- *       // TODO: call backend to validate and grant the reward securely.
- *       await grantRewardOnBackend({ type: reward.type, amount: reward.amount });
- *     },
- *   });
- * }
- */
+import type { RewardedAdReward } from 'react-native-google-mobile-ads';
 
-import { RewardedAd, RewardedAdEventType, AdEventType, RewardedAdReward } from 'react-native-google-mobile-ads';
-import { AdMobConfig } from './admobConfig';
-import { captureEvent } from '@/lib/analytics/posthog';
 import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 
-export type RewardedAdRewardType = 'image_generation' | 'video_generation' | 'chat_credit' | 'tts_credit';
+import { AdMobConfig } from './admobConfig';
+import { getGoogleMobileAds } from './googleMobileAds';
+import type { AdRewardKind } from './rewardApi';
+
+export type RewardedAdResult =
+  | { status: 'completed'; adReward: RewardedAdReward }
+  | { status: 'cancelled' };
 
 export type ShowRewardedAdOptions = {
-  rewardType: RewardedAdRewardType;
-  onRewardEarned: (reward: { type: RewardedAdRewardType; amount: number }) => void | Promise<void>;
-  onError?: (error: Error) => void;
+  rewardType: AdRewardKind;
+  sessionId: string;
+  ssvUserId: string;
+  ssvCustomData: string;
+  placement?: string;
 };
 
-let showingRef = false;
+let isShowing = false;
 
-export async function showRewardedAd({ rewardType, onRewardEarned, onError }: ShowRewardedAdOptions): Promise<void> {
-  if (AdMobConfig.isExpoGo) {
-    const msg = 'Rewarded ads are not available in Expo Go.';
-    if (__DEV__) {
-      console.warn('[ads:rewarded]', msg);
-    }
-    onError?.(new Error(msg));
-    return;
-  }
+export async function showRewardedAd({
+  rewardType,
+  sessionId,
+  ssvUserId,
+  ssvCustomData,
+  placement = 'limit_notice',
+}: ShowRewardedAdOptions): Promise<RewardedAdResult> {
+  if (AdMobConfig.isExpoGo) throw new Error('Rewarded ads are unavailable in Expo Go.');
+  if (isShowing) throw new Error('A rewarded ad is already showing.');
 
-  if (showingRef) {
-    const msg = 'A rewarded ad is already showing.';
-    if (__DEV__) {
-      console.warn('[ads:rewarded]', msg);
-    }
-    onError?.(new Error(msg));
-    return;
-  }
+  const ads = getGoogleMobileAds();
+  if (!ads) throw new Error('Google Mobile Ads is unavailable in this build.');
 
-  try {
-    showingRef = true;
-    const ad = RewardedAd.createForAdRequest(AdMobConfig.rewardedAdUnitId);
-    let rewardEarned = false;
+  const { RewardedAd, RewardedAdEventType, AdEventType } = ads;
+  const properties = { rewardType, sessionId, placement, format: 'rewarded' };
+  const ad = RewardedAd.createForAdRequest(AdMobConfig.rewardedAdUnitId, {
+    serverSideVerificationOptions: {
+      userId: ssvUserId,
+      customData: ssvCustomData,
+    },
+  });
 
-    const loadedUnsub = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
-      captureEvent(AnalyticsEvents.rewardedAdLoaded, { rewardType });
-    });
+  isShowing = true;
+  return new Promise<RewardedAdResult>((resolve, reject) => {
+    let earnedReward: RewardedAdReward | null = null;
+    let settled = false;
 
-      const errorUnsub = ad.addAdEventListener(AdEventType.ERROR, (evt: { message?: string; code?: string | number }) => {
-      const message = evt?.message ?? 'Unknown rewarded ad error';
-      captureEvent(AnalyticsEvents.rewardedAdFailed, { rewardType, error: message });
-      if (__DEV__) {
-        console.warn('[ads:rewarded] Error:', message);
-      }
-      onError?.(new Error(message));
+    const cleanup = () => {
       loadedUnsub();
       errorUnsub();
+      openedUnsub();
+      paidUnsub();
       earnedUnsub();
       closedUnsub();
-      showingRef = false;
-    });
+      isShowing = false;
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      captureEvent(AnalyticsEvents.rewardedAdFailed, { ...properties, error: error.message });
+      cleanup();
+      reject(error);
+    };
 
-      const earnedUnsub = ad.addAdEventListener(
-        RewardedAdEventType.EARNED_REWARD,
-        (reward: RewardedAdReward) => {
-        rewardEarned = true;
+    const loadedUnsub = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      captureEvent(AnalyticsEvents.rewardedAdLoaded, properties);
+      void ad.show().catch((error) => fail(error instanceof Error ? error : new Error('Failed to show rewarded ad.')));
+    });
+    const errorUnsub = ad.addAdEventListener(
+      AdEventType.ERROR,
+      (event: { message?: string }) => fail(new Error(event.message ?? 'Rewarded ad failed.')),
+    );
+    const openedUnsub = ad.addAdEventListener(AdEventType.OPENED, () => {
+      captureEvent(AnalyticsEvents.rewardedAdStarted, properties);
+    });
+    const paidUnsub = ad.addAdEventListener(
+      AdEventType.PAID,
+      (event: { value: number; currency: string; precision: number | string }) => {
+        captureEvent(AnalyticsEvents.adRevenueGenerated, { ...properties, ...event });
+      },
+    );
+    const earnedUnsub = ad.addAdEventListener(
+      RewardedAdEventType.EARNED_REWARD,
+      (reward: RewardedAdReward) => {
+        earnedReward = reward;
         captureEvent(AnalyticsEvents.rewardedAdEarned, {
-          rewardType,
+          ...properties,
           adRewardType: reward.type,
           adRewardAmount: reward.amount,
         });
+        captureEvent(AnalyticsEvents.rewardedAdCompleted, properties);
       },
     );
-
     const closedUnsub = ad.addAdEventListener(AdEventType.CLOSED, () => {
-      captureEvent(AnalyticsEvents.rewardedAdClosed, {
-        rewardType,
-        rewardEarned,
-      });
-
-      if (rewardEarned) {
-        void onRewardEarned({ type: rewardType, amount: 1 });
-      } else {
-        if (__DEV__) {
-          console.log('[ads:rewarded] User closed early; no reward granted.');
-        }
-      }
-
-      loadedUnsub();
-      errorUnsub();
-      earnedUnsub();
-      closedUnsub();
-      showingRef = false;
+      if (settled) return;
+      settled = true;
+      const result: RewardedAdResult = earnedReward
+        ? { status: 'completed', adReward: earnedReward }
+        : { status: 'cancelled' };
+      captureEvent(AnalyticsEvents.rewardedAdClosed, { ...properties, rewardEarned: !!earnedReward });
+      if (!earnedReward) captureEvent(AnalyticsEvents.rewardedAdCancelled, properties);
+      cleanup();
+      resolve(result);
     });
 
-    await ad.load();
-    await ad.show();
-  } catch (err) {
-    showingRef = false;
-    const message = err instanceof Error ? err.message : 'Failed to show rewarded ad';
-    if (__DEV__) {
-      console.warn('[ads:rewarded] Show error:', message);
+    try {
+      ad.load();
+    } catch (error) {
+      fail(error instanceof Error ? error : new Error('Failed to load rewarded ad.'));
     }
-    onError?.(new Error(message));
-  }
+  });
 }

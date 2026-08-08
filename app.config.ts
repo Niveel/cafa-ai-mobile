@@ -1,7 +1,23 @@
 import { ExpoConfig } from 'expo/config';
 
-const ADMOB_ANDROID_APP_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID ?? '';
-const ADMOB_IOS_APP_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ?? '';
+// AdMob application IDs are public native identifiers, not secrets. Keep
+// production-safe defaults here because EAS builds do not read a developer's
+// local .env file unless the same variables are configured for that EAS
+// environment. An absent/placeholder ID makes MobileAdsInitProvider crash
+// before React Native can start.
+function validAdMobAppId(value: string | undefined, fallback: string): string {
+  const candidate = value?.trim() ?? '';
+  return /^ca-app-pub-\d{16}~\d{10}$/.test(candidate) ? candidate : fallback;
+}
+
+const ADMOB_ANDROID_APP_ID = validAdMobAppId(
+  process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID,
+  'ca-app-pub-6955909048819100~8821002172',
+);
+const ADMOB_IOS_APP_ID = validAdMobAppId(
+  process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID,
+  'ca-app-pub-6955909048819100~4060413904',
+);
 
 const config: ExpoConfig = {
   name: 'Cafa AI',

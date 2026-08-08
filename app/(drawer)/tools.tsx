@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 
-import { AppScreen, RequireAuthRoute } from '@/components';
+import { AdaptiveBanner, AppScreen, RequireAuthRoute } from '@/components';
 import { useAppTheme, useI18n } from '@/hooks';
 
 type ToolCard = {
@@ -147,12 +147,16 @@ export default function ToolsScreen() {
   const { colors } = useAppTheme();
   const { t } = useI18n();
   const { width } = useWindowDimensions();
+  const pathname = usePathname();
   const cardWidth = useMemo(() => Math.floor((width - 20 - 12) / 2), [width]);
 
   return (
     <RequireAuthRoute>
       <AppScreen title={t('drawer.tools')}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
+        >
           <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 16 }}>
             {t('tools.subtitle')}
           </Text>
@@ -162,6 +166,9 @@ export default function ToolsScreen() {
               <ToolHubCard key={card.titleKey} {...card} cardWidth={cardWidth} />
             ))}
           </View>
+
+          <View style={{ marginTop: 'auto' }} />
+          <AdaptiveBanner pathname={pathname} />
         </ScrollView>
       </AppScreen>
     </RequireAuthRoute>

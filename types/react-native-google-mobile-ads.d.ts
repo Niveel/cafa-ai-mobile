@@ -39,8 +39,10 @@ declare module 'react-native-google-mobile-ads' {
     onAdLoaded?: () => void;
     onAdFailedToLoad?: (error: { message: string; code: string | number }) => void;
     onAdOpened?: () => void;
+    onAdImpression?: () => void;
+    onAdClicked?: () => void;
     onAdClosed?: () => void;
-    onPaid?: (event: { value: number; currency: string; precision: number }) => void;
+    onPaid?: (event: { value: number; currency: string; precision: number | string }) => void;
     style?: ViewStyle;
   }
 
@@ -109,6 +111,10 @@ declare module 'react-native-google-mobile-ads' {
     networkExtras?: Record<string, string>;
     keywords?: string[];
     testDeviceIdentifiers?: string[];
+    serverSideVerificationOptions?: {
+      userId?: string;
+      customData?: string;
+    };
   }
 
   // ─── UMP Consent ────────────────────────────────────────────────────────

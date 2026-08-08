@@ -42,10 +42,16 @@ export const AnalyticsEvents = {
   subscriptionUsageLoaded: 'subscription_usage_loaded',
   // AdMob analytics events
   adBannerLoaded: 'ad_banner_loaded',
+  adBannerViewed: 'ad_banner_viewed',
+  adBannerClicked: 'ad_banner_clicked',
   adBannerFailed: 'ad_banner_failed',
   rewardedAdLoaded: 'rewarded_ad_loaded',
   rewardedAdStarted: 'rewarded_ad_started',
   rewardedAdEarned: 'rewarded_ad_earned',
+  rewardedAdCompleted: 'rewarded_ad_completed',
+  rewardedAdCancelled: 'rewarded_ad_cancelled',
+  rewardedRewardGranted: 'rewarded_reward_granted',
   rewardedAdClosed: 'rewarded_ad_closed',
   rewardedAdFailed: 'rewarded_ad_failed',
+  adRevenueGenerated: 'ad_revenue_generated',
 } as const;

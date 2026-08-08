@@ -132,7 +132,12 @@ import {
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureEvent } from '@/lib/analytics/posthog';
 import {
+  AD_REWARD_GRANTS,
+  claimRewardSession,
+  createRewardSession,
   clearDocumentWizardDraftMessages,
   classifyChatResponse,
   detectDocumentRequest,
@@ -143,6 +148,7 @@ import {
   getDefaultVoicePreference,
   setDocumentWizardDraftMessages,
   startDocumentWizard,
+  showRewardedAd,
 } from '@/services';
 import {
   IOS_PHOTO_PERMISSION_DENIED_CODE,
@@ -434,6 +440,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
   const [upgradeNoticeResetHours, setUpgradeNoticeResetHours] = useState<number | null>(null);
   const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
+  const [isRewardAdProcessing, setIsRewardAdProcessing] = useState(false);
   const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
   const [guestAllowanceHydrated, setGuestAllowanceHydrated] = useState(false);
   const [guestMessageCount, setGuestMessageCount] = useState(0);
@@ -1829,6 +1836,83 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = null;
   }, [getLimitNoticeMessage]);
+
+  const watchAdForLimitReward = useCallback(async () => {
+    const rewardType = upgradeNoticeKind;
+    if (!rewardType || !isAuthenticated || isRewardAdProcessing) return;
+
+    setIsRewardAdProcessing(true);
+    try {
+      const session = await createRewardSession(rewardType);
+      if (!session.eligible) {
+        const capMessage = session.reason === 'daily_cap_reached'
+          ? `You've used all ${session.dailyLimit} rewarded ads for today.`
+          : 'A rewarded ad is not available for this limit right now.';
+        setStatusNotice(capMessage);
+        return;
+      }
+
+      const result = await showRewardedAd({
+        rewardType,
+        sessionId: session.sessionId,
+        ssvUserId: session.ssvUserId,
+        ssvCustomData: session.ssvCustomData,
+      });
+      if (result.status === 'cancelled') {
+        setStatusNotice('Ad cancelled. No reward was used.');
+        return;
+      }
+
+      let grant = await claimRewardSession(session.sessionId, result.adReward);
+      for (let attempt = 0; grant.status === 'pending_verification' && attempt < 4; attempt += 1) {
+        setStatusNotice('Ad completed. Verifying your reward…');
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+        grant = await claimRewardSession(session.sessionId, result.adReward);
+      }
+      if (grant.status === 'pending_verification') {
+        setStatusNotice('Ad completed. Your reward is being verified—please try again shortly.');
+        return;
+      }
+
+      captureEvent(AnalyticsEvents.rewardedRewardGranted, {
+        rewardType,
+        sessionId: session.sessionId,
+        grantAmount: grant.grantAmount,
+        remainingToday: grant.remainingToday,
+        dailyLimit: grant.dailyLimit,
+      });
+      hapticSuccess();
+      const unit = rewardType === 'chat'
+        ? 'chat prompts'
+        : rewardType === 'image'
+          ? 'image generation'
+          : 'video generation';
+      setUpgradeNoticeKind(null);
+      setUpgradeNoticeResetHours(null);
+      setStatusNotice(`Reward granted: +${grant.grantAmount} ${unit}. You can try again now.`);
+      await refreshAuthUser().catch(() => {});
+    } catch (error) {
+      const response = (error as {
+        response?: { status?: number; data?: { message?: string; code?: string } };
+      })?.response;
+      const status = response?.status;
+      const code = response?.data?.code?.toUpperCase() ?? '';
+      const message = status === 404 || status === 501
+        ? 'Rewarded ads are not available yet. Please try again later or upgrade your plan.'
+        : status === 429 || code === 'AD_REWARD_DAILY_CAP_REACHED'
+          ? 'You have used all 3 rewarded ads for today. Please try again tomorrow.'
+          : status === 409 || code === 'AD_REWARD_NOT_VERIFIED'
+            ? 'Your ad was completed, but the reward is still being verified. Please try again shortly.'
+            : status === 403
+              ? (response?.data?.message || 'This account is not eligible for an ad reward right now.')
+              : 'We could not process the rewarded ad. No reward was used. Please try again later.';
+      if (__DEV__) console.warn('[ads:reward-flow]', error);
+      setStatusNotice(message);
+      hapticError();
+    } finally {
+      setIsRewardAdProcessing(false);
+    }
+  }, [isAuthenticated, isRewardAdProcessing, refreshAuthUser, upgradeNoticeKind]);
 
   const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {
     if (Platform.OS !== 'ios' || !isAuthenticated || isLimitRestoreSyncing) return;
@@ -7593,7 +7677,26 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   </View>
                 </View>
                 {upgradeNoticeKind ? (
-                  <View className="mt-2 flex-row items-center gap-2">
+                  <View className="mt-2 flex-row flex-wrap items-center gap-2">
+                    <Pressable
+                      onPress={() => {
+                        hapticSelection();
+                        void watchAdForLimitReward();
+                      }}
+                      disabled={isRewardAdProcessing}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Watch an ad for ${AD_REWARD_GRANTS[upgradeNoticeKind]} extra ${upgradeNoticeKind} credits`}
+                      className="h-8 items-center justify-center rounded-full px-3"
+                      style={{ backgroundColor: '#16A34A', opacity: isRewardAdProcessing ? 0.7 : 1 }}
+                    >
+                      {isRewardAdProcessing ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
+                          Watch ad · +{AD_REWARD_GRANTS[upgradeNoticeKind]} {upgradeNoticeKind === 'chat' ? 'prompts' : 'generation'}
+                        </Text>
+                      )}
+                    </Pressable>
                     <Pressable
                       onPress={() => {
                         hapticSelection();

@@ -14,31 +14,57 @@
  * required after installation. Real ads will not work in Expo Go.
  */
 
-import { Platform } from 'react-native';
-import {
-  AdsConsent,
-  AdsConsentStatus,
-  mobileAds,
-} from 'react-native-google-mobile-ads';
+import { NativeModules, Platform } from 'react-native';
 import { AdMobConfig } from './admobConfig';
+import { getGoogleMobileAds } from './googleMobileAds';
 
 let hasInitialized = false;
+
+function nativeModuleExists(): boolean {
+  try {
+    return !!(
+      NativeModules.RNGoogleMobileAdsModule &&
+      NativeModules.RNGoogleMobileAdsModule.initialize
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function initializeAds(): Promise<void> {
   if (hasInitialized) {
     return;
   }
 
-  // Do not attempt initialization in Expo Go because native modules are unavailable.
-  if (AdMobConfig.isExpoGo) {
-    if (__DEV__) {
-      console.log('[ads] Skipping initialization in Expo Go.');
-    }
-    hasInitialized = true;
-    return;
-  }
-
   try {
+    // Do not attempt initialization in Expo Go because native modules are unavailable.
+    if (AdMobConfig.isExpoGo) {
+      if (__DEV__) {
+        console.log('[ads] Skipping initialization in Expo Go.');
+      }
+      hasInitialized = true;
+      return;
+    }
+
+    // Verify the native module is actually present (defensive for Expo Go / dev-client mismatches).
+    if (!nativeModuleExists()) {
+      if (__DEV__) {
+        console.warn('[ads] Native module RNGoogleMobileAdsModule not found. Skipping.');
+      }
+      hasInitialized = true;
+      return;
+    }
+
+    const ads = getGoogleMobileAds();
+    if (!ads) {
+      hasInitialized = true;
+      return;
+    }
+    const { AdsConsent, AdsConsentStatus, mobileAds } = ads;
+
+    // Defer slightly so the native Activity / ViewController is fully ready.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     // Step 1: Update consent information.
     const consentInfo = await AdsConsent.requestInfoUpdate();
 

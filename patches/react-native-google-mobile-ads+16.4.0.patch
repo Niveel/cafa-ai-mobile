@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-google-mobile-ads/android/build.gradle b/node_modules/react-native-google-mobile-ads/android/build.gradle
+index 8a31e69..44821d8 100644
+--- a/node_modules/react-native-google-mobile-ads/android/build.gradle
++++ b/node_modules/react-native-google-mobile-ads/android/build.gradle
+@@ -139,6 +139,12 @@ dependencies {
+   api "com.google.android.ump:user-messaging-platform:${googleUmpVersion}"
+ }
+ 
++tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
++  kotlinOptions {
++    freeCompilerArgs += "-Xskip-metadata-version-check"
++  }
++}
++
+ ReactNative.shared.applyPackageVersion()
+ ReactNative.shared.applyDefaultExcludes()
+ ReactNative.module.applyAndroidVersions()
