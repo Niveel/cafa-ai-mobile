@@ -127,7 +127,7 @@ function RepoHubCard({
 }
 
 export default function RepoScreen() {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const { width } = useWindowDimensions();
   const pathname = usePathname();
@@ -151,7 +151,9 @@ export default function RepoScreen() {
           </View>
 
           <View style={{ marginTop: 'auto' }} />
-          <AdaptiveBanner pathname={pathname} />
+          <View style={{ backgroundColor: !isDark ? '#000000' : undefined }}>
+            <AdaptiveBanner pathname={pathname} />
+          </View>
         </ScrollView>
       </AppScreen>
     </RequireAuthRoute>
