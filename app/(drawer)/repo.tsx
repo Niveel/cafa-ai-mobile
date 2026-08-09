@@ -151,7 +151,7 @@ export default function RepoScreen() {
           </View>
 
           <View style={{ marginTop: 'auto' }} />
-          <View style={{ backgroundColor: !isDark ? '#000000' : undefined }}>
+          <View style={{ backgroundColor: !isDark ? '#0F0F0F' : undefined }}>
             <AdaptiveBanner pathname={pathname} />
           </View>
         </ScrollView>

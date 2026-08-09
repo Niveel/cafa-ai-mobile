@@ -1,0 +1,14 @@
+-- Merging decision tree log ---
+manifest
+ADDED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml:1:1-2:12
+INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml:1:1-2:12
+	package
+		INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml
+uses-sdk
+INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml
+INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from C:\Users\Good\Desktop\Klasique_projects\1mobile\cafa_ai_mobile\modules\tiktok-events\android\src\main\AndroidManifest.xml
