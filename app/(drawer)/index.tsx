@@ -92,6 +92,7 @@ import {
   getPromptTitle,
   isLikelyImageGenerationIntent,
   isLikelyImageFollowUpPrompt,
+  isMediaCapabilityQuestion,
   isLikelyReferencedMediaQuestionPrompt,
   isLikelyVideoGenerationIntent,
   isLikelyVideoFollowUpPrompt,
@@ -3099,57 +3100,102 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             setShowScrollToBottom(false);
             scrollToBottom();
 
-            lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
+            lastEndpoint = `${API_BASE_URL}/chat/classify`;
             logSendPayload({
               endpoint: lastEndpoint,
-              mode: 'auth-document-detect',
+              mode: 'auth-chat-classify',
               conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
               message: trimmed,
               language,
               model: activeModel,
               reference: composerMediaReference ?? null,
-              attachments: [],
+              attachments: attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType })),
             });
-            const [classification, detection] = await Promise.all([
-              classifyChatResponse(trimmed, attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType }))),
-              detectDocumentRequest(trimmed),
-            ]);
+            const classification = await classifyChatResponse(
+              trimmed,
+              attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType })),
+            );
             shouldRouteChartThroughChat = shouldRouteChartThroughChat
               || classification.subIntent?.trim().toLowerCase() === 'chart_generate';
+            const isCapabilityQuestion = isMediaCapabilityQuestion(trimmed);
+            const actionableClassificationResponseType = isCapabilityQuestion
+              ? 'text'
+              : classification.responseType;
+            const shouldRunDocumentDetection = actionableClassificationResponseType === 'artifact';
+            if (shouldRunDocumentDetection) {
+              lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
+              logSendPayload({
+                endpoint: lastEndpoint,
+                mode: 'auth-document-detect',
+                conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                message: trimmed,
+                language,
+                model: activeModel,
+                reference: composerMediaReference ?? null,
+                attachments: [],
+              });
+            }
+            const detection = shouldRunDocumentDetection
+              ? await detectDocumentRequest(trimmed)
+              : {
+                  isDocumentRequest: false,
+                  documentType: null,
+                  format: null,
+                  confidence: 0,
+                  expectedResponseType: 'text' as const,
+                  needsForm: false,
+                  formReason: null,
+                };
             detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
               ? 'artifact'
-              : classification.responseType;
+              : actionableClassificationResponseType;
             if (shouldRouteChartThroughChat) {
               detectedExpectedResponseType = 'artifact';
             }
             if (__DEV__) {
               try {
+                console.log('[chat-classify:result]', JSON.stringify({
+                  endpoint: `${API_BASE_URL}/chat/classify`,
+                  conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                  responseType: classification.responseType,
+                  actionableResponseType: actionableClassificationResponseType,
+                  confidence: classification.confidence,
+                  subIntent: classification.subIntent,
+                  mediaCapabilityQuestion: isCapabilityQuestion,
+                  routeThroughRegularChat: shouldRouteChartThroughChat,
+                }));
                 console.log('[document-detect:result]', JSON.stringify({
-                  endpoint: lastEndpoint,
+                  endpoint: `${API_BASE_URL}/documents/wizard/detect`,
+                  skipped: !shouldRunDocumentDetection,
                   conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
                   isDocumentRequest: detection.isDocumentRequest,
                   documentType: detection.documentType,
                   format: detection.format,
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
-                  classificationResponseType: classification.responseType,
-                  classificationSubIntent: classification.subIntent,
-                  routeThroughRegularChat: shouldRouteChartThroughChat,
                   needsForm: detection.needsForm,
                   formReason: detection.formReason,
                 }));
               } catch {
+                console.log('[chat-classify:result]', {
+                  endpoint: `${API_BASE_URL}/chat/classify`,
+                  conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                  responseType: classification.responseType,
+                  actionableResponseType: actionableClassificationResponseType,
+                  confidence: classification.confidence,
+                  subIntent: classification.subIntent,
+                  mediaCapabilityQuestion: isCapabilityQuestion,
+                  routeThroughRegularChat: shouldRouteChartThroughChat,
+                });
                 console.log('[document-detect:result]', {
-                  endpoint: lastEndpoint,
+                  endpoint: `${API_BASE_URL}/documents/wizard/detect`,
+                  skipped: !shouldRunDocumentDetection,
                   conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
                   isDocumentRequest: detection.isDocumentRequest,
                   documentType: detection.documentType,
                   format: detection.format,
                   confidence: detection.confidence,
                   expectedResponseType: detection.expectedResponseType,
-                  classificationResponseType: classification.responseType,
-                  classificationSubIntent: classification.subIntent,
-                  routeThroughRegularChat: shouldRouteChartThroughChat,
                   needsForm: detection.needsForm,
                   formReason: detection.formReason,
                 });
