@@ -4,10 +4,7 @@ type GoogleMobileAdsModule = typeof import('react-native-google-mobile-ads');
 
 let cachedModule: GoogleMobileAdsModule | null = null;
 
-/**
- * TypeScript fallback. Metro selects googleMobileAds.native.ts on Android/iOS
- * and googleMobileAds.web.ts on web.
- */
+/** Loads AdMob only in native runtimes that can provide the module. */
 export function getGoogleMobileAds(): GoogleMobileAdsModule | null {
   if (isRunningInExpoGo()) return null;
   if (cachedModule) return cachedModule;
