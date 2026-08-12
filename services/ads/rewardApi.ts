@@ -1,4 +1,7 @@
+import type { AxiosResponse } from 'axios';
+
 import { apiClient, apiEndpoints } from '@/services/api';
+import type { ApiResponse } from '@/types';
 
 export type AdRewardKind = 'chat' | 'image' | 'video';
 
@@ -36,29 +39,58 @@ export type RewardGrant = {
   usage?: Record<string, unknown>;
 };
 
+function unwrapRewardPayload<T>(response: AxiosResponse<T | ApiResponse<T>>): T {
+  const body = response.data as T | ApiResponse<T>;
+  if (body && typeof body === 'object' && 'data' in body) {
+    const nested = (body as ApiResponse<T>).data;
+    if (nested) return nested;
+  }
+  return body as T;
+}
+
 export async function getRewardEligibility(rewardType: AdRewardKind): Promise<RewardEligibility> {
   const response = await apiClient.get<RewardEligibility>(apiEndpoints.ads.rewardEligibility, {
     params: { rewardType },
   });
-  return response.data;
+  return unwrapRewardPayload(response);
 }
 
 export async function createRewardSession(rewardType: AdRewardKind): Promise<RewardSession> {
-  const response = await apiClient.post<RewardSession>(apiEndpoints.ads.rewardSessions, {
+  if (__DEV__) console.log('[ads:reward-session:request]', { endpoint: apiEndpoints.ads.rewardSessions, rewardType });
+  const response = await apiClient.post<RewardSession | ApiResponse<RewardSession>>(apiEndpoints.ads.rewardSessions, {
     rewardType,
     placement: 'limit_notice',
     requestedGrant: AD_REWARD_GRANTS[rewardType],
   });
-  return response.data;
+  const session = unwrapRewardPayload(response);
+  if (__DEV__) console.log('[ads:reward-session:response]', {
+    endpoint: apiEndpoints.ads.rewardSessions,
+    status: response.status,
+    eligible: session.eligible,
+    reason: session.reason ?? null,
+    sessionId: session.sessionId ?? null,
+    remainingToday: session.remainingToday,
+  });
+  return session;
 }
 
 export async function claimRewardSession(
   sessionId: string,
   adReward: { type: string; amount: number },
 ): Promise<RewardGrant> {
-  const response = await apiClient.post<RewardGrant>(apiEndpoints.ads.rewardClaim(sessionId), {
+  const endpoint = apiEndpoints.ads.rewardClaim(sessionId);
+  if (__DEV__) console.log('[ads:reward-claim:request]', { endpoint, sessionId });
+  const response = await apiClient.post<RewardGrant | ApiResponse<RewardGrant>>(endpoint, {
     completionSource: 'google_mobile_ads_client_event',
     adReward,
   });
-  return response.data;
+  const grant = unwrapRewardPayload(response);
+  if (__DEV__) console.log('[ads:reward-claim:response]', {
+    endpoint,
+    status: response.status,
+    sessionId,
+    grantStatus: grant.status,
+    grantAmount: grant.grantAmount,
+  });
+  return grant;
 }

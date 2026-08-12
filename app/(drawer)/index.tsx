@@ -1842,10 +1842,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     const rewardType = upgradeNoticeKind;
     if (!rewardType || !isAuthenticated || isRewardAdProcessing) return;
 
+    if (__DEV__) console.log('[ads:reward-flow:start]', { rewardType, authenticated: isAuthenticated });
     setIsRewardAdProcessing(true);
     try {
       const session = await createRewardSession(rewardType);
       if (!session.eligible) {
+        if (__DEV__) console.log('[ads:reward-flow:ineligible]', { rewardType, reason: session.reason, sessionId: session.sessionId });
         const capMessage = session.reason === 'daily_cap_reached'
           ? `You've used all ${session.dailyLimit} rewarded ads for today.`
           : 'A rewarded ad is not available for this limit right now.';
@@ -1860,6 +1862,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         ssvCustomData: session.ssvCustomData,
       });
       if (result.status === 'cancelled') {
+        if (__DEV__) console.log('[ads:reward-flow:cancelled]', { rewardType, sessionId: session.sessionId });
         setStatusNotice('Ad cancelled. No reward was used.');
         return;
       }
@@ -1871,7 +1874,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         grant = await claimRewardSession(session.sessionId, result.adReward);
       }
       if (grant.status === 'pending_verification') {
-        setStatusNotice('Ad completed. Your reward is being verified—please try again shortly.');
+        setStatusNotice('Reward not granted. We could not verify the completed ad, so no credit was added. Please try again shortly or contact support if this continues.');
+        if (__DEV__) console.warn('[ads:reward-flow:not-granted]', {
+          rewardType,
+          sessionId: session.sessionId,
+          reason: 'pending_verification',
+        });
+        hapticError();
         return;
       }
 
@@ -1882,6 +1891,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         remainingToday: grant.remainingToday,
         dailyLimit: grant.dailyLimit,
       });
+      if (__DEV__) console.log('[ads:reward-flow:granted]', { rewardType, sessionId: session.sessionId, grantAmount: grant.grantAmount });
       hapticSuccess();
       const unit = rewardType === 'chat'
         ? 'chat prompts'
@@ -1903,11 +1913,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         : status === 429 || code === 'AD_REWARD_DAILY_CAP_REACHED'
           ? 'You have used all 3 rewarded ads for today. Please try again tomorrow.'
           : status === 409 || code === 'AD_REWARD_NOT_VERIFIED'
-            ? 'Your ad was completed, but the reward is still being verified. Please try again shortly.'
+            ? 'Reward not granted. We could not verify the completed ad, so no credit was added. Please try again shortly.'
             : status === 403
               ? (response?.data?.message || 'This account is not eligible for an ad reward right now.')
               : 'We could not process the rewarded ad. No reward was used. Please try again later.';
-      if (__DEV__) console.warn('[ads:reward-flow]', error);
+      if (__DEV__) console.warn('[ads:reward-flow:error]', {
+        rewardType,
+        status,
+        code,
+        message: response?.data?.message ?? (error instanceof Error ? error.message : String(error)),
+        error,
+      });
       setStatusNotice(message);
       hapticError();
     } finally {
@@ -2844,6 +2860,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         let requestedVideoConversationId = '';
         let requestedVideoStartedAt = 0;
         let didMutateChats = false;
+        let preserveLimitNotice = false;
         let responseLogEmitted = false;
         let assistantResponseBuffer = '';
         let responseRecoveryStartAt = 0;
@@ -4651,6 +4668,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
         if (isLimitError) {
+          preserveLimitNotice = true;
           showLimitNotice(limitRequestKind, limitResetHours);
         }
         hapticError();
@@ -4732,7 +4750,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           }
           setIsUnderstandingPrompt(false);
           setStreamingModelLabel(null);
-          setStatusNotice('');
+          if (!preserveLimitNotice) {
+            setStatusNotice('');
+          }
           setIsSending(false);
           isSendRunInFlightRef.current = false;
           if (didMutateChats) {

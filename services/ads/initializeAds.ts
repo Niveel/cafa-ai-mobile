@@ -14,7 +14,7 @@
  * required after installation. Real ads will not work in Expo Go.
  */
 
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules } from 'react-native';
 import { AdMobConfig } from './admobConfig';
 import { getGoogleMobileAds } from './googleMobileAds';
 
@@ -60,7 +60,14 @@ export async function initializeAds(): Promise<void> {
       hasInitialized = true;
       return;
     }
-    const { AdsConsent, AdsConsentStatus, mobileAds } = ads;
+    const { AdsConsent, AdsConsentStatus } = ads;
+    const adsModule = ads as typeof ads & {
+      default?: () => { initialize: () => Promise<unknown> };
+      mobileAds?: () => { initialize: () => Promise<unknown> };
+    };
+    const mobileAdsFactory = typeof adsModule.default === 'function'
+      ? adsModule.default
+      : adsModule.mobileAds;
 
     // Defer slightly so the native Activity / ViewController is fully ready.
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -96,7 +103,10 @@ export async function initializeAds(): Promise<void> {
     }
 
     // Step 4: Initialize the Mobile Ads SDK once.
-    await mobileAds().initialize();
+    if (typeof mobileAdsFactory !== 'function') {
+      throw new Error('Google Mobile Ads initializer is unavailable in this build.');
+    }
+    await mobileAdsFactory().initialize();
     hasInitialized = true;
 
     if (__DEV__) {

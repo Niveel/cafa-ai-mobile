@@ -5,6 +5,7 @@ import { captureEvent } from '@/lib/analytics/posthog';
 
 import { AdMobConfig } from './admobConfig';
 import { getGoogleMobileAds } from './googleMobileAds';
+import { initializeAds } from './initializeAds';
 import type { AdRewardKind } from './rewardApi';
 
 export type RewardedAdResult =
@@ -31,6 +32,8 @@ export async function showRewardedAd({
   if (AdMobConfig.isExpoGo) throw new Error('Rewarded ads are unavailable in Expo Go.');
   if (isShowing) throw new Error('A rewarded ad is already showing.');
 
+  if (__DEV__) console.log('[ads:rewarded:prepare]', { rewardType, sessionId, placement });
+  await initializeAds();
   const ads = getGoogleMobileAds();
   if (!ads) throw new Error('Google Mobile Ads is unavailable in this build.');
 
@@ -47,6 +50,7 @@ export async function showRewardedAd({
   return new Promise<RewardedAdResult>((resolve, reject) => {
     let earnedReward: RewardedAdReward | null = null;
     let settled = false;
+    const loadTimeout = setTimeout(() => fail(new Error('Rewarded ad took too long to load.')), 20_000);
 
     const cleanup = () => {
       loadedUnsub();
@@ -55,6 +59,7 @@ export async function showRewardedAd({
       paidUnsub();
       earnedUnsub();
       closedUnsub();
+      clearTimeout(loadTimeout);
       isShowing = false;
     };
     const fail = (error: Error) => {
@@ -66,6 +71,7 @@ export async function showRewardedAd({
     };
 
     const loadedUnsub = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      if (__DEV__) console.log('[ads:rewarded:loaded]', properties);
       captureEvent(AnalyticsEvents.rewardedAdLoaded, properties);
       void ad.show().catch((error) => fail(error instanceof Error ? error : new Error('Failed to show rewarded ad.')));
     });
@@ -74,6 +80,7 @@ export async function showRewardedAd({
       (event: { message?: string }) => fail(new Error(event.message ?? 'Rewarded ad failed.')),
     );
     const openedUnsub = ad.addAdEventListener(AdEventType.OPENED, () => {
+      if (__DEV__) console.log('[ads:rewarded:opened]', properties);
       captureEvent(AnalyticsEvents.rewardedAdStarted, properties);
     });
     const paidUnsub = ad.addAdEventListener(
@@ -86,6 +93,7 @@ export async function showRewardedAd({
       RewardedAdEventType.EARNED_REWARD,
       (reward: RewardedAdReward) => {
         earnedReward = reward;
+        if (__DEV__) console.log('[ads:rewarded:earned]', { ...properties, adReward: reward });
         captureEvent(AnalyticsEvents.rewardedAdEarned, {
           ...properties,
           adRewardType: reward.type,
@@ -102,11 +110,13 @@ export async function showRewardedAd({
         : { status: 'cancelled' };
       captureEvent(AnalyticsEvents.rewardedAdClosed, { ...properties, rewardEarned: !!earnedReward });
       if (!earnedReward) captureEvent(AnalyticsEvents.rewardedAdCancelled, properties);
+      if (__DEV__) console.log('[ads:rewarded:closed]', { ...properties, rewardEarned: !!earnedReward });
       cleanup();
       resolve(result);
     });
 
     try {
+      if (__DEV__) console.log('[ads:rewarded:load]', { ...properties, unitId: AdMobConfig.rewardedAdUnitId });
       ad.load();
     } catch (error) {
       fail(error instanceof Error ? error : new Error('Failed to load rewarded ad.'));
