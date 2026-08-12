@@ -8,6 +8,8 @@ import {
   DetectDocumentRequestResult,
   DocumentWizardArtifact,
   DocumentWizardHistoryPage,
+  GenerateDocumentDirectResult,
+  StartDocumentWizardResult,
 } from '@/types';
 
 type DetectResponsePayload = Omit<DetectDocumentRequestResult, 'expectedResponseType'> & {
@@ -16,8 +18,9 @@ type DetectResponsePayload = Omit<DetectDocumentRequestResult, 'expectedResponse
 };
 
 type DetectResponse = ApiResponse<DetectResponsePayload>;
-type StartWizardResponse = ApiResponse<{ html: string }>;
+type StartWizardResponse = ApiResponse<StartDocumentWizardResult>;
 type GenerateWizardResponse = ApiResponse<{ artifacts: DocumentWizardArtifact[] }>;
+type GenerateDirectResponse = ApiResponse<GenerateDocumentDirectResult>;
 type HistoryWizardResponse = ApiResponse<DocumentWizardHistoryPage>;
 
 const DOCUMENT_WIZARD_BASE = '/documents/wizard';
@@ -26,8 +29,9 @@ const DOCUMENT_WIZARD_GENERATE_TIMEOUT_MS = 180_000;
 
 type DocumentWizardPersistenceOptions = {
   conversationId?: string;
-  userMessageId?: string;
   assistantMessageId?: string;
+  documentType?: string;
+  format?: string;
 };
 
 const DETECT_FALLBACK: DetectDocumentRequestResult = {
@@ -86,16 +90,20 @@ export async function startDocumentWizard(userRequest: string, options?: Documen
   try {
     const response: AxiosResponse<StartWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/start`, {
       userRequest,
+      documentType: options?.documentType,
+      format: options?.format,
       conversationId: options?.conversationId,
-      userMessageId: options?.userMessageId,
-      assistantMessageId: options?.assistantMessageId,
     }, {
       timeout: DOCUMENT_WIZARD_START_TIMEOUT_MS,
     });
     if (!response.data?.success || !response.data.data?.html) {
       throw new Error(response.data?.message || 'Failed to prepare document form.');
     }
-    return response.data.data.html;
+    const result = response.data.data;
+    if (!result.userMessageId || !result.assistantMessageId) {
+      throw new Error('Document form started, but message IDs were not returned.');
+    }
+    return result;
   } catch (error) {
     throw mapApiError(error);
   }
@@ -108,20 +116,62 @@ export async function generateDocumentFromWizard(
   options?: DocumentWizardPersistenceOptions,
 ) {
   try {
-    const response: AxiosResponse<GenerateWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/generate`, {
+    const requestPayload = {
       formData,
       documentType,
       format,
       conversationId: options?.conversationId,
-      userMessageId: options?.userMessageId,
       assistantMessageId: options?.assistantMessageId,
-    }, {
+    };
+    if (__DEV__) {
+      console.log('[document-wizard:generate:request]', JSON.stringify({
+        endpoint: `${DOCUMENT_WIZARD_BASE}/generate`,
+        payload: requestPayload,
+      }));
+    }
+    const response: AxiosResponse<GenerateWizardResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/generate`, requestPayload, {
       timeout: DOCUMENT_WIZARD_GENERATE_TIMEOUT_MS,
     });
+    if (__DEV__) {
+      console.log('[document-wizard:generate:response]', JSON.stringify({
+        endpoint: `${DOCUMENT_WIZARD_BASE}/generate`,
+        status: response.status,
+        body: response.data,
+      }));
+    }
     if (!response.data?.success) {
       throw new Error(response.data?.message || 'Failed to generate document.');
     }
     return response.data.data?.artifacts ?? [];
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[document-wizard:generate:error]', error);
+    }
+    throw mapApiError(error);
+  }
+}
+
+export async function generateDocumentDirect(
+  message: string,
+  documentType: string | null,
+  format: string | null,
+  conversationId?: string,
+) {
+  try {
+    const response: AxiosResponse<GenerateDirectResponse> = await apiClient.post(
+      `${DOCUMENT_WIZARD_BASE}/generate-direct`,
+      {
+        message,
+        documentType: documentType || undefined,
+        format: format || undefined,
+        conversationId,
+      },
+      { timeout: DOCUMENT_WIZARD_GENERATE_TIMEOUT_MS },
+    );
+    if (!response.data?.success || !response.data.data?.artifacts) {
+      throw new Error(response.data?.message || 'Failed to generate document.');
+    }
+    return response.data.data;
   } catch (error) {
     throw mapApiError(error);
   }

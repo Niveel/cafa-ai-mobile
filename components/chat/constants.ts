@@ -160,25 +160,6 @@ export function isLikelyVideoGenerationIntent(value: string) {
   return hasVideoNoun && hasGenerationVerb;
 }
 
-/** Questions about whether the product can create media are informational,
- * not actionable generation prompts. Concrete prompts such as "create a
- * video of a cat" intentionally do not match this guard. */
-export function isMediaCapabilityQuestion(value: string) {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!normalized) return false;
-
-  const media = '(?:images?|pictures?|photos?|videos?|clips?|animations?|movies?)';
-  const create = '(?:generate|create|make|produce|render|edit)';
-  return new RegExp(
-    `^(?:(?:can|could|would|will)\\s+you|do\\s+you|are\\s+you\\s+able\\s+to)\\s+${create}\\s+${media}(?:\\s+for\\s+(?:me|users?))?$`,
-    'i',
-  ).test(normalized);
-}
-
 export function isMediaGenerationPrompt(value: string) {
   return Boolean(extractImagePrompt(value) || extractVideoPrompt(value));
 }

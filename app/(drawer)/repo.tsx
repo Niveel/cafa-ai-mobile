@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, usePathname } from 'expo-router';
 
 import { AppScreen, RequireAuthRoute, AdaptiveBanner } from '@/components';
-import { useAppTheme, useI18n } from '@/hooks';
+import { useAppTheme, useDailyInterstitialAd, useI18n } from '@/hooks';
 
 type RepoCard = {
   titleKey: string;
@@ -131,6 +131,7 @@ export default function RepoScreen() {
   const { t } = useI18n();
   const { width } = useWindowDimensions();
   const pathname = usePathname();
+  useDailyInterstitialAd(pathname);
   const cardWidth = useMemo(() => Math.floor((width - 20 - 12) / 2), [width]);
 
   return (

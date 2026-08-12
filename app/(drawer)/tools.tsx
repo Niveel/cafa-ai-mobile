@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, usePathname } from 'expo-router';
 
 import { AdaptiveBanner, AppScreen, RequireAuthRoute } from '@/components';
-import { useAppTheme, useI18n } from '@/hooks';
+import { useAppTheme, useDailyInterstitialAd, useI18n } from '@/hooks';
 
 type ToolCard = {
   titleKey: string;
@@ -148,6 +148,7 @@ export default function ToolsScreen() {
   const { t } = useI18n();
   const { width } = useWindowDimensions();
   const pathname = usePathname();
+  useDailyInterstitialAd(pathname);
   const cardWidth = useMemo(() => Math.floor((width - 20 - 12) / 2), [width]);
 
   return (

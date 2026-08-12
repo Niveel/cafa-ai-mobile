@@ -60,10 +60,12 @@ declare module 'react-native-google-mobile-ads' {
   }
 
   export enum AdEventType {
+    LOADED = 'loaded',
     ERROR = 'error',
     OPENED = 'opened',
     CLOSED = 'closed',
     PAID = 'paid',
+    CLICKED = 'clicked',
   }
 
   export interface AdShowOptions {
@@ -75,6 +77,18 @@ declare module 'react-native-google-mobile-ads' {
 
     addAdEventListener(
       type: RewardedAdEventType | AdEventType | string,
+      listener: (event?: any) => void,
+    ): () => void;
+
+    load(): Promise<void>;
+    show(showOptions?: AdShowOptions): Promise<void>;
+  }
+
+  export class InterstitialAd {
+    static createForAdRequest(adUnitId: string, requestOptions?: RequestOptions): InterstitialAd;
+
+    addAdEventListener(
+      type: AdEventType | string,
       listener: (event?: any) => void,
     ): () => void;
 

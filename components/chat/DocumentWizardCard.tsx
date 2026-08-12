@@ -153,7 +153,6 @@ export function DocumentWizardCard({
       const artifacts = await generateDocumentFromWizard(formData, documentType, format, {
         conversationId: conversationId ?? undefined,
         assistantMessageId,
-        userMessageId,
       });
       AccessibilityInfo.announceForAccessibility?.('Document generated successfully.');
       onComplete(artifacts);
@@ -165,7 +164,7 @@ export function DocumentWizardCard({
       submissionInFlightRef.current = false;
       setLoading(false);
     }
-  }, [assistantMessageId, conversationId, documentType, format, onComplete, userMessageId]);
+  }, [assistantMessageId, conversationId, documentType, format, onComplete]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;

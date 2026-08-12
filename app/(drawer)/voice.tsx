@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
   Modal,
   Platform,
   Pressable,
@@ -10,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +19,7 @@ import { router } from 'expo-router';
 
 import { AppButton, AppScreen, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { useAppContext } from '@/context';
-import { useAppTheme, useI18n } from '@/hooks';
+import { useAppTheme, useI18n, useReducedMotionPreference } from '@/hooks';
 import {
   cloneAvatarVoice,
   convertTextToSpeech,
@@ -288,6 +290,7 @@ export default function VoiceScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const { authUser } = useAppContext();
+  const prefersReducedMotion = useReducedMotionPreference();
   const tier = authUser?.subscriptionTier ?? 'free';
   const characterLimit = useMemo(() => getCharacterLimit(tier), [tier]);
   const [text, setText] = useState('');
@@ -317,6 +320,9 @@ export default function VoiceScreen() {
   const [ttsLimit, setTtsLimit] = useState(() => getMonthlyTtsLimit(tier));
   const [isUsageLoading, setIsUsageLoading] = useState(true);
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const wizardTransition = useRef(new Animated.Value(1)).current;
+  const wizardDirectionRef = useRef(1);
   const isMountedRef = useRef(true);
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const previewPlayerSubRef = useRef<{ remove: () => void } | null>(null);
@@ -332,10 +338,63 @@ export default function VoiceScreen() {
   const isTtsUnlimited = ttsLimit < 0;
   const remainingConversions = isTtsUnlimited ? null : Math.max(0, ttsLimit - ttsUsed);
   const isTtsLimitReached = remainingConversions === 0;
-
   const announceForA11y = useCallback((message: string) => {
     AccessibilityInfo.announceForAccessibility?.(message);
   }, []);
+  const wizardSteps = useMemo(() => [
+    { label: 'Text', icon: 'document-text-outline' as const },
+    { label: 'Voice', icon: 'mic-outline' as const },
+    { label: 'Review', icon: 'checkmark-done-outline' as const },
+  ], []);
+
+  const goToWizardStep = useCallback((nextStep: number) => {
+    const boundedStep = Math.max(0, Math.min(wizardSteps.length - 1, nextStep));
+    wizardDirectionRef.current = boundedStep >= wizardStep ? 1 : -1;
+    setWizardStep(boundedStep);
+    AccessibilityInfo.announceForAccessibility?.(
+      `Step ${boundedStep + 1} of ${wizardSteps.length}: ${wizardSteps[boundedStep]?.label}`,
+    );
+  }, [wizardStep, wizardSteps]);
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      wizardTransition.setValue(1);
+      return;
+    }
+    wizardTransition.setValue(0);
+    Animated.spring(wizardTransition, {
+      toValue: 1,
+      damping: 20,
+      stiffness: 180,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  }, [prefersReducedMotion, wizardStep, wizardTransition]);
+
+  const wizardAnimatedStyle = {
+    opacity: wizardTransition,
+    transform: [
+      { translateY: wizardTransition.interpolate({ inputRange: [0, 1], outputRange: [prefersReducedMotion ? 0 : 18, 0] }) },
+      { translateX: wizardTransition.interpolate({ inputRange: [0, 1], outputRange: [prefersReducedMotion ? 0 : 24 * wizardDirectionRef.current, 0] }) },
+    ],
+  };
+
+  const advanceWizard = useCallback(() => {
+    if (wizardStep === 0 && (!trimmedText || isTextTooLong)) {
+      const message = isTextTooLong ? 'Shorten the text to fit your plan limit.' : 'Enter the text you want to convert before continuing.';
+      setScreenError(message);
+      announceForA11y(message);
+      return;
+    }
+    if (wizardStep === 1 && !selectedVoice) {
+      const message = 'Choose a voice before continuing.';
+      setScreenError(message);
+      announceForA11y(message);
+      return;
+    }
+    setScreenError('');
+    goToWizardStep(wizardStep + 1);
+  }, [announceForA11y, goToWizardStep, isTextTooLong, selectedVoice, trimmedText, wizardStep]);
 
   const stopPreview = useCallback(() => {
     previewPlayerSubRef.current?.remove();
@@ -994,11 +1053,69 @@ export default function VoiceScreen() {
             </View>
           </View>
 
+          <LinearGradient
+            colors={isDark ? ['#15112A', '#0D1727', '#0A1018'] : ['#F4F0FF', '#EDF7FF', '#FFFFFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            className="mb-4 overflow-hidden rounded-[32px] border p-4"
+            style={{ borderColor: `${colors.primary}35` }}
+          >
+            <View pointerEvents="none" className="absolute -right-16 -top-16 h-40 w-40 rounded-full" style={{ backgroundColor: `${colors.primary}18` }} />
+            <View pointerEvents="none" className="absolute -bottom-20 -left-16 h-44 w-44 rounded-full" style={{ backgroundColor: isDark ? 'rgba(32,130,210,0.10)' : 'rgba(76,151,220,0.08)' }} />
+            <View className="flex-row items-center justify-between px-1">
+              <View>
+                <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 }}>VOICE STUDIO</Text>
+                <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '900', marginTop: 3 }}>
+                  Create natural speech
+                </Text>
+              </View>
+              <View className="rounded-full px-3 py-1.5" style={{ backgroundColor: `${colors.primary}14` }}>
+                <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800' }}>
+                  Step {wizardStep + 1} of {wizardSteps.length}
+                </Text>
+              </View>
+            </View>
+            <View className="mb-4 mt-5 flex-row items-start justify-between">
+              {wizardSteps.map((step, index) => {
+                const isActive = index === wizardStep;
+                const isComplete = index < wizardStep;
+                return (
+                  <Pressable
+                    key={step.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${step.label}, step ${index + 1} of ${wizardSteps.length}`}
+                    accessibilityState={{ selected: isActive }}
+                    disabled={index > wizardStep}
+                    onPress={() => goToWizardStep(index)}
+                    style={{ flex: 1, alignItems: 'center', opacity: index > wizardStep ? 0.48 : 1 }}
+                  >
+                    <View className="items-center justify-center rounded-full" style={{
+                      width: 40,
+                      height: 40,
+                      backgroundColor: isActive || isComplete ? colors.primary : (isDark ? '#171A22' : '#F1F5F9'),
+                      borderWidth: isActive ? 4 : 1,
+                      borderColor: isActive ? `${colors.primary}30` : `${colors.border}AA`,
+                      shadowColor: colors.primary,
+                      shadowOpacity: isActive ? 0.28 : 0,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 5 },
+                      elevation: isActive ? 5 : 0,
+                    }}>
+                      <Ionicons name={isComplete ? 'checkmark' : step.icon} size={17} color={isActive || isComplete ? '#FFFFFF' : colors.textSecondary} />
+                    </View>
+                    <Text style={{ color: isActive ? colors.primary : colors.textSecondary, fontSize: 10, fontWeight: '700', marginTop: 6 }}>
+                      {step.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+          {wizardStep === 0 ? <Animated.View style={wizardAnimatedStyle}>
           <View
-            className="mb-4 rounded-[28px] border p-4"
+            className="px-2 pb-2 pt-3"
             style={{
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#0C1017' : '#FFFFFF',
+              backgroundColor: 'transparent',
             }}
           >
             <View className="flex-row items-center justify-between">
@@ -1062,18 +1179,8 @@ export default function VoiceScreen() {
               </View>
             </View>
 
-            <View className="mt-4">
-              <AppButton
-                label={isConverting ? t('textToSpeech.dynamic.convertingProgress') : t('textToSpeech.dynamic.convertToSpeech')}
-                onPress={() => {
-                  if (!isConverting) {
-                    void onConvert();
-                  }
-                }}
-                iconName="volume-high-outline"
-              />
-            </View>
           </View>
+          </Animated.View> : null}
 
           {screenError ? (
             <View className="mb-4">
@@ -1156,11 +1263,11 @@ export default function VoiceScreen() {
             </View>
           ) : null}
 
+          {wizardStep === 1 ? <Animated.View style={wizardAnimatedStyle}>
           <View
-            className="mb-4 rounded-[28px] border p-4"
+            className="px-2 pb-2 pt-3"
             style={{
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#0C1017' : '#FFFFFF',
+              backgroundColor: 'transparent',
             }}
           >
             <View className="flex-row items-center justify-between">
@@ -1218,10 +1325,9 @@ export default function VoiceScreen() {
           </View>
 
           <View
-            className="mb-4 rounded-[28px] border p-4"
+            className="px-2 pb-2 pt-3"
             style={{
-              borderColor: colors.border,
-              backgroundColor: isDark ? '#0C1017' : '#FFFFFF',
+              backgroundColor: 'transparent',
             }}
           >
             <View className="flex-row items-center justify-between">
@@ -1322,6 +1428,55 @@ export default function VoiceScreen() {
               )}
             </View>
           </View>
+          </Animated.View> : null}
+
+          {wizardStep === 2 ? <Animated.View style={wizardAnimatedStyle}>
+            <View className="px-2 pb-3 pt-3">
+              <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 23, fontWeight: '800', letterSpacing: -0.5 }}>
+                Review your audio
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 6 }}>
+                Confirm your text, voice, and file format before creating the audio.
+              </Text>
+              <View className="mt-5 rounded-[22px] p-4" style={{ backgroundColor: isDark ? 'rgba(17,21,29,0.76)' : 'rgba(255,255,255,0.72)' }}>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19 }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '800' }}>Voice: </Text>{selectedVoice?.label || 'Not selected'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19 }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '800' }}>Text: </Text>{characterCount.toLocaleString()} characters
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 19 }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '800' }}>Format: </Text>{format.toUpperCase()}
+                </Text>
+                <Text numberOfLines={5} style={{ color: colors.textPrimary, fontSize: 13, lineHeight: 20, marginTop: 12 }}>
+                  {trimmedText}
+                </Text>
+              </View>
+              <View className="mt-4">
+                <AppButton
+                  label={isConverting ? t('textToSpeech.dynamic.convertingProgress') : t('textToSpeech.dynamic.convertToSpeech')}
+                  onPress={() => {
+                    if (!isConverting) void onConvert();
+                  }}
+                  iconName="volume-high-outline"
+                />
+              </View>
+            </View>
+          </Animated.View> : null}
+
+          <View className="mt-2 flex-row items-center border-t px-2 pb-1 pt-4" style={{ borderColor: `${colors.primary}20` }} accessibilityRole="toolbar">
+            {wizardStep > 0 ? (
+              <View style={{ flex: 1, marginRight: 10 }}>
+                <AppButton label="Back" iconName="arrow-back-outline" variant="outline" onPress={() => goToWizardStep(wizardStep - 1)} />
+              </View>
+            ) : null}
+            {wizardStep < wizardSteps.length - 1 ? (
+              <View style={{ flex: 1 }}>
+                <AppButton label="Next" iconName="arrow-forward-outline" onPress={advanceWizard} />
+              </View>
+            ) : null}
+          </View>
+          </LinearGradient>
 
           <View
             className="mb-4 rounded-[28px] border p-4"

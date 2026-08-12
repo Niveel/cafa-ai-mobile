@@ -53,5 +53,10 @@ export const AnalyticsEvents = {
   rewardedRewardGranted: 'rewarded_reward_granted',
   rewardedAdClosed: 'rewarded_ad_closed',
   rewardedAdFailed: 'rewarded_ad_failed',
+  interstitialAdLoaded: 'interstitial_ad_loaded',
+  interstitialAdViewed: 'interstitial_ad_viewed',
+  interstitialAdClicked: 'interstitial_ad_clicked',
+  interstitialAdClosed: 'interstitial_ad_closed',
+  interstitialAdFailed: 'interstitial_ad_failed',
   adRevenueGenerated: 'ad_revenue_generated',
 } as const;

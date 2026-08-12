@@ -74,7 +74,8 @@ export async function generateImage(request: GenerateImageRequest) {
     }
 
     if (!generated.imageUrl) {
-      const mapped = new Error(payload?.message ?? 'Could not generate image right now.') as Error & { code?: string; status?: number };
+      const safetyMessage = (generated as ImageHistoryItem & { message?: string }).message;
+      const mapped = new Error(safetyMessage ?? payload?.message ?? 'Could not generate image right now.') as Error & { code?: string; status?: number };
       mapped.code = payload?.code ?? payload?.error;
       mapped.status = response.status;
       throw mapped;

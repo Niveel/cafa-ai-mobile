@@ -22,6 +22,7 @@ import * as ExpoImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Image as ExpoImage } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, type Href } from 'expo-router';
 
 import { AppButton, AppPromptModal, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
@@ -39,7 +40,7 @@ import {
   previewAvatarVoice,
   uploadAvatarImage,
 } from '@/features';
-import { useAppTheme, useI18n } from '@/hooks';
+import { useAppTheme, useI18n, useReducedMotionPreference } from '@/hooks';
 import {
   clearPendingAvatarVideoJob,
   getPendingAvatarVideoJob,
@@ -532,6 +533,20 @@ function pickRandomItem<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)] ?? null;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function normalizeGalleryGender(value?: string | null): AvatarGalleryGender | '' {
   return value === 'female' || value === 'male' || value === 'neutral' ? value : '';
 }
@@ -560,26 +575,29 @@ function SectionCard({
   children,
   colors,
   isDark,
+  variant = 'default',
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   colors: { border: string; textPrimary: string; textSecondary: string; primary: string };
   isDark: boolean;
+  variant?: 'default' | 'wizard';
 }) {
+  const isWizard = variant === 'wizard';
   return (
     <View
-      className="mb-4 rounded-[28px] border p-4"
+      className={isWizard ? 'px-2 pb-2 pt-3' : 'mb-4 rounded-[28px] border p-4'}
       style={{
-        borderColor: colors.border,
-        backgroundColor: isDark ? '#0F1015' : '#FFFFFF',
+        borderColor: isWizard ? 'transparent' : colors.border,
+        backgroundColor: isWizard ? 'transparent' : (isDark ? '#0F1015' : '#FFFFFF'),
       }}
     >
-      <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}>
+      <Text style={{ color: colors.textPrimary, fontSize: isWizard ? 23 : 18, fontWeight: '800', letterSpacing: isWizard ? -0.5 : 0 }}>
         {title}
       </Text>
       {subtitle ? (
-        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 6 }}>
+        <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 6 }}>
           {subtitle}
         </Text>
       ) : null}
@@ -725,6 +743,7 @@ export default function AvatarVideoScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const { width } = useWindowDimensions();
+  const prefersReducedMotion = useReducedMotionPreference();
   const sectionContentWidth = useMemo(() => width - 52, [width]);
   const avatarCardWidth = useMemo(() => Math.floor((sectionContentWidth - 12) / 2), [sectionContentWidth]);
   const resultVideoWidth = useMemo(() => sectionContentWidth, [sectionContentWidth]);
@@ -768,6 +787,9 @@ export default function AvatarVideoScreen() {
   const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const [isRandomizingSetup, setIsRandomizingSetup] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const wizardTransition = useRef(new Animated.Value(1)).current;
+  const wizardDirectionRef = useRef(1);
 
   const [activeJobMeta, setActiveJobMeta] = useState<PendingAvatarVideoJob | null>(null);
   const [activeJobStatus, setActiveJobStatus] = useState<AvatarVideoStatus | null>(null);
@@ -810,6 +832,73 @@ export default function AvatarVideoScreen() {
   const selectedGalleryAvatarName = selectedGalleryAvatar?.name?.trim() || 'No avatar selected yet';
   const canGenerateScript = userGoal.trim().length > 0 && Boolean(selectedAvatarImageUrl);
   const canGenerateVideo = Boolean(selectedAvatarImageUrl) && userGoal.trim().length > 0 && scriptText.trim().length > 0 && Boolean(selectedVoice) && !activeJobMeta;
+  const wizardSteps = useMemo(() => [
+    { label: 'Avatar', icon: 'person-outline' as const },
+    { label: 'Script', icon: 'document-text-outline' as const },
+    { label: 'Voice', icon: 'mic-outline' as const },
+    { label: 'Review', icon: 'checkmark-done-outline' as const },
+  ], []);
+  const goToWizardStep = useCallback((nextStep: number) => {
+    const boundedStep = Math.max(0, Math.min(wizardSteps.length - 1, nextStep));
+    wizardDirectionRef.current = boundedStep >= wizardStep ? 1 : -1;
+    setWizardStep(boundedStep);
+    AccessibilityInfo.announceForAccessibility?.(
+      `Step ${boundedStep + 1} of ${wizardSteps.length}: ${wizardSteps[boundedStep]?.label}`,
+    );
+  }, [wizardStep, wizardSteps]);
+
+  useEffect(() => {
+    if (prefersReducedMotion) {
+      wizardTransition.setValue(1);
+      return;
+    }
+    wizardTransition.setValue(0);
+    Animated.spring(wizardTransition, {
+      toValue: 1,
+      damping: 20,
+      stiffness: 180,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  }, [prefersReducedMotion, wizardStep, wizardTransition]);
+
+  const wizardAnimatedStyle = {
+    opacity: wizardTransition,
+    transform: [
+      {
+        translateY: wizardTransition.interpolate({
+          inputRange: [0, 1],
+          outputRange: [prefersReducedMotion ? 0 : 18, 0],
+        }),
+      },
+      {
+        translateX: wizardTransition.interpolate({
+          inputRange: [0, 1],
+          outputRange: [prefersReducedMotion ? 0 : 24 * wizardDirectionRef.current, 0],
+        }),
+      },
+    ],
+  };
+
+  const advanceWizard = useCallback(() => {
+    if (wizardStep === 0 && !selectedAvatarImageUrl) {
+      setErrorMessage('Choose an avatar before continuing.');
+      AccessibilityInfo.announceForAccessibility?.('Choose an avatar before continuing.');
+      return;
+    }
+    if (wizardStep === 1 && (!userGoal.trim() || !scriptText.trim())) {
+      setErrorMessage('Describe your video and generate or enter a script before continuing.');
+      AccessibilityInfo.announceForAccessibility?.('Complete the video description and script before continuing.');
+      return;
+    }
+    if (wizardStep === 2 && !selectedVoice) {
+      setErrorMessage('Choose a voice before continuing.');
+      AccessibilityInfo.announceForAccessibility?.('Choose a voice before continuing.');
+      return;
+    }
+    setErrorMessage('');
+    goToWizardStep(wizardStep + 1);
+  }, [goToWizardStep, scriptText, selectedAvatarImageUrl, selectedVoice, userGoal, wizardStep]);
 
   useEffect(() => {
     if (!errorMessage) return;
@@ -1112,15 +1201,21 @@ export default function AvatarVideoScreen() {
     stopPreview();
 
     try {
-      const [avatars, voiceCatalog] = await Promise.all([
-        getAvatarGallery({ limit: 20 }),
-        getAvatarVoiceCatalog({}),
-      ]);
+      const [avatars, availableVoices] = await withTimeout(
+        Promise.all([
+          gallery.length ? Promise.resolve(gallery) : getAvatarGallery({ limit: 20 }),
+          voices.length
+            ? Promise.resolve(voices)
+            : getAvatarVoiceCatalog({}).then((catalog) => catalog.voices ?? []),
+        ]),
+        20_000,
+        'Random setup took too long. Please try again.',
+      );
 
       if (!isMountedRef.current) return;
 
       const randomAvatar = pickRandomItem(avatars);
-      const randomVoice = pickRandomItem(voiceCatalog.voices ?? []);
+      const randomVoice = pickRandomItem(availableVoices);
       const randomPreset = pickRandomAvatarScriptPreset();
 
       if (!randomAvatar) {
@@ -1132,7 +1227,7 @@ export default function AvatarVideoScreen() {
       }
 
       setGallery(avatars);
-      setVoices(voiceCatalog.voices ?? []);
+      setVoices(availableVoices);
       setGalleryGender(normalizeGalleryGender(randomAvatar.gender));
       setGalleryStyle(normalizeGalleryStyle(randomAvatar.style));
       setVoiceGenderFilter(normalizeVoiceGender(randomVoice.gender));
@@ -1153,6 +1248,7 @@ export default function AvatarVideoScreen() {
       setScriptTitle(randomPreset.title);
       setScriptKeyPoints(randomPreset.keyPoints);
       setEstimatedDuration(estimateScriptDurationSeconds(randomPreset.scriptText));
+      goToWizardStep(3);
       setStatusNotice(`Ready to generate: ${randomPreset.title}.`);
       announce('A complete avatar setup is ready. You can generate your video now.');
       logAvatarUiState('[avatar-ui:randomized-setup]', {
@@ -1177,7 +1273,7 @@ export default function AvatarVideoScreen() {
     } finally {
       if (isMountedRef.current) setIsRandomizingSetup(false);
     }
-  }, [activeJobMeta, announce, isRandomizingSetup, isStartingGeneration, stopPreview]);
+  }, [activeJobMeta, announce, gallery, goToWizardStep, isRandomizingSetup, isStartingGeneration, stopPreview, voices]);
 
   const generateScript = useCallback(async () => {
     if (!canGenerateScript || isGeneratingScript) return;
@@ -1644,42 +1740,113 @@ export default function AvatarVideoScreen() {
             </View>
           </Modal>
 
-          <SectionCard
-            title={t('avatarVideo.title.quickStart')}
-            subtitle={t('avatarVideo.subtitle.wantAReadyMadeSetupWeCan')}
-            colors={colors}
-            isDark={isDark}
+          <View
+            className="mb-4 rounded-[20px] border px-4 py-3"
+            style={{ borderColor: colors.border, backgroundColor: isDark ? '#0F1015' : '#FFFFFF' }}
           >
-            <View
-              className="rounded-[22px] border p-4"
-              style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
-            >
-              <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '800' }}>
-                {' '}{t('avatarVideo.ui.randomizeEverything')}{' '}</Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
-                {' '}{t('avatarVideo.ui.weWillPullFromALargeTopic')}{' '}</Text>
-              <View style={{ marginTop: 14 }}>
-                <AppButton
-                  label={isRandomizingSetup ? 'Randomizing...' : 'Randomize Setup'}
-                  iconName="shuffle-outline"
-                  compact
-                  onPress={() => {
-                    if (!isRandomizingSetup) {
-                      void randomizeSetup();
-                    }
-                  }}
-                />
+            <View className="flex-row items-center">
+              <View
+                className="mr-3 items-center justify-center rounded-full"
+                style={{ width: 36, height: 36, backgroundColor: `${colors.primary}16` }}
+              >
+                <Ionicons name="shuffle-outline" size={17} color={colors.primary} />
               </View>
-              <Text style={{ color: colors.textSecondary, fontSize: 11, lineHeight: 17, marginTop: 10 }}>
-                {' '}{t('avatarVideo.ui.afterThatAllYouNeedToDo')}{' '}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
+                  {t('avatarVideo.title.quickStart')}
+                </Text>
+                <Text numberOfLines={2} style={{ color: colors.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 2 }}>
+                  Randomize a complete setup and review it before generating.
+                </Text>
+              </View>
             </View>
-          </SectionCard>
+            <View style={{ marginTop: 10 }}>
+              <AppButton
+                label={isRandomizingSetup ? 'Picking...' : 'Randomize setup'}
+                iconName="shuffle-outline"
+                compact
+                loading={isRandomizingSetup}
+                onPress={() => {
+                  if (!isRandomizingSetup) void randomizeSetup();
+                }}
+              />
+            </View>
+          </View>
 
+          <LinearGradient
+            colors={isDark
+              ? ['#15112A', '#0D1727', '#0A1018']
+              : ['#F4F0FF', '#EDF7FF', '#FFFFFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            className="mb-4 overflow-hidden rounded-[32px] border p-4"
+            style={{ borderColor: `${colors.primary}35` }}
+          >
+          <View pointerEvents="none" className="absolute -right-16 -top-16 h-40 w-40 rounded-full" style={{ backgroundColor: `${colors.primary}18` }} />
+          <View pointerEvents="none" className="absolute -bottom-20 -left-16 h-44 w-44 rounded-full" style={{ backgroundColor: isDark ? 'rgba(32,130,210,0.10)' : 'rgba(76,151,220,0.08)' }} />
+          <View className="px-1 pb-3 pt-1">
+            <View className="flex-row items-center justify-between">
+              <View>
+                <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5 }}>
+                  AVATAR STUDIO
+                </Text>
+                <Text accessibilityRole="header" style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '900', marginTop: 3 }}>
+                  Create your video
+                </Text>
+              </View>
+              <View className="rounded-full px-3 py-1.5" style={{ backgroundColor: `${colors.primary}14` }}>
+              <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800' }}>
+                Step {wizardStep + 1} of {wizardSteps.length}
+              </Text>
+              </View>
+            </View>
+            <View className="mt-5 flex-row items-start justify-between">
+              {wizardSteps.map((step, index) => {
+                const isActive = index === wizardStep;
+                const isComplete = index < wizardStep;
+                return (
+                  <Pressable
+                    key={step.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${step.label}, step ${index + 1} of ${wizardSteps.length}`}
+                    accessibilityState={{ selected: isActive }}
+                    disabled={index > wizardStep}
+                    onPress={() => goToWizardStep(index)}
+                    style={{ flex: 1, alignItems: 'center', opacity: index > wizardStep ? 0.48 : 1 }}
+                  >
+                    <View
+                      className="items-center justify-center rounded-full"
+                      style={{
+                        width: 40,
+                        height: 40,
+                        backgroundColor: isActive || isComplete ? colors.primary : (isDark ? '#171A22' : '#F1F5F9'),
+                        borderWidth: isActive ? 4 : 1,
+                        borderColor: isActive ? `${colors.primary}30` : `${colors.border}AA`,
+                        shadowColor: colors.primary,
+                        shadowOpacity: isActive ? 0.28 : 0,
+                        shadowRadius: 10,
+                        shadowOffset: { width: 0, height: 5 },
+                        elevation: isActive ? 5 : 0,
+                      }}
+                    >
+                      <Ionicons name={isComplete ? 'checkmark' : step.icon} size={17} color={isActive || isComplete ? '#FFFFFF' : colors.textSecondary} />
+                    </View>
+                    <Text numberOfLines={1} style={{ color: isActive ? colors.primary : colors.textSecondary, fontSize: 10, fontWeight: '700', marginTop: 6 }}>
+                      {step.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {wizardStep === 0 ? <Animated.View style={wizardAnimatedStyle}>
           <SectionCard
             title={t('avatarVideo.title.1ChooseYourAvatar')}
             subtitle={t('avatarVideo.subtitle.pickFromTheGalleryOrUploadA')}
             colors={colors}
             isDark={isDark}
+            variant="wizard"
           >
             <View
               className="mb-2 rounded-[22px] border p-4"
@@ -1901,12 +2068,15 @@ export default function AvatarVideoScreen() {
             )}
             </SelectionModal>
           </SectionCard>
+          </Animated.View> : null}
 
+          {wizardStep === 1 ? <Animated.View style={wizardAnimatedStyle}>
           <SectionCard
             title={t('avatarVideo.title.2GenerateYourScript')}
             subtitle={t('avatarVideo.subtitle.describeWhatYouWantToSayIn')}
             colors={colors}
             isDark={isDark}
+            variant="wizard"
           >
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
               {' '}{t('avatarVideo.ui.whatShouldTheAvatarSay')}{' '}</Text>
@@ -2055,12 +2225,15 @@ export default function AvatarVideoScreen() {
               </View>
             ) : null}
           </SectionCard>
+          </Animated.View> : null}
 
+          {wizardStep === 2 ? <Animated.View style={wizardAnimatedStyle}>
           <SectionCard
             title={t('avatarVideo.title.3PickAVoice')}
             subtitle={t('avatarVideo.subtitle.chooseFromBuiltInVoicesOrFrom')}
             colors={colors}
             isDark={isDark}
+            variant="wizard"
           >
             <View
               className="mb-4 rounded-[22px] border p-4"
@@ -2426,12 +2599,15 @@ export default function AvatarVideoScreen() {
             )}
             </SelectionModal>
           </SectionCard>
+          </Animated.View> : null}
 
+          {wizardStep === 3 ? <Animated.View style={wizardAnimatedStyle}>
           <SectionCard
             title={t('avatarVideo.title.4CreateTheVideo')}
             subtitle={t('avatarVideo.subtitle.createYourVideoWithTheSelectedAvatar')}
             colors={colors}
             isDark={isDark}
+            variant="wizard"
           >
             <View
               className="rounded-[22px] border p-4"
@@ -2467,6 +2643,30 @@ export default function AvatarVideoScreen() {
               </Pressable>
             </View>
           </SectionCard>
+          </Animated.View> : null}
+
+          <View className="mt-2 flex-row items-center border-t px-2 pb-1 pt-4" style={{ borderColor: `${colors.primary}20` }} accessibilityRole="toolbar">
+            {wizardStep > 0 ? (
+              <View style={{ flex: 1, marginRight: 10 }}>
+                <AppButton
+                  label="Back"
+                  iconName="arrow-back-outline"
+                  variant="outline"
+                  onPress={() => goToWizardStep(wizardStep - 1)}
+                />
+              </View>
+            ) : null}
+            {wizardStep < wizardSteps.length - 1 ? (
+              <View style={{ flex: 1 }}>
+                <AppButton
+                  label="Next"
+                  iconName="arrow-forward-outline"
+                  onPress={advanceWizard}
+                />
+              </View>
+            ) : null}
+          </View>
+          </LinearGradient>
 
           {activeJobMeta ? (
             <View

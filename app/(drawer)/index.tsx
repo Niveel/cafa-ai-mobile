@@ -92,7 +92,6 @@ import {
   getPromptTitle,
   isLikelyImageGenerationIntent,
   isLikelyImageFollowUpPrompt,
-  isMediaCapabilityQuestion,
   isLikelyReferencedMediaQuestionPrompt,
   isLikelyVideoGenerationIntent,
   isLikelyVideoFollowUpPrompt,
@@ -142,6 +141,7 @@ import {
   clearDocumentWizardDraftMessages,
   classifyChatResponse,
   detectDocumentRequest,
+  generateDocumentDirect,
   emitChatMutated,
   getActiveDocumentWizardDraftKey,
   getDocumentWizardDraftMessages,
@@ -2755,30 +2755,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return item.role;
   }, []);
 
-  const isLikelyArtifactGenerationIntent = useCallback((value: string) => {
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) return false;
-    const asksForGeneration =
-      /\b(generate|create|make|build|export|produce|draft|write|prepare|compose)\b/.test(normalized)
-      || /\b(give me|provide|send me|share|return|output)\b/.test(normalized)
-      || /\b(i need|i want|can i get|could you|please)\b/.test(normalized);
-    const asksForFile =
-      /\b(file|artifact|document|docx|pdf|csv|xlsx|sheet|markdown|md|txt|json)\b/.test(normalized);
-    const asksForFormatStyle =
-      /\b(in|as)\s+(a\s+)?(docx|pdf|csv|xlsx|markdown|md|txt|json)\b/.test(normalized)
-      || /\.(docx|pdf|csv|xlsx|md|txt|json)\b/.test(normalized);
-    const likelyRequestQuestion =
-      /\?$/.test(normalized) && /\b(can|could|would|will)\b/.test(normalized);
-    return (asksForGeneration && asksForFile) || (asksForFile && asksForFormatStyle) || (likelyRequestQuestion && asksForFile);
-  }, []);
-
-  const isChartGenerationRequest = useCallback((value: string) => {
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) return false;
-    return /\b(?:bar|line|pie|area|scatter|bubble|column|donut|doughnut)\s+charts?\b/i.test(normalized)
-      || /\b(?:charts?|graphs?|plots?|data visuali[sz]ation)\b/i.test(normalized);
-  }, []);
-
   const handleSend = (options?: { skipDocumentFormWarning?: boolean }) => {
       const run = async () => {
         const trimmed = inputValueRef.current.trim();
@@ -3065,7 +3041,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           setIsUnderstandingPrompt(false);
 
           let detectedExpectedResponseType: import('@/types').ExpectedResponseType = 'text';
-          let shouldRouteChartThroughChat = isChartGenerationRequest(trimmed);
+          let classificationLoadingLabel: string | null = null;
           let analyzedUserMessage: UiMessage | null = null;
           let analyzedAssistantId = '';
           if (screenMode === 'chat' && isAuthenticated) {
@@ -3100,28 +3076,31 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             setShowScrollToBottom(false);
             scrollToBottom();
 
-            lastEndpoint = `${API_BASE_URL}/chat/classify`;
-            logSendPayload({
-              endpoint: lastEndpoint,
-              mode: 'auth-chat-classify',
-              conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
-              message: trimmed,
-              language,
-              model: activeModel,
-              reference: composerMediaReference ?? null,
-              attachments: attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType })),
-            });
-            const classification = await classifyChatResponse(
-              trimmed,
-              attachmentsForSend.map(({ fileName, mimeType }) => ({ fileName, mimeType })),
-            );
-            shouldRouteChartThroughChat = shouldRouteChartThroughChat
-              || classification.subIntent?.trim().toLowerCase() === 'chart_generate';
-            const isCapabilityQuestion = isMediaCapabilityQuestion(trimmed);
-            const actionableClassificationResponseType = isCapabilityQuestion
-              ? 'text'
-              : classification.responseType;
-            const shouldRunDocumentDetection = actionableClassificationResponseType === 'artifact';
+            const hasAttachment = attachmentsForSend.length > 0;
+            if (!hasAttachment) {
+              lastEndpoint = `${API_BASE_URL}/chat/classify`;
+              logSendPayload({
+                endpoint: lastEndpoint,
+                mode: 'auth-chat-classify',
+                conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
+                message: trimmed,
+                language,
+                model: activeModel,
+                reference: composerMediaReference ?? null,
+                attachments: [],
+              });
+            }
+            const classification: import('@/types').ChatClassificationResult = hasAttachment
+              ? {
+                  responseType: 'text',
+                  confidence: 1,
+                  subIntent: null,
+                  label: 'Analyzing attachment',
+                  description: 'Reviewing your attachment',
+                }
+              : await classifyChatResponse(trimmed);
+            const actionableClassificationResponseType = classification.responseType;
+            const shouldRunDocumentDetection = !hasAttachment && classification.responseType === 'artifact';
             if (shouldRunDocumentDetection) {
               lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
               logSendPayload({
@@ -3149,9 +3128,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
               ? 'artifact'
               : actionableClassificationResponseType;
-            if (shouldRouteChartThroughChat) {
-              detectedExpectedResponseType = 'artifact';
-            }
+            classificationLoadingLabel = classification.label;
+            setStreamingModelLabel(classification.label);
+            setStatusNotice(classification.description);
             if (__DEV__) {
               try {
                 console.log('[chat-classify:result]', JSON.stringify({
@@ -3161,8 +3140,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   actionableResponseType: actionableClassificationResponseType,
                   confidence: classification.confidence,
                   subIntent: classification.subIntent,
-                  mediaCapabilityQuestion: isCapabilityQuestion,
-                  routeThroughRegularChat: shouldRouteChartThroughChat,
+                  classificationSkipped: hasAttachment,
+                  routeThroughRegularChat: false,
                 }));
                 console.log('[document-detect:result]', JSON.stringify({
                   endpoint: `${API_BASE_URL}/documents/wizard/detect`,
@@ -3184,8 +3163,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   actionableResponseType: actionableClassificationResponseType,
                   confidence: classification.confidence,
                   subIntent: classification.subIntent,
-                  mediaCapabilityQuestion: isCapabilityQuestion,
-                  routeThroughRegularChat: shouldRouteChartThroughChat,
+                  classificationSkipped: hasAttachment,
+                  routeThroughRegularChat: false,
                 });
                 console.log('[document-detect:result]', {
                   endpoint: `${API_BASE_URL}/documents/wizard/detect`,
@@ -3218,8 +3197,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   setAuthConversationId(wizardConversationId);
                   didMutateChats = true;
                 }
-                const userMessageId = analyzedUserMessage.id;
-                const assistantMessageId = analyzedAssistantId;
                 lastEndpoint = `${API_BASE_URL}/documents/wizard/start`;
                 logSendPayload({
                   endpoint: lastEndpoint,
@@ -3234,33 +3211,41 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   format: detection.format ?? null,
                   confidence: detection.confidence,
                   userRequest: trimmed,
-                  userMessageId,
-                  assistantMessageId,
                 });
                 setStatusNotice('Preparing your form...');
                 const detectedDocumentType = detection.documentType?.trim() || 'document';
-                const html = await startDocumentWizard(trimmed, {
+                const started = await startDocumentWizard(trimmed, {
                   conversationId: wizardConversationId ?? undefined,
-                  userMessageId,
-                  assistantMessageId,
+                  documentType: detection.documentType ?? undefined,
+                  format: detection.format ?? undefined,
                 });
+                wizardConversationId = started.conversationId ?? wizardConversationId;
+                activeAuthConversationId = wizardConversationId ?? null;
+                if (wizardConversationId) {
+                  setAuthConversationId(wizardConversationId);
+                }
                 logResponsePayloadForAttempt({
                   responseType: 'document-wizard-start',
-                  html,
-                  htmlLength: html.length,
+                  htmlLength: started.html.length,
+                  userMessageId: started.userMessageId,
+                  assistantMessageId: started.assistantMessageId,
                 });
+                const persistedUserMessage: UiMessage = {
+                  ...analyzedUserMessage,
+                  id: started.userMessageId,
+                };
                 const assistantMessage: UiMessage = {
-                  id: assistantMessageId,
+                  id: started.assistantMessageId,
                   role: 'assistant',
                   content: `Fill in the form below and submit it here in chat. I’ll use it to create a stronger ${detectedDocumentType} for you.`,
                   createdAt: Date.now() + 1,
                   documentWizard: {
-                    html,
+                    html: started.html,
                     documentType: detectedDocumentType,
                     format: detection.format ?? 'pdf',
                     collapsed: false,
-                    userMessageId,
-                    assistantMessageId,
+                    userMessageId: started.userMessageId,
+                    assistantMessageId: started.assistantMessageId,
                   },
                 };
 
@@ -3283,18 +3268,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         }
                       : message
                   ));
-                nextMessages.push(analyzedUserMessage, assistantMessage);
+                nextMessages.push(persistedUserMessage, assistantMessage);
                 setMessages((prev) => {
-                  const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
-                  return withoutSyntheticWelcome.map((message) => {
-                    if (message.id === assistantMessageId) return assistantMessage;
-                    return message.documentWizard
+                  const withoutTemporaryAnalysis = prev.filter((message) => (
+                    !isWelcomeMessage(message)
+                    && message.id !== analyzedUserMessage?.id
+                    && message.id !== analyzedAssistantId
+                  ));
+                  return [
+                    ...withoutTemporaryAnalysis.map((message) => message.documentWizard
                       ? {
                           ...message,
                           documentWizard: { ...message.documentWizard, collapsed: true },
                         }
-                      : message;
-                  });
+                      : message),
+                    persistedUserMessage,
+                    assistantMessage,
+                  ];
                 });
                 await setDocumentWizardDraftMessages(
                   getDocumentWizardDraftKey(wizardConversationId ?? null),
@@ -3314,6 +3304,48 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               } finally {
                 setStatusNotice('');
               }
+            } else if (shouldRunDocumentDetection) {
+              let directConversationId = activeAuthConversationId ?? authConversationId;
+              if (!directConversationId) {
+                lastEndpoint = `${API_BASE_URL}/chat`;
+                const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
+                directConversationId = created.conversationId;
+                activeAuthConversationId = directConversationId;
+                setAuthConversationId(directConversationId);
+                didMutateChats = true;
+              }
+              lastEndpoint = `${API_BASE_URL}/documents/wizard/generate-direct`;
+              logSendPayload({
+                endpoint: lastEndpoint,
+                mode: 'auth-document-generate-direct',
+                conversationId: directConversationId,
+                message: trimmed,
+                documentType: detection.documentType,
+                format: detection.format,
+              });
+              setStatusNotice(classification.description || 'Generating your document…');
+              const generated = await generateDocumentDirect(
+                trimmed,
+                detection.documentType,
+                detection.format,
+                directConversationId,
+              );
+              logResponsePayloadForAttempt({
+                responseType: 'document-generate-direct',
+                artifactCount: generated.artifacts.length,
+                userMessageId: generated.userMessageId,
+                assistantMessageId: generated.assistantMessageId,
+              });
+              const detail = await getAuthenticatedConversation(directConversationId, { force: true });
+              applyAuthConversationDetail(detail);
+              if (directConversationId !== params.conversationId) {
+                router.setParams({ conversationId: directConversationId, newChat: undefined });
+              }
+              setStreamingModelLabel(null);
+              setStatusNotice('');
+              hapticSuccess();
+              didMutateChats = true;
+              return;
             } else {
               setStatusNotice('');
             }
@@ -3349,13 +3381,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             && isAuthenticated;
           const shouldShowBackendArtifactLoading = shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'artifact';
-          const suppressStreamingTextForArtifact = shouldShowBackendArtifactLoading
-            || (
-              !shouldUseBackendResponseTypeForLoading
-              && isAuthenticated
-              && !attachmentsForSend.length
-              && isLikelyArtifactGenerationIntent(trimmed)
-            );
+          const suppressStreamingTextForArtifact = shouldShowBackendArtifactLoading;
           const shouldShowBackendImageLoading = !suppressStreamingTextForArtifact
             && shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'image';
@@ -3380,7 +3406,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           inputValueRef.current = '';
           setInput('');
           setComposerMediaReference(null);
-          setStreamingModelLabel(t(`chat.model.label.${activeModel}`));
+          setStreamingModelLabel(
+            classificationLoadingLabel ?? t(`chat.model.label.${activeModel}`),
+          );
           setMessages((prev) => {
             const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
             const assistantMessage: UiMessage = {
@@ -3529,10 +3557,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const hasAnyAttachment = attachmentsForSend.length > 0;
         const shouldUseBackendResponseTypeForMediaIntent = screenMode === 'chat'
           && isAuthenticated
-          && !hasAnyAttachment
-          && !composerMediaReference;
+          && !hasAnyAttachment;
         const inferredImagePrompt = shouldUseBackendResponseTypeForMediaIntent
-          ? (!shouldRouteChartThroughChat && detectedExpectedResponseType === 'image' ? trimmed : null)
+          ? (detectedExpectedResponseType === 'image' ? trimmed : null)
           : (!extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
             ? trimmed
             : null);
@@ -3561,12 +3588,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               : (extractedVideoPrompt ?? inferredVideoFromImagePrompt)
           );
         const referencedKind = composerMediaReference?.kind;
-        const isReferencedMediaQuestion = Boolean(composerMediaReference)
-          && isLikelyReferencedMediaQuestionPrompt(trimmed);
+        const isReferencedMediaQuestion = Boolean(composerMediaReference) && (
+          shouldUseBackendResponseTypeForMediaIntent
+            ? detectedExpectedResponseType === 'text' || detectedExpectedResponseType === 'search'
+            : isLikelyReferencedMediaQuestionPrompt(trimmed)
+        );
         const shouldUseVideoFollowUp =
-          referencedKind === 'video' && !isReferencedMediaQuestion && isLikelyVideoFollowUpPrompt(trimmed);
+          !shouldUseBackendResponseTypeForMediaIntent
+          && referencedKind === 'video'
+          && !isReferencedMediaQuestion
+          && isLikelyVideoFollowUpPrompt(trimmed);
         const shouldUseImageFollowUp =
-          referencedKind === 'image' && !isReferencedMediaQuestion && isLikelyImageFollowUpPrompt(trimmed);
+          !shouldUseBackendResponseTypeForMediaIntent
+          && referencedKind === 'image'
+          && !isReferencedMediaQuestion
+          && isLikelyImageFollowUpPrompt(trimmed);
         const shouldUseReferencedNonStreamChat =
           Boolean(composerMediaReference)
           && (
@@ -4696,6 +4732,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           }
           setIsUnderstandingPrompt(false);
           setStreamingModelLabel(null);
+          setStatusNotice('');
           setIsSending(false);
           isSendRunInFlightRef.current = false;
           if (didMutateChats) {

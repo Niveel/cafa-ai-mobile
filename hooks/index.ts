@@ -4,3 +4,4 @@ export * from './useI18n';
 export * from './useRevenueCat';
 export * from './useAdVisibility';
 export * from './useRewardedAd';
+export * from './useDailyInterstitialAd';

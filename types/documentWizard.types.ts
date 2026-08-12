@@ -35,6 +35,19 @@ export type DocumentWizardArtifact = {
   size_bytes: number;
 };
 
+export type StartDocumentWizardResult = {
+  html: string;
+  conversationId?: string;
+  userMessageId: string;
+  assistantMessageId: string;
+};
+
+export type GenerateDocumentDirectResult = {
+  artifacts: DocumentWizardArtifact[];
+  userMessageId: string;
+  assistantMessageId: string;
+};
+
 export type DocumentWizardHistoryItem = {
   _id: string;
   documentType: string;
