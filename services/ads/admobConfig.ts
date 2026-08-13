@@ -1,8 +1,9 @@
 /**
  * AdMob configuration and ID resolution.
  *
- * Uses Google test IDs when __DEV__ is true.
- * Production builds use the environment-specific AdMob IDs.
+ * Uses production IDs by default in every native build so rewarded-ad SSV
+ * always targets the configured publisher unit. Google test IDs are opt-in
+ * through EXPO_PUBLIC_ADMOB_USE_TEST_IDS=true.
  *
  * Privacy & policy notes:
  * - Android: the app contains ads declaration must be set in Google Play Console.
@@ -44,6 +45,7 @@ const ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID;
 const IOS_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
 const ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID;
 const IOS_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
+const USE_TEST_IDS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_IDS?.trim().toLowerCase() === 'true';
 
 type AdUnitFormat = 'banner' | 'rewarded' | 'interstitial';
 
@@ -53,7 +55,7 @@ function getUnitId(
   testId: string,
   format: AdUnitFormat,
 ): string {
-  if (__DEV__) {
+  if (USE_TEST_IDS) {
     return testId;
   }
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
@@ -67,6 +69,7 @@ function getUnitId(
 export const AdMobConfig = {
   /** True when running inside Expo Go (no native ads possible). */
   isExpoGo: isRunningInExpoGo(),
+  usesTestIds: USE_TEST_IDS,
 
   androidAppId: ANDROID_APP_ID?.trim() || PRODUCTION_IDS.android.app,
   iosAppId: IOS_APP_ID?.trim() || PRODUCTION_IDS.ios.app,
