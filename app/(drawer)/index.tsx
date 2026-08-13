@@ -2861,6 +2861,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         let requestedVideoStartedAt = 0;
         let didMutateChats = false;
         let preserveLimitNotice = false;
+        let preClassifiedChatType: 'text' | 'search' | undefined;
         let responseLogEmitted = false;
         let assistantResponseBuffer = '';
         let responseRecoveryStartAt = 0;
@@ -3145,6 +3146,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
               ? 'artifact'
               : actionableClassificationResponseType;
+            if (!hasAttachment && (classification.responseType === 'text' || classification.responseType === 'search')) {
+              preClassifiedChatType = classification.responseType;
+            }
             classificationLoadingLabel = classification.label;
             setStreamingModelLabel(classification.label);
             setStatusNotice(classification.description);
@@ -3909,6 +3913,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             message: trimmed,
             reference: composerMediaReference ?? null,
             model: activeModel,
+            preClassifiedAs: preClassifiedChatType ?? null,
           });
           const nonStreamResult = await sendAuthenticatedMessageNonStream(
             conversationId,
@@ -3916,6 +3921,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             activeModel,
             composerMediaReference ?? undefined,
             attachmentsForSend,
+            preClassifiedChatType,
           );
           const detail = await getAuthenticatedConversation(conversationId, { force: true });
           applyAuthConversationDetail(detail);
@@ -4152,6 +4158,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           language,
           model: mobileAuthModelForTextChat,
           reference: composerMediaReference ?? null,
+          preClassifiedAs: preClassifiedChatType ?? null,
           attachments: attachmentsForSend.map((asset) => ({
             id: asset.id,
             label: asset.label,
@@ -4267,6 +4274,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           (debugEvent) => {
             lastIdempotencyKey = debugEvent.idempotencyKey;
           },
+          preClassifiedChatType,
         );
         const streamedText = assistantResponseBuffer.trim();
         if (streamedText.length > 0) {
@@ -4476,6 +4484,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               activeModel,
               composerMediaReference ?? undefined,
               attachmentsForSend,
+              preClassifiedChatType,
             );
             fallbackResponseText = fallbackResponse.data?.recoveredText?.trim() ?? '';
           } catch {

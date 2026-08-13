@@ -667,6 +667,7 @@ export async function sendAuthenticatedMessageStream(
   language: 'en' | 'fr' | 'es' | 'pt' = 'en',
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
   onDebug?: (event: AuthSendDebugEvent) => void,
+  preClassifiedAs?: 'text' | 'search',
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -706,7 +707,7 @@ export async function sendAuthenticatedMessageStream(
   });
   authStreamLog(
     'start',
-    `endpoint=${endpoint} messageLen=${message.length} language=${language} model=${selectedModel} idempotencyKey=${idempotencyKey}`,
+    `endpoint=${endpoint} messageLen=${message.length} language=${language} model=${selectedModel} preClassifiedAs=${preClassifiedAs ?? 'none'} idempotencyKey=${idempotencyKey}`,
   );
 
   const buildFormData = () => {
@@ -716,6 +717,7 @@ export async function sendAuthenticatedMessageStream(
     formData.append('language', language);
     formData.append('selectedModel', selectedModelId);
     formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
+    if (preClassifiedAs) formData.append('preClassifiedAs', preClassifiedAs);
     for (const file of attachments) {
       if (!file?.uri) continue;
       const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
@@ -1387,6 +1389,7 @@ export async function sendAuthenticatedMessageNonStream(
     fileName?: string;
     mimeType?: string;
   }[] = [],
+  preClassifiedAs?: 'text' | 'search',
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -1400,6 +1403,7 @@ export async function sendAuthenticatedMessageNonStream(
   formData.append('stream', 'false');
   formData.append('selectedModel', selectedModelId);
   formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
+  if (preClassifiedAs) formData.append('preClassifiedAs', preClassifiedAs);
   if (reference?.url) {
     const normalizedReference = {
       kind: reference.kind,

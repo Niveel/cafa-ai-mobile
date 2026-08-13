@@ -323,6 +323,7 @@ export default function VoiceScreen() {
   const [wizardStep, setWizardStep] = useState(0);
   const wizardTransition = useRef(new Animated.Value(1)).current;
   const wizardDirectionRef = useRef(1);
+  const wizardAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
   const isMountedRef = useRef(true);
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const previewPlayerSubRef = useRef<{ remove: () => void } | null>(null);
@@ -349,12 +350,17 @@ export default function VoiceScreen() {
 
   const goToWizardStep = useCallback((nextStep: number) => {
     const boundedStep = Math.max(0, Math.min(wizardSteps.length - 1, nextStep));
+    if (boundedStep === wizardStep) return;
+    wizardAnimationRef.current?.stop();
+    wizardAnimationRef.current = null;
+    wizardTransition.stopAnimation();
+    wizardTransition.setValue(prefersReducedMotion ? 1 : 0);
     wizardDirectionRef.current = boundedStep >= wizardStep ? 1 : -1;
     setWizardStep(boundedStep);
     AccessibilityInfo.announceForAccessibility?.(
       `Step ${boundedStep + 1} of ${wizardSteps.length}: ${wizardSteps[boundedStep]?.label}`,
     );
-  }, [wizardStep, wizardSteps]);
+  }, [prefersReducedMotion, wizardStep, wizardSteps, wizardTransition]);
 
   useEffect(() => {
     if (prefersReducedMotion) {
@@ -362,13 +368,21 @@ export default function VoiceScreen() {
       return;
     }
     wizardTransition.setValue(0);
-    Animated.spring(wizardTransition, {
+    const animation = Animated.spring(wizardTransition, {
       toValue: 1,
       damping: 20,
       stiffness: 180,
       mass: 0.8,
       useNativeDriver: true,
-    }).start();
+    });
+    wizardAnimationRef.current = animation;
+    animation.start(({ finished }) => {
+      if (finished) wizardAnimationRef.current = null;
+    });
+    return () => {
+      animation.stop();
+      if (wizardAnimationRef.current === animation) wizardAnimationRef.current = null;
+    };
   }, [prefersReducedMotion, wizardStep, wizardTransition]);
 
   const wizardAnimatedStyle = {
