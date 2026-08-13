@@ -3,6 +3,7 @@ export type ExpectedResponseType =
   | 'text'
   | 'search'
   | 'image'
+  | 'chart'
   | 'video'
   | 'artifact'
   | 'image_analysis'

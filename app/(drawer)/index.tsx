@@ -111,6 +111,7 @@ import {
   editImage,
   fetchPromptSuggestions,
   generateImage,
+  generateChart,
   getDedicatedMediaConversation,
   generateVideoFromImageDirect,
   rewriteMediaPrompt,
@@ -629,7 +630,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (screenMode === 'edit-image') return 'edit-image';
     if (screenMode === 'image-to-video') return 'video';
     return 'chat';
-  }, [language, screenMode]);
+  }, [screenMode]);
 
   const clearPromptSuggestions = useCallback((options?: { keepModalOpen?: boolean }) => {
     if (promptSuggestionAbortRef.current) {
@@ -3405,7 +3406,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           const suppressStreamingTextForArtifact = shouldShowBackendArtifactLoading;
           const shouldShowBackendImageLoading = !suppressStreamingTextForArtifact
             && shouldUseBackendResponseTypeForLoading
-            && detectedExpectedResponseType === 'image';
+            && (detectedExpectedResponseType === 'image' || detectedExpectedResponseType === 'chart');
           const shouldShowBackendVideoLoading = !suppressStreamingTextForArtifact
             && shouldUseBackendResponseTypeForLoading
             && detectedExpectedResponseType === 'video';
@@ -3591,6 +3592,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               ? inferredImagePrompt
               : (extractedImagePrompt ?? inferredImagePrompt)
           );
+        const effectiveChartPrompt = shouldUseBackendResponseTypeForMediaIntent
+          && detectedExpectedResponseType === 'chart'
+          ? trimmed
+          : null;
         const imageAttachmentForVideoIntent = attachmentsForSend.find((asset) =>
           (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
         );
@@ -3633,6 +3638,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               && !shouldUseImageFollowUp
               && !effectiveVideoPrompt
               && !effectiveImagePrompt
+              && !effectiveChartPrompt
             )
           );
 
@@ -4081,6 +4087,49 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           hapticSuccess();
           videoGenerationInFlightRef.current = false;
           videoFromImageInFlightRef.current = false;
+          didMutateChats = true;
+          return;
+        }
+
+        if (effectiveChartPrompt) {
+          requestKind = 'image';
+          setMessages((prev) => prev.map((item) => item.id === assistantId
+            ? { ...item, content: effectiveChartPrompt, imagePrompt: effectiveChartPrompt, isImageGenerating: true }
+            : item));
+          lastEndpoint = `${API_BASE_URL}/charts/generate`;
+          logSendPayload({
+            endpoint: lastEndpoint,
+            mode: 'auth-direct-chart-generate',
+            conversationId,
+            prompt: effectiveChartPrompt,
+            model: activeModel,
+          });
+          const generated = await generateChart({ conversationId, prompt: effectiveChartPrompt });
+          const resolvedImageUrl = resolveBackendAssetUrl(generated.imageUrl);
+          if (!resolvedImageUrl) throw new Error('Chart generation failed. Please try rephrasing your request.');
+          logResponsePayloadForAttempt({
+            responseType: 'chart',
+            id: generated.id,
+            imageUrl: resolvedImageUrl,
+            generationTime: generated.generationTime ?? null,
+            model: generated.model ?? null,
+          });
+          try {
+            const detail = await getAuthenticatedConversation(conversationId, { force: true });
+            applyAuthConversationDetail(detail);
+          } catch {
+            setMessages((prev) => prev.map((item) => item.id === assistantId
+              ? {
+                  ...item,
+                  content: generated.prompt || effectiveChartPrompt,
+                  imageId: generated.id,
+                  imagePrompt: generated.prompt || effectiveChartPrompt,
+                  imageUrl: resolvedImageUrl,
+                  isImageGenerating: false,
+                }
+              : item));
+          }
+          hapticSuccess();
           didMutateChats = true;
           return;
         }
@@ -5977,8 +6026,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
   }, [
     applyDescriptiveAttachmentNames,
+    authConversationId,
     createWelcomeMessage,
     getDocumentWizardDraftKey,
+    guestConversationId,
     isAuthenticated,
     mergeDocumentWizardDraftMessages,
     mapAuthMessageToUiMessage,

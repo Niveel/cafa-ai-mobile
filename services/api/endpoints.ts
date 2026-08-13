@@ -91,6 +91,10 @@ export const apiEndpoints = {
     contact: `${API_BASE_PATH}/support/contact`,
   },
 
+  charts: {
+    generate: `${API_BASE_PATH}/charts/generate`,
+  },
+
   ads: {
     rewardEligibility: `${API_BASE_PATH}/ads/rewards/eligibility`,
     rewardSessions: `${API_BASE_PATH}/ads/rewards/sessions`,

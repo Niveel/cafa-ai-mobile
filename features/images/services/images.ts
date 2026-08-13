@@ -15,6 +15,15 @@ type ApiMappedError = Error & {
   status?: number;
 };
 
+export type ChartGenerationResult = {
+  id: string;
+  imageUrl: string;
+  prompt: string;
+  generationTime?: number;
+  model?: string;
+  createdAt?: string;
+};
+
 function createMediaImageError(message: string, code: string, status?: number): ApiMappedError {
   const error = new Error(message) as ApiMappedError;
   error.code = code;
@@ -102,6 +111,24 @@ export async function generateImage(request: GenerateImageRequest) {
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
     captureEvent(AnalyticsEvents.imageGenerationFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
     throw mapped;
+  }
+}
+
+export async function generateChart(request: { prompt: string; conversationId?: string }) {
+  try {
+    const response: AxiosResponse<ApiResponse<ChartGenerationResult> & { error?: string; code?: string }> =
+      await apiClient.post(apiEndpoints.charts.generate, request, { timeout: IMAGE_GENERATION_TIMEOUT_MS });
+    const payload = response.data;
+    const generated = payload?.data;
+    if (payload?.success === false || !generated?.imageUrl) {
+      const mapped = new Error(payload?.message ?? 'Chart generation failed. Please try rephrasing your request.') as ApiMappedError;
+      mapped.code = payload?.code ?? payload?.error;
+      mapped.status = response.status;
+      throw mapped;
+    }
+    return generated;
+  } catch (error) {
+    throw mapApiError(error);
   }
 }
 
