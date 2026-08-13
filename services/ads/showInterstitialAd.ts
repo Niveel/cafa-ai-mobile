@@ -6,18 +6,85 @@ import { getGoogleMobileAds } from './googleMobileAds';
 import { initializeAds } from './initializeAds';
 
 let isShowing = false;
+let preparedAd: ReturnType<NonNullable<ReturnType<typeof getGoogleMobileAds>>['InterstitialAd']['createForAdRequest']> | null = null;
+let preloadPromise: Promise<boolean> | null = null;
+
+export async function preloadInterstitialAd(): Promise<boolean> {
+  if (AdMobConfig.isExpoGo) return false;
+  if (preparedAd) return true;
+  if (preloadPromise) return preloadPromise;
+
+  preloadPromise = (async () => {
+    try {
+      await initializeAds();
+      const ads = getGoogleMobileAds();
+      if (!ads) return false;
+
+      const { InterstitialAd, AdEventType } = ads;
+      const ad = InterstitialAd.createForAdRequest(AdMobConfig.interstitialAdUnitId);
+
+      return await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const finish = (loaded: boolean) => {
+          if (settled) return;
+          settled = true;
+          loadedUnsub();
+          errorUnsub();
+          clearTimeout(timeout);
+          if (loaded) preparedAd = ad;
+          resolve(loaded);
+        };
+        const loadedUnsub = ad.addAdEventListener(AdEventType.LOADED, () => {
+          captureEvent(AnalyticsEvents.interstitialAdLoaded, {
+            placement: 'repo_tools_preload',
+            format: 'interstitial',
+          });
+          finish(true);
+        });
+        const errorUnsub = ad.addAdEventListener(
+          AdEventType.ERROR,
+          (event: { message?: string; code?: string | number }) => {
+            captureEvent(AnalyticsEvents.interstitialAdFailed, {
+              placement: 'repo_tools_preload',
+              format: 'interstitial',
+              error: event.message ?? 'Interstitial preload failed.',
+              code: event.code ?? null,
+            });
+            finish(false);
+          },
+        );
+        const timeout = setTimeout(() => finish(false), 20_000);
+
+        try {
+          ad.load();
+        } catch {
+          finish(false);
+        }
+      });
+    } catch {
+      return false;
+    } finally {
+      preloadPromise = null;
+    }
+  })();
+
+  return preloadPromise;
+}
 
 export async function showInterstitialAd(placement: string): Promise<boolean> {
   if (AdMobConfig.isExpoGo || isShowing) return false;
 
   try {
-    await initializeAds();
+    const ready = await preloadInterstitialAd();
+    if (!ready) return false;
     const ads = getGoogleMobileAds();
     if (!ads) return false;
 
-    const { InterstitialAd, AdEventType } = ads;
+    const { AdEventType } = ads;
     const properties = { placement, format: 'interstitial' };
-    const ad = InterstitialAd.createForAdRequest(AdMobConfig.interstitialAdUnitId);
+    const ad = preparedAd;
+    if (!ad) return false;
+    preparedAd = null;
     isShowing = true;
 
     return await new Promise<boolean>((resolve) => {
@@ -25,13 +92,13 @@ export async function showInterstitialAd(placement: string): Promise<boolean> {
       let opened = false;
 
       const cleanup = () => {
-        loadedUnsub();
         errorUnsub();
         openedUnsub();
         clickedUnsub();
         paidUnsub();
         closedUnsub();
         isShowing = false;
+        void preloadInterstitialAd();
       };
       const finish = (shown: boolean) => {
         if (settled) return;
@@ -40,16 +107,6 @@ export async function showInterstitialAd(placement: string): Promise<boolean> {
         resolve(shown);
       };
 
-      const loadedUnsub = ad.addAdEventListener(AdEventType.LOADED, () => {
-        captureEvent(AnalyticsEvents.interstitialAdLoaded, properties);
-        void ad.show().catch((error: unknown) => {
-          captureEvent(AnalyticsEvents.interstitialAdFailed, {
-            ...properties,
-            error: error instanceof Error ? error.message : 'Failed to show interstitial ad.',
-          });
-          finish(false);
-        });
-      });
       const errorUnsub = ad.addAdEventListener(AdEventType.ERROR, (event: { message?: string; code?: string | number }) => {
         captureEvent(AnalyticsEvents.interstitialAdFailed, {
           ...properties,
@@ -76,15 +133,13 @@ export async function showInterstitialAd(placement: string): Promise<boolean> {
         finish(opened);
       });
 
-      try {
-        ad.load();
-      } catch (error) {
+      void ad.show().catch((error: unknown) => {
         captureEvent(AnalyticsEvents.interstitialAdFailed, {
           ...properties,
-          error: error instanceof Error ? error.message : 'Failed to load interstitial ad.',
+          error: error instanceof Error ? error.message : 'Failed to show interstitial ad.',
         });
         finish(false);
-      }
+      });
     });
   } catch (error) {
     isShowing = false;

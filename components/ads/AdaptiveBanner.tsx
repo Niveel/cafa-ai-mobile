@@ -34,7 +34,7 @@ export function AdaptiveBanner({ pathname, isModalOpen = false }: AdaptiveBanner
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [sdkReady, setSdkReady] = useState(false);
+  const [sdkReady, setSdkReady] = useState(() => getAdsInitialized());
 
   // Track keyboard visibility so the banner is hidden while the keyboard is open.
   useEffect(() => {
@@ -49,7 +49,7 @@ export function AdaptiveBanner({ pathname, isModalOpen = false }: AdaptiveBanner
     };
   }, []);
 
-  // Lazy-initialize the AdMob SDK when this banner mounts.
+  // Startup normally initializes the SDK; this remains as a safe fallback.
   useEffect(() => {
     let cancelled = false;
 
