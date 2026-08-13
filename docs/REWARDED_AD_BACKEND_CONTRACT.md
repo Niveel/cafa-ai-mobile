@@ -2,15 +2,15 @@
 
 ## Scope
 
-Free users who have exhausted a chat, image, or video allowance may watch at most three rewarded ads per UTC day across all reward types. A verified completion grants exactly one of:
+Free users may request a rewarded ad only immediately after the corresponding chat, image, or video operation returns a usage-limit error. Rewards are independent: watching an ad for one resource never grants either of the other resources.
 
-| `rewardType` | Grant |
-| --- | ---: |
-| `chat` | 10 chat prompts |
-| `image` | 1 image generation |
-| `video` | 1 video generation |
+| `rewardType` | Grant per verified ad | Maximum verified grants per UTC day |
+| --- | ---: | ---: |
+| `chat` | 10 chat prompts | 3 |
+| `image` | 1 image generation | 3 |
+| `video` | 1 video generation | 1 |
 
-The backend is authoritative for eligibility, the daily cap, completion verification, idempotency, and credit balances. The client must never grant credits locally.
+Each grant is bound to its `rewardType` and the UTC reward day on which it was earned. Unused bonus usage expires at the next UTC reset and must not roll over. The backend is authoritative for eligibility, each resource's daily cap, completion verification, idempotency, expiry, and credit balances. The client must never grant credits locally.
 
 ## Authentication and errors
 
@@ -18,7 +18,7 @@ All user endpoints require the normal bearer access token. Use the existing API 
 
 - `AD_REWARD_NOT_ELIGIBLE` (403): the underlying product limit has not been reached.
 - `AD_REWARD_PAID_TIER` (403): only free users qualify.
-- `AD_REWARD_DAILY_CAP_REACHED` (429): three grants/sessions have been consumed that UTC day.
+- `AD_REWARD_DAILY_CAP_REACHED` (429): that reward type's daily cap has been reached.
 - `AD_REWARD_SESSION_EXPIRED` (410).
 - `AD_REWARD_NOT_VERIFIED` (409): Google SSV has not been received or validated yet.
 - `AD_REWARD_ALREADY_GRANTED` should return HTTP 200 with `status: "already_granted"` for idempotent retries.
@@ -42,7 +42,7 @@ Response:
 }
 ```
 
-Eligibility requires an authenticated free user whose corresponding base allowance is exhausted. `remainingToday` is global across chat, image, and video rewards.
+Eligibility requires an authenticated free user whose corresponding usable allowance is currently exhausted: both the base allowance and any unexpired bonus for that resource must be zero. This prevents users from stacking rewards in advance; they must consume a grant and hit that same limit again before watching another ad. A user cannot open an image reward session because chat or video is exhausted, for example. `usedToday`, `remainingToday`, and `dailyLimit` are scoped to the requested `rewardType`, not shared globally.
 
 ### `POST /ads/rewards/sessions`
 
@@ -56,7 +56,7 @@ Request:
 }
 ```
 
-The server must ignore or validate `requestedGrant` against its own reward table. Atomically reserve one of the three daily attempts so concurrent devices cannot exceed the cap. A reservation should expire after 10–15 minutes and become reusable if no ad starts.
+The server must ignore or validate `requestedGrant` against its own reward table. Atomically reserve one attempt from the requested reward type's daily cap so concurrent devices cannot exceed it. A reservation should expire after 10–15 minutes and become reusable if no verified grant is issued.
 
 Response:
 
@@ -115,8 +115,14 @@ Granted response:
   "grantAmount": 1,
   "remainingToday": 1,
   "dailyLimit": 3,
+  "expiresAt": "2026-08-09T00:00:00.000Z",
   "usage": {
-    "image": { "used": 5, "limit": 5, "bonusRemaining": 1 }
+    "image": {
+      "used": 5,
+      "limit": 5,
+      "bonusRemaining": 1,
+      "bonusExpiresAt": "2026-08-09T00:00:00.000Z"
+    }
   }
 }
 ```
@@ -130,11 +136,12 @@ Pending response (HTTP 200 or 202):
   "rewardType": "image",
   "grantAmount": 1,
   "remainingToday": 1,
-  "dailyLimit": 3
+  "dailyLimit": 3,
+  "expiresAt": "2026-08-09T00:00:00.000Z"
 }
 ```
 
-Generation/chat endpoints should consume bonus credits only after the normal free allowance is exhausted. Credit consumption must be atomic and should expose `bonusRemaining` in usage responses.
+Generation/chat endpoints should consume only their matching bonus credits and only after the matching normal free allowance is exhausted. Credit consumption must be atomic and should expose `bonusRemaining` and `bonusExpiresAt` in usage responses. At the UTC reset, expire all unused bonus balances from the previous reward day before evaluating usage. Never carry an unused reward into the next day.
 
 ## Persistence model
 
@@ -144,7 +151,7 @@ Recommended `ad_reward_sessions` fields:
 - `status`: `reserved`, `started`, `verified`, `granted`, `cancelled`, `expired`, `rejected`
 - `ad_network`, `ad_unit_id`, `transaction_id` (unique), `ssv_custom_data_hash`
 - `created_at`, `started_at`, `verified_at`, `granted_at`, `cancelled_at`, `expires_at`
-- `reward_day_utc`, `client_platform`, `app_version`, `error_code`
+- `reward_day_utc`, `reward_expires_at`, `client_platform`, `app_version`, `error_code`
 - SSV value/currency/precision fields when available
 
 Maintain an immutable credit ledger with a unique reference to the reward session. Never update balances without a ledger entry and transaction.
@@ -197,7 +204,9 @@ Report engagement and monetization impact: D1/D7 retention, sessions, generation
 
 ## Security and operational requirements
 
-- Enforce the three-per-UTC-day cap transactionally on the server, across devices and reward types.
+- Enforce independent caps transactionally across devices: three chat grants, three image grants, and one video grant per UTC day.
+- Require the matching usable resource allowance (base plus unexpired bonus) to be exhausted when creating a session; a limit in one resource must never unlock another reward type.
+- Expire unconsumed reward credits at the next UTC reset and never roll them into another reward day.
 - Verify AdMob SSV signatures and reject stale or mismatched callbacks.
 - Make session creation, SSV handling, claims, and ledger grants idempotent.
 - Rate-limit all reward and admin endpoints.

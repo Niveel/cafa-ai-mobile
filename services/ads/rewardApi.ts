@@ -11,6 +11,12 @@ export const AD_REWARD_GRANTS = {
   video: 1,
 } as const satisfies Record<AdRewardKind, number>;
 
+export const AD_REWARD_DAILY_LIMITS = {
+  chat: 3,
+  image: 3,
+  video: 1,
+} as const satisfies Record<AdRewardKind, number>;
+
 export type RewardEligibility = {
   eligible: boolean;
   rewardType: AdRewardKind;
@@ -36,6 +42,7 @@ export type RewardGrant = {
   grantAmount: number;
   remainingToday: number;
   dailyLimit: number;
+  expiresAt?: string;
   usage?: Record<string, unknown>;
 };
 
@@ -63,6 +70,9 @@ export async function createRewardSession(rewardType: AdRewardKind): Promise<Rew
     requestedGrant: AD_REWARD_GRANTS[rewardType],
   });
   const session = unwrapRewardPayload(response);
+  if (session.eligible && (session.rewardType !== rewardType || session.grantAmount !== AD_REWARD_GRANTS[rewardType])) {
+    throw new Error('Reward session did not match the requested limit.');
+  }
   if (__DEV__) console.log('[ads:reward-session:response]', {
     endpoint: apiEndpoints.ads.rewardSessions,
     status: response.status,

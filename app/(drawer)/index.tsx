@@ -136,6 +136,7 @@ import { API_BASE_URL } from '@/lib';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
 import {
+  AD_REWARD_DAILY_LIMITS,
   AD_REWARD_GRANTS,
   claimRewardSession,
   createRewardSession,
@@ -1850,7 +1851,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       if (!session.eligible) {
         if (__DEV__) console.log('[ads:reward-flow:ineligible]', { rewardType, reason: session.reason, sessionId: session.sessionId });
         const capMessage = session.reason === 'daily_cap_reached'
-          ? `You've used all ${session.dailyLimit} rewarded ads for today.`
+          ? `You've used all ${session.dailyLimit} ${rewardType === 'chat' ? 'chat' : rewardType} rewarded ads for today.`
           : 'A rewarded ad is not available for this limit right now.';
         setStatusNotice(capMessage);
         return;
@@ -1901,7 +1902,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           : 'video generation';
       setUpgradeNoticeKind(null);
       setUpgradeNoticeResetHours(null);
-      setStatusNotice(`Reward granted: +${grant.grantAmount} ${unit}. You can try again now.`);
+      setStatusNotice(`Reward granted: +${grant.grantAmount} ${unit}. Use it before today's reset.`);
       await refreshAuthUser().catch(() => {});
     } catch (error) {
       const response = (error as {
@@ -1912,7 +1913,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       const message = status === 404 || status === 501
         ? 'Rewarded ads are not available yet. Please try again later or upgrade your plan.'
         : status === 429 || code === 'AD_REWARD_DAILY_CAP_REACHED'
-          ? 'You have used all 3 rewarded ads for today. Please try again tomorrow.'
+          ? `You have used all ${AD_REWARD_DAILY_LIMITS[rewardType]} ${rewardType === 'chat' ? 'chat' : rewardType} rewarded ads for today. Please try again tomorrow.`
           : status === 409 || code === 'AD_REWARD_NOT_VERIFIED'
             ? 'Reward not granted. We could not verify the completed ad, so no credit was added. Please try again shortly.'
             : status === 403
