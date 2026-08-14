@@ -2,8 +2,9 @@
  * AdMob configuration and ID resolution.
  *
  * Uses production IDs by default in every native build so rewarded-ad SSV
- * always targets the configured publisher unit. Google test IDs are opt-in
- * through EXPO_PUBLIC_ADMOB_USE_TEST_IDS=true.
+ * always targets the configured publisher unit. Development builds may opt
+ * into Google test IDs through EXPO_PUBLIC_ADMOB_USE_TEST_IDS=true; release
+ * builds always reject Google's demo publisher IDs.
  *
  * Privacy & policy notes:
  * - Android: the app contains ads declaration must be set in Google Play Console.
@@ -45,7 +46,11 @@ const ANDROID_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID;
 const IOS_REWARDED_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID;
 const ANDROID_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID;
 const IOS_INTERSTITIAL_ID = process.env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_ID;
-const USE_TEST_IDS = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_IDS?.trim().toLowerCase() === 'true';
+const GOOGLE_TEST_PUBLISHER_PREFIX = 'ca-app-pub-3940256099942544/';
+const TEST_IDS_REQUESTED = process.env.EXPO_PUBLIC_ADMOB_USE_TEST_IDS?.trim().toLowerCase() === 'true';
+// Never allow an EAS production environment variable to switch a store build
+// to Google's demo inventory. Test IDs remain available in development only.
+const USE_TEST_IDS = __DEV__ && TEST_IDS_REQUESTED;
 
 type AdUnitFormat = 'banner' | 'rewarded' | 'interstitial';
 
@@ -61,7 +66,9 @@ function getUnitId(
   const platform = Platform.OS === 'ios' ? 'ios' : 'android';
   const configuredId = platform === 'ios' ? iosId?.trim() : androidId?.trim();
   const fallbackId = PRODUCTION_IDS[platform][format];
-  return /^ca-app-pub-\d{16}\/\d{10}$/.test(configuredId ?? '') && configuredId
+  const configuredIdIsAllowed = /^ca-app-pub-\d{16}\/\d{10}$/.test(configuredId ?? '')
+    && (__DEV__ || !configuredId?.startsWith(GOOGLE_TEST_PUBLISHER_PREFIX));
+  return configuredIdIsAllowed && configuredId
     ? configuredId
     : fallbackId;
 }

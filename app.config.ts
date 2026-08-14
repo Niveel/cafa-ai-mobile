@@ -7,7 +7,8 @@ import { ExpoConfig } from 'expo/config';
 // before React Native can start.
 function validAdMobAppId(value: string | undefined, fallback: string): string {
   const candidate = value?.trim() ?? '';
-  return /^ca-app-pub-\d{16}~\d{10}$/.test(candidate) ? candidate : fallback;
+  const isGoogleSampleApp = candidate.startsWith('ca-app-pub-3940256099942544~');
+  return /^ca-app-pub-\d{16}~\d{10}$/.test(candidate) && !isGoogleSampleApp ? candidate : fallback;
 }
 
 const ADMOB_ANDROID_APP_ID = validAdMobAppId(
