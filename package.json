@@ -11,6 +11,7 @@
     "lint": "expo lint",
     "validate:i18n": "node scripts/localization/validate-locales.cjs",
     "audit:i18n": "node scripts/localization/audit-hardcoded-ui.cjs",
+    "generate:legal": "node scripts/generate-legal-documents.mjs",
     "postinstall": "patch-package"
   },
   "dependencies": {
