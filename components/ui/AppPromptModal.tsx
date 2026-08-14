@@ -18,8 +18,10 @@ type AppPromptModalProps = {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  tertiaryLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  onTertiary?: () => void;
   onDismiss?: () => void;
   confirmTone?: 'primary' | 'danger';
   iconName?: keyof typeof Ionicons.glyphMap;
@@ -31,8 +33,10 @@ export function AppPromptModal({
   message,
   confirmLabel,
   cancelLabel,
+  tertiaryLabel,
   onConfirm,
   onCancel,
+  onTertiary,
   onDismiss,
   confirmTone = 'primary',
   iconName = 'help-circle-outline',
@@ -126,7 +130,23 @@ export function AppPromptModal({
             {message}
           </Text>
 
-          <View className="mt-5 flex-row justify-end gap-2">
+          {tertiaryLabel && onTertiary ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={tertiaryLabel}
+              onPress={() => {
+                hapticImpact();
+                onTertiary();
+              }}
+              activeOpacity={0.88}
+              className="mt-5 h-10 items-center justify-center rounded-full px-4"
+              style={{ borderWidth: 1.5, borderColor: '#E11D48' }}
+            >
+              <Text style={{ color: '#E11D48', fontWeight: '700', fontSize: 13 }}>{tertiaryLabel}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <View className={`${tertiaryLabel && onTertiary ? 'mt-2' : 'mt-5'} flex-row justify-end gap-2`}>
             <TouchableOpacity
               accessibilityRole="button"
               accessibilityLabel={resolvedCancelLabel}

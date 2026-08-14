@@ -145,7 +145,6 @@ import {
   detectDocumentRequest,
   generateDocumentDirect,
   emitChatMutated,
-  getActiveDocumentWizardDraftKey,
   getDocumentWizardDraftMessages,
   getAccessToken,
   getDefaultVoicePreference,
@@ -1292,6 +1291,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const getDocumentWizardDraftKey = useCallback((conversationId?: string | null) => (
     conversationId?.trim() ? `conversation:${conversationId.trim()}` : 'standalone'
   ), []);
+
+  const cancelAllDocumentWizards = useCallback(() => {
+    setMessages((prev) => {
+      const draftIds = new Set(collectDocumentWizardDraftMessages(prev).map((message) => message.id));
+      return prev.filter((message) => !draftIds.has(message.id));
+    });
+    const targetConversationId = typeof params.conversationId === 'string'
+      ? params.conversationId
+      : (authConversationId ?? guestConversationId);
+    void clearDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
+    setDocumentFormWarningVisible(false);
+  }, [
+    authConversationId,
+    collectDocumentWizardDraftMessages,
+    getDocumentWizardDraftKey,
+    guestConversationId,
+    params.conversationId,
+  ]);
 
   const mergeDocumentWizardDraftMessages = useCallback((baseMessages: UiMessage[], draftMessages: UiMessage[]) => {
     if (draftMessages.length === 0) return baseMessages;
@@ -5838,37 +5855,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   ]);
 
   useEffect(() => {
-    if (isDedicatedMediaScreen) return;
-    const targetConversationId = typeof params.conversationId === 'string' ? params.conversationId : '';
-    if (targetConversationId) return;
-
-    let cancelled = false;
-    const hydrateDrafts = async () => {
-      const activeDraftKey = await getActiveDocumentWizardDraftKey();
-      documentDraftHydratedRef.current = true;
-      if (cancelled || !activeDraftKey) return;
-      if (activeDraftKey.startsWith('conversation:')) {
-        const conversationId = activeDraftKey.replace(/^conversation:/, '').trim();
-        if (conversationId) {
-          router.setParams({ conversationId, newChat: undefined });
-          return;
-        }
-      }
-      const drafts = await getDocumentWizardDraftMessages(activeDraftKey);
-      if (cancelled || drafts.length === 0) return;
-      setMessages((prev) => {
-        const hasExistingDraft = prev.some((message) => message.documentWizard);
-        if (hasExistingDraft) return prev;
-        const base = prev.length === 1 && isWelcomeMessage(prev[0]) ? prev : [createWelcomeMessage()];
-        return [...base, ...drafts];
-      });
-    };
-
-    void hydrateDrafts();
-    return () => {
-      cancelled = true;
-    };
-  }, [createWelcomeMessage, isDedicatedMediaScreen, isWelcomeMessage, params.conversationId]);
+    documentDraftHydratedRef.current = true;
+  }, []);
 
   useEffect(() => {
     if (isDedicatedMediaScreen) return;
@@ -5885,6 +5873,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return;
     }
     void setDocumentWizardDraftMessages(draftKey, drafts);
+    if (targetConversationId) {
+      void clearDocumentWizardDraftMessages('standalone');
+    }
   }, [
     collectDocumentWizardDraftMessages,
     getDocumentWizardDraftKey,
@@ -5932,6 +5923,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       setAttachedAssets([]);
       setComposerMediaReference(null);
       setMessages([createWelcomeMessage()]);
+      setDocumentFormWarningVisible(false);
+      void clearDocumentWizardDraftMessages('standalone');
       rotateStarterPrompts();
       router.setParams({ newChat: undefined, conversationId: undefined });
       return;
@@ -7971,11 +7964,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       <AppPromptModal
         visible={documentFormWarningVisible}
         title="Unfinished form"
-        message="You still have a document form open. You can continue with your new prompt, and the unfinished form will collapse so you can reopen it later."
-        confirmLabel="Continue anyway"
-        cancelLabel="Keep filling form"
+        message="You still have a document form open in this chat. Keep filling it, ignore it for now, or cancel the form permanently."
+        confirmLabel="Ignore for now"
+        cancelLabel="Keep filling"
+        tertiaryLabel="Cancel form permanently"
         iconName="document-text-outline"
         onCancel={() => setDocumentFormWarningVisible(false)}
+        onTertiary={cancelAllDocumentWizards}
         onConfirm={() => {
           setDocumentFormWarningVisible(false);
           handleSend({ skipDocumentFormWarning: true });
