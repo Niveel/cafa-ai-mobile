@@ -87,6 +87,7 @@ function ToolHubCard({
         className="mb-4 overflow-hidden rounded-[24px] border p-4"
         style={{
           width: cardWidth,
+          height: 252,
           borderColor: `${accent}DD`,
           backgroundColor: accent,
         }}
@@ -117,7 +118,10 @@ function ToolHubCard({
           </View>
         </View>
 
-        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', marginTop: 14 }}>
+        <Text
+          numberOfLines={2}
+          style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800', lineHeight: 22, marginTop: 14 }}
+        >
           {title}
         </Text>
         <Text
@@ -127,7 +131,7 @@ function ToolHubCard({
           {t(descriptionKey)}
         </Text>
 
-        <View className="mt-5 flex-row items-center justify-between">
+        <View className="flex-row items-center justify-between" style={{ marginTop: 'auto', paddingTop: 16 }}>
           <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>
             {t('hub.open')}
           </Text>
