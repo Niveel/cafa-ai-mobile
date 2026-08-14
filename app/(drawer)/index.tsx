@@ -7967,7 +7967,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         message="You still have a document form open in this chat. Keep filling it, ignore it for now, or cancel the form permanently."
         confirmLabel="Ignore for now"
         cancelLabel="Keep filling"
-        tertiaryLabel="Cancel form permanently"
+        tertiaryLabel="Discard form"
         iconName="document-text-outline"
         onCancel={() => setDocumentFormWarningVisible(false)}
         onTertiary={cancelAllDocumentWizards}

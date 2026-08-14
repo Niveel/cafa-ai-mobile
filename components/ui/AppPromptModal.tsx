@@ -157,6 +157,7 @@ export function AppPromptModal({
               activeOpacity={0.88}
               className="h-10 items-center justify-center rounded-full px-4"
               style={{
+                flex: tertiaryLabel && onTertiary ? 1 : undefined,
                 borderWidth: 1.5,
                 borderColor: colors.primary,
                 backgroundColor: isDark ? '#0C0C0F' : '#FFFFFF',
@@ -176,7 +177,10 @@ export function AppPromptModal({
               }}
               activeOpacity={0.88}
               className="h-10 items-center justify-center rounded-full px-4"
-              style={{ backgroundColor: confirmBackground }}
+              style={{
+                flex: tertiaryLabel && onTertiary ? 1 : undefined,
+                backgroundColor: confirmBackground,
+              }}
             >
               <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>
                 {resolvedConfirmLabel}
