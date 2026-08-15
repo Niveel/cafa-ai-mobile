@@ -141,6 +141,7 @@ import {
   claimRewardSession,
   createRewardSession,
   clearDocumentWizardDraftMessages,
+  discardDocumentWizardDraftMessages,
   classifyChatResponse,
   detectDocumentRequest,
   generateDocumentDirect,
@@ -1255,19 +1256,26 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, []);
 
   const expandDocumentWizard = useCallback((messageId: string) => {
-    setMessages((prev) => prev.map((message) => {
-      if (!message.documentWizard) return message;
-      return {
-        ...message,
-        documentWizard: {
-          ...message.documentWizard,
-          collapsed: message.id === messageId ? false : true,
-        },
-      };
-    }));
+    setMessages((prev) => {
+      const wizardIndex = prev.findIndex((message) => message.id === messageId);
+      if (wizardIndex >= 0) {
+        requestAnimationFrame(() => {
+          messagesListRef.current?.scrollToIndex({ index: wizardIndex, animated: true, viewPosition: 0.08 });
+        });
+      }
+      return prev.map((message) => {
+        if (!message.documentWizard) return message;
+        return {
+          ...message,
+          documentWizard: {
+            ...message.documentWizard,
+            collapsed: message.id === messageId ? false : true,
+          },
+        };
+      });
+    });
     autoScrollEnabledRef.current = true;
     setShowScrollToBottom(false);
-    scrollToBottom();
   }, []);
 
   const hasExpandedDocumentWizard = useCallback(
@@ -1293,15 +1301,51 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   ), []);
 
   const cancelAllDocumentWizards = useCallback(() => {
-    setMessages((prev) => {
-      const draftIds = new Set(collectDocumentWizardDraftMessages(prev).map((message) => message.id));
-      return prev.filter((message) => !draftIds.has(message.id));
-    });
     const targetConversationId = typeof params.conversationId === 'string'
       ? params.conversationId
       : (authConversationId ?? guestConversationId);
-    void clearDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
+    const draftKey = getDocumentWizardDraftKey(targetConversationId);
+    setMessages((prev) => {
+      const discardedMessages = collectDocumentWizardDraftMessages(prev);
+      const draftIds = new Set(discardedMessages.map((message) => message.id));
+      void discardDocumentWizardDraftMessages(draftKey, [...draftIds]);
+      return prev.filter((message) => !draftIds.has(message.id));
+    });
     setDocumentFormWarningVisible(false);
+  }, [
+    authConversationId,
+    collectDocumentWizardDraftMessages,
+    getDocumentWizardDraftKey,
+    guestConversationId,
+    params.conversationId,
+  ]);
+
+  const continueDocumentWizard = useCallback(() => {
+    setDocumentFormWarningVisible(false);
+    const wizard = [...messages].reverse().find((message) => message.documentWizard);
+    if (wizard) expandDocumentWizard(wizard.id);
+  }, [expandDocumentWizard, messages]);
+
+  const updateDocumentWizardFormData = useCallback((messageId: string, formData: Record<string, string>) => {
+    const targetConversationId = typeof params.conversationId === 'string'
+      ? params.conversationId
+      : (authConversationId ?? guestConversationId);
+    const draftKey = getDocumentWizardDraftKey(targetConversationId);
+    setMessages((prev) => {
+      let changed = false;
+      const next = prev.map((message) => {
+        if (message.id !== messageId || !message.documentWizard) return message;
+        changed = true;
+        return {
+          ...message,
+          documentWizard: { ...message.documentWizard, formData },
+        };
+      });
+      if (changed) {
+        void setDocumentWizardDraftMessages(draftKey, collectDocumentWizardDraftMessages(next));
+      }
+      return changed ? next : prev;
+    });
   }, [
     authConversationId,
     collectDocumentWizardDraftMessages,
@@ -6972,10 +7016,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           userMessageId={item.documentWizard!.userMessageId}
                           assistantMessageId={item.documentWizard!.assistantMessageId ?? item.id}
                           collapsed={item.documentWizard!.collapsed}
+                          initialFormData={item.documentWizard!.formData}
                           isDark={isDark}
                           colors={colors}
                           onExpand={() => {
                             expandDocumentWizard(item.id);
+                          }}
+                          onFormDataChange={(formData) => {
+                            updateDocumentWizardFormData(item.id, formData);
                           }}
                           onComplete={(artifacts) => {
                             handleDocumentWizardComplete(
@@ -7969,7 +8017,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         cancelLabel="Keep filling"
         tertiaryLabel="Discard form"
         iconName="document-text-outline"
-        onCancel={() => setDocumentFormWarningVisible(false)}
+        onCancel={continueDocumentWizard}
         onTertiary={cancelAllDocumentWizards}
         onConfirm={() => {
           setDocumentFormWarningVisible(false);

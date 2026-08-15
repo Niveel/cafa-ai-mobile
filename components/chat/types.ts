@@ -20,6 +20,7 @@ export type UiMessageDocumentWizard = {
   collapsed?: boolean;
   userMessageId?: string;
   assistantMessageId?: string;
+  formData?: Record<string, string>;
 };
 
 export type UiMessage = {

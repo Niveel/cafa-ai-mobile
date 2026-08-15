@@ -25,6 +25,7 @@ type DocumentWizardCardProps = {
   assistantMessageId?: string;
   userMessageId?: string;
   collapsed?: boolean;
+  initialFormData?: Record<string, string>;
   isDark: boolean;
   colors: {
     primary: string;
@@ -33,10 +34,12 @@ type DocumentWizardCardProps = {
     border: string;
   };
   onExpand?: () => void;
+  onFormDataChange?: (formData: Record<string, string>) => void;
   onComplete: (artifacts: DocumentWizardArtifact[]) => void;
 };
 
 const HEIGHT_MESSAGE_PREFIX = '__CAFA_WIZARD_HEIGHT__:';
+const DRAFT_MESSAGE_PREFIX = '__CAFA_WIZARD_DRAFT__:';
 const SUBMIT_MESSAGE = '__CAFA_WIZARD_SUBMIT__';
 const NATIVE_DOCUMENT_WIZARD_BRIDGE = `
   (function () {
@@ -85,6 +88,57 @@ const NATIVE_DOCUMENT_WIZARD_BRIDGE = `
   })();
 `;
 
+function createDraftBridge(initialFormData: Record<string, string>, wizardId: string) {
+  const serializedInitialData = JSON.stringify(initialFormData).replace(/</g, '\\u003c');
+  const serializedWizardId = JSON.stringify(wizardId).replace(/</g, '\\u003c');
+  return `
+    (function () {
+      var initialData = ${serializedInitialData};
+      var form = document.querySelector('form');
+      if (!form || form.getAttribute('data-cafa-draft-bridge') === 'true') return true;
+      form.setAttribute('data-cafa-draft-bridge', 'true');
+
+      function postDraft() {
+        var values = {};
+        Array.prototype.forEach.call(form.elements, function (control) {
+          if (control && control.name) values[control.name] = '';
+        });
+        new FormData(form).forEach(function (value, key) {
+          var normalizedValue = typeof value === 'string' ? value : value.name;
+          values[key] = values[key] ? values[key] + ', ' + normalizedValue : normalizedValue;
+        });
+        var payload = '${DRAFT_MESSAGE_PREFIX}' + JSON.stringify({ wizardId: ${serializedWizardId}, values: values });
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(payload);
+        } else if (window.parent && window.parent !== window) {
+          window.parent.postMessage(payload, '*');
+        }
+      }
+
+      Array.prototype.forEach.call(form.elements, function (control) {
+        var name = control && control.name;
+        if (!name || !Object.prototype.hasOwnProperty.call(initialData, name)) return;
+        var savedValue = String(initialData[name] || '');
+        var type = String(control.type || '').toLowerCase();
+        if (type === 'checkbox' || type === 'radio') {
+          control.checked = savedValue.split(',').map(function (value) { return value.trim(); }).indexOf(String(control.value)) >= 0;
+        } else {
+          control.value = savedValue;
+        }
+      });
+      form.addEventListener('input', postDraft, true);
+      form.addEventListener('change', postDraft, true);
+      setTimeout(postDraft, 0);
+      return true;
+    })();
+  `;
+}
+
+function injectScript(html: string, script: string) {
+  const scriptTag = `<script id="cafa-document-wizard-draft-script">${script}</script>`;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${scriptTag}</body>`) : `${html}${scriptTag}`;
+}
+
 export function DocumentWizardCard({
   html,
   documentType,
@@ -93,9 +147,11 @@ export function DocumentWizardCard({
   assistantMessageId,
   userMessageId,
   collapsed = false,
+  initialFormData = {},
   isDark,
   colors,
   onExpand,
+  onFormDataChange,
   onComplete,
 }: DocumentWizardCardProps) {
   const [loading, setLoading] = useState(false);
@@ -104,9 +160,17 @@ export function DocumentWizardCard({
   const [formHeight, setFormHeight] = useState(440);
   const submissionInFlightRef = useRef(false);
 
+  const wizardStorageId = assistantMessageId || userMessageId || documentType;
+  const [draftBridge, setDraftBridge] = useState(() => createDraftBridge(initialFormData, wizardStorageId));
+  useEffect(() => {
+    if (!collapsed) return;
+    // Refresh the restoration script while the WebView is unmounted. Updating
+    // it while expanded would reload the form on every keystroke.
+    setDraftBridge(createDraftBridge(initialFormData, wizardStorageId));
+  }, [collapsed, initialFormData, wizardStorageId]);
   const enhancedHtml = useMemo(
-    () => enhanceDocumentWizardHtml(html, colors.primary, isDark),
-    [colors.primary, html, isDark],
+    () => injectScript(enhanceDocumentWizardHtml(html, colors.primary, isDark), draftBridge),
+    [colors.primary, draftBridge, html, isDark],
   );
 
   useEffect(() => {
@@ -138,6 +202,21 @@ export function DocumentWizardCard({
       return;
     }
 
+    if (payload.startsWith(DRAFT_MESSAGE_PREFIX)) {
+      try {
+        const draft = JSON.parse(payload.slice(DRAFT_MESSAGE_PREFIX.length)) as {
+          wizardId?: string;
+          values?: Record<string, string>;
+        };
+        if (draft?.wizardId === wizardStorageId && draft.values && typeof draft.values === 'object') {
+          onFormDataChange?.(draft.values);
+        }
+      } catch {
+        // Ignore malformed field snapshots from embedded form HTML.
+      }
+      return;
+    }
+
     if (payload === SUBMIT_MESSAGE) {
       console.log('submitting form...');
       return;
@@ -164,7 +243,7 @@ export function DocumentWizardCard({
       submissionInFlightRef.current = false;
       setLoading(false);
     }
-  }, [assistantMessageId, conversationId, documentType, format, onComplete]);
+  }, [assistantMessageId, conversationId, documentType, format, onComplete, onFormDataChange, wizardStorageId]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -199,7 +278,7 @@ export function DocumentWizardCard({
             void handlePayload(event.nativeEvent.data);
           }}
           javaScriptEnabled
-          injectedJavaScript={NATIVE_DOCUMENT_WIZARD_BRIDGE}
+          injectedJavaScript={`${NATIVE_DOCUMENT_WIZARD_BRIDGE}\n${draftBridge}`}
           originWhitelist={['*']}
           nestedScrollEnabled
           showsVerticalScrollIndicator
