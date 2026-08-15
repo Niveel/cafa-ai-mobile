@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import {
@@ -44,27 +44,6 @@ import Animated, {
   ZoomIn,
   ZoomOut,
 } from 'react-native-reanimated';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-cpp';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-go';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-ruby';
-import 'prismjs/components/prism-rust';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-yaml';
-
 import {
   AppScreen,
   AppLogo,
@@ -81,6 +60,7 @@ import {
   MessageActionsRow,
   RecordingWaves,
   ScreenHandoffCard,
+  StreamingMarkdown,
   extractImagePrompt,
   extractVideoPrompt,
   resolveModelBadgeLabel,
@@ -465,7 +445,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [streamingDots, setStreamingDots] = useState('.');
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [copiedCodeBlockId, setCopiedCodeBlockId] = useState<string | null>(null);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
   const [promptSuggestionsVisible, setPromptSuggestionsVisible] = useState(false);
   const [promptSuggestions, setPromptSuggestions] = useState<string[]>([]);
@@ -508,7 +487,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const downloadToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const codeCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const guestUpsellStateRef = useRef<{ windowStartedAt: number; responseCount: number; shown: boolean }>({
     windowStartedAt: 0,
     responseCount: 0,
@@ -2216,501 +2194,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       }
     }, [guestModeLocked]),
   );
-
-  const renderInlineMarkdown = useCallback((
-    content: string,
-    options?: { textColor?: string; isCode?: boolean },
-  ) => {
-    const textColor = options?.textColor ?? colors.textPrimary;
-    const isCode = options?.isCode ?? false;
-    const linkColor = isDark ? '#8FD3FF' : '#0E5DA8';
-    const linkBackgroundColor = isDark ? 'rgba(143, 211, 255, 0.14)' : 'rgba(14, 93, 168, 0.10)';
-    if (
-      isCode
-      || (
-        !content.includes('**')
-        && !content.includes('*')
-        && !content.includes('`')
-        && !content.includes('](')
-      )
-    ) {
-      return content;
-    }
-
-    const result: ReactNode[] = [];
-    const pattern = /(\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
-    let lastIndex = 0;
-    let matchIndex = 0;
-    let match = pattern.exec(content);
-
-    while (match) {
-      if (match.index > lastIndex) {
-        result.push(content.slice(lastIndex, match.index));
-      }
-
-      const token = match[0];
-      if (token.startsWith('[')) {
-        const linkMatch = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(token);
-        if (linkMatch) {
-          const [, label, url] = linkMatch;
-          result.push(
-            <Text
-              key={`md-link-${matchIndex}`}
-              onPress={() => {
-                void openInAppBrowser(url);
-              }}
-              suppressHighlighting
-              style={{
-                color: linkColor,
-                fontWeight: '700',
-                backgroundColor: linkBackgroundColor,
-                paddingHorizontal: 4,
-                paddingVertical: 1,
-                borderRadius: 6,
-              }}
-            >
-              {label}
-            </Text>,
-          );
-        } else {
-          result.push(token);
-        }
-      } else if (token.startsWith('`') && token.endsWith('`')) {
-        result.push(
-          <Text
-            key={`md-code-${matchIndex}`}
-            style={{
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-              backgroundColor: isDark ? '#1A1A1F' : '#ECECF4',
-              color: textColor,
-              paddingHorizontal: 4,
-              borderRadius: 4,
-            }}
-          >
-            {token.slice(1, -1)}
-          </Text>,
-        );
-      } else if (token.startsWith('**') && token.endsWith('**')) {
-        result.push(
-          <Text key={`md-bold-${matchIndex}`} style={{ fontWeight: '700', color: textColor }}>
-            {token.slice(2, -2)}
-          </Text>,
-        );
-      } else if (token.startsWith('*') && token.endsWith('*')) {
-        result.push(
-          <Text key={`md-italic-${matchIndex}`} style={{ fontStyle: 'italic', color: textColor }}>
-            {token.slice(1, -1)}
-          </Text>,
-        );
-      } else {
-        result.push(token);
-      }
-
-      lastIndex = match.index + match[0].length;
-      matchIndex += 1;
-      match = pattern.exec(content);
-    }
-
-    if (lastIndex < content.length) {
-      result.push(content.slice(lastIndex));
-    }
-
-    return result.length ? result : content;
-  }, [colors.textPrimary, isDark, openInAppBrowser]);
-
-  type PrismTokenNode = string | {
-    type: string;
-    content: PrismTokenNode | PrismTokenNode[];
-    alias?: string | string[];
-  };
-
-  const getCodeTokenColor = useCallback((tokenType: string) => {
-    const darkPalette: Record<string, string> = {
-      comment: '#6A9955',
-      prolog: '#6A9955',
-      doctype: '#6A9955',
-      cdata: '#6A9955',
-      punctuation: '#D4D4D4',
-      operator: '#D4D4D4',
-      entity: '#D4D4D4',
-      keyword: '#569CD6',
-      builtin: '#4EC9B0',
-      function: '#DCDCAA',
-      className: '#4EC9B0',
-      class: '#4EC9B0',
-      variable: '#9CDCFE',
-      property: '#9CDCFE',
-      constant: '#4FC1FF',
-      string: '#CE9178',
-      char: '#CE9178',
-      number: '#B5CEA8',
-      boolean: '#569CD6',
-      regex: '#D16969',
-      symbol: '#D7BA7D',
-      tag: '#569CD6',
-      attrName: '#9CDCFE',
-      attrValue: '#CE9178',
-    };
-
-    const lightPalette: Record<string, string> = {
-      comment: '#008000',
-      prolog: '#008000',
-      doctype: '#008000',
-      cdata: '#008000',
-      punctuation: '#24292F',
-      operator: '#24292F',
-      entity: '#24292F',
-      keyword: '#0000FF',
-      builtin: '#267F99',
-      function: '#795E26',
-      className: '#267F99',
-      class: '#267F99',
-      variable: '#001080',
-      property: '#001080',
-      constant: '#0070C1',
-      string: '#A31515',
-      char: '#A31515',
-      number: '#098658',
-      boolean: '#0000FF',
-      regex: '#811F3F',
-      symbol: '#795E26',
-      tag: '#800000',
-      attrName: '#FF0000',
-      attrValue: '#0451A5',
-    };
-
-    const palette = isDark ? darkPalette : lightPalette;
-    return palette[tokenType] ?? (isDark ? '#D4D4D4' : '#24292F');
-  }, [isDark]);
-
-  const renderCodeTokens = useCallback((tokens: PrismTokenNode[], pathPrefix: string): ReactNode[] =>
-    tokens.map((token, index) => {
-      if (typeof token === 'string') return token;
-
-      const aliasList = Array.isArray(token.alias) ? token.alias : token.alias ? [token.alias] : [];
-      const tokenTypes = [token.type, ...aliasList].flatMap((rawType) => {
-        const normalized = rawType.replace(/-([a-z])/g, (_, chr: string) => chr.toUpperCase());
-        return normalized === rawType ? [rawType] : [rawType, normalized];
-      });
-      const color = tokenTypes.map((type) => getCodeTokenColor(type)).find(Boolean) ?? (isDark ? '#D4D4D4' : '#24292F');
-      const childPath = `${pathPrefix}-${index}`;
-      const childContent = Array.isArray(token.content)
-        ? renderCodeTokens(token.content, childPath)
-        : typeof token.content === 'string'
-          ? token.content
-          : renderCodeTokens([token.content], childPath);
-
-      return (
-        <Text key={childPath} style={{ color }}>
-          {childContent}
-        </Text>
-      );
-    }), [getCodeTokenColor, isDark]);
-
-  const renderHighlightedCode = useCallback((code: string, language: string) => {
-    if (!code) return code;
-    if (language === 'text') return code;
-
-    try {
-      const grammar = Prism.languages[language as keyof typeof Prism.languages];
-      if (!grammar) return code;
-      const tokens = Prism.tokenize(code, grammar) as PrismTokenNode[];
-      return renderCodeTokens(tokens, `code-${language}`);
-    } catch {
-      return code;
-    }
-  }, [renderCodeTokens]);
-
-  const normalizeAssistantSearchResponse = useCallback((content: string) => {
-    if (!content.includes('](')) return content;
-
-    const normalizedNewlines = content.replace(/\r\n/g, '\n');
-    const sourceSectionMatch = /\nSources:\n([\s\S]+)$/i.exec(normalizedNewlines);
-    const sourceLines = sourceSectionMatch?.[1]
-      ?.split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((line) => /^\d+\.\s+\[.+\]\(https?:\/\/.+\)$/.test(line)) ?? [];
-
-    const bodyWithoutSources = sourceSectionMatch
-      ? normalizedNewlines.slice(0, sourceSectionMatch.index).trim()
-      : normalizedNewlines.trim();
-
-    const compactBody = bodyWithoutSources
-      .split('\n')
-      .filter((line, index, lines) => {
-        const trimmed = line.trim();
-        const isStandaloneLink = /^\[.+\]\(https?:\/\/.+\)$/.test(trimmed);
-        if (!isStandaloneLink) return true;
-        const nextNonEmpty = lines.slice(index + 1).find((candidate) => candidate.trim().length > 0)?.trim() ?? '';
-        return !nextNonEmpty.startsWith('**');
-      })
-      .map((line) => line.replace(/\(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\)/g, 'Source: [$1]($2)'))
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-
-    if (!sourceLines.length) {
-      return compactBody;
-    }
-
-    const compactSources = sourceLines.map((line, index) => {
-      const match = /^\d+\.\s+\[([^\]]+)\]\((https?:\/\/.+)\)$/.exec(line);
-      if (!match) return line;
-      const [, label, url] = match;
-      return `${index + 1}. [${label}](${url})`;
-    });
-
-    return `${compactBody}\n\n**Sources**\n${compactSources.join('\n')}`;
-  }, []);
-
-  const normalizeCodeLanguage = useCallback((rawLanguage?: string) => {
-    const language = (rawLanguage ?? '').trim().toLowerCase();
-    if (!language) return 'text';
-
-    const aliases: Record<string, string> = {
-      js: 'javascript',
-      jsx: 'jsx',
-      ts: 'typescript',
-      tsx: 'tsx',
-      py: 'python',
-      rb: 'ruby',
-      sh: 'bash',
-      zsh: 'bash',
-      shell: 'bash',
-      yml: 'yaml',
-      md: 'markdown',
-      csharp: 'cs',
-      plaintext: 'text',
-      txt: 'text',
-    };
-
-    return aliases[language] ?? language;
-  }, []);
-
-  const renderMessageMarkdown = useCallback((content: string, isUser: boolean) => {
-    const textColor = isUser ? '#FFFFFF' : colors.textPrimary;
-    if (isUser) {
-      return (
-        <Text style={{ color: textColor, lineHeight: 20 }}>
-          {content}
-        </Text>
-      );
-    }
-
-    const normalized = normalizeAssistantSearchResponse(content).replace(/\r\n/g, '\n');
-    const lines = normalized.split('\n');
-    const nodes: ReactNode[] = [];
-    let paragraphBuffer: string[] = [];
-    let inCodeFence = false;
-    let codeFenceLines: string[] = [];
-    let codeFenceLanguage = 'text';
-    let key = 0;
-
-    const flushParagraph = () => {
-      if (!paragraphBuffer.length) return;
-      const paragraph = paragraphBuffer.join('\n');
-      nodes.push(
-        <Text key={`p-${key}`} selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
-          {renderInlineMarkdown(paragraph, { textColor })}
-        </Text>,
-      );
-      key += 1;
-      paragraphBuffer = [];
-    };
-
-    const flushCodeFence = () => {
-      if (!codeFenceLines.length) return;
-      const codeText = codeFenceLines.join('\n');
-      const codeBlockId = `code-${key}`;
-      const displayLanguage = codeFenceLanguage === 'text' ? 'Code' : codeFenceLanguage.toUpperCase();
-      nodes.push(
-        <View
-          key={codeBlockId}
-          className="rounded-xl"
-          style={{
-            marginBottom: 8,
-            backgroundColor: isDark ? '#0E0E12' : '#ECECF4',
-            borderWidth: 1,
-            borderColor: isDark ? '#23232B' : '#D7D9E2',
-            overflow: 'hidden',
-          }}
-        >
-          <View
-            className="flex-row items-center justify-between px-3 py-2"
-            style={{
-              borderBottomWidth: 1,
-              borderBottomColor: isDark ? '#23232B' : '#D7D9E2',
-              backgroundColor: isDark ? '#11151E' : '#E6EBF5',
-            }}
-          >
-            <Text style={{ color: isDark ? '#B7C0D1' : '#3A4864', fontSize: 12, fontWeight: '700' }}>
-              {displayLanguage}
-            </Text>
-            <Pressable
-              onPress={async () => {
-                await Clipboard.setStringAsync(codeText);
-                hapticSuccess();
-                setCopiedCodeBlockId(codeBlockId);
-                if (codeCopyTimeoutRef.current) clearTimeout(codeCopyTimeoutRef.current);
-                codeCopyTimeoutRef.current = setTimeout(() => {
-                  setCopiedCodeBlockId((previous) => (previous === codeBlockId ? null : previous));
-                  codeCopyTimeoutRef.current = null;
-                }, 1300);
-              }}
-              hitSlop={8}
-              className="rounded-md px-2 py-1"
-              style={{ backgroundColor: isDark ? '#1C2331' : '#D7E2F5' }}
-            >
-              <Text style={{ color: isDark ? '#D8E2F7' : '#29406A', fontSize: 12, fontWeight: '700' }}>
-                {copiedCodeBlockId === codeBlockId ? 'Copied' : 'Copy'}
-              </Text>
-            </Pressable>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View className="px-3 py-2" style={{ minWidth: '100%' }}>
-              <Text
-                selectable
-                style={{
-                  color: isDark ? '#D4D4D4' : '#24292F',
-                  fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-                  fontSize: 13,
-                  lineHeight: 20,
-                }}
-              >
-                {renderHighlightedCode(codeText, codeFenceLanguage)}
-              </Text>
-            </View>
-          </ScrollView>
-        </View>,
-      );
-      key += 1;
-      codeFenceLines = [];
-      codeFenceLanguage = 'text';
-    };
-
-    for (const rawLine of lines) {
-      const line = rawLine;
-
-      const fenceMatch = /^```([\w#+.-]+)?\s*$/.exec(line.trim());
-      if (fenceMatch) {
-        flushParagraph();
-        if (!inCodeFence) {
-          inCodeFence = true;
-          codeFenceLines = [];
-          codeFenceLanguage = normalizeCodeLanguage(fenceMatch[1]);
-        } else {
-          inCodeFence = false;
-          flushCodeFence();
-        }
-        continue;
-      }
-
-      if (inCodeFence) {
-        codeFenceLines.push(line);
-        continue;
-      }
-
-      if (!line.trim()) {
-        flushParagraph();
-        continue;
-      }
-
-      const headingMatch = /^(#{1,3})\s+(.+)$/.exec(line);
-      if (headingMatch) {
-        flushParagraph();
-        const level = headingMatch[1].length;
-        const headingText = headingMatch[2];
-        nodes.push(
-          <Text
-            key={`h-${key}`}
-            selectable
-            style={{
-              color: textColor,
-              fontWeight: '800',
-              fontSize: level === 1 ? 18 : level === 2 ? 16 : 15,
-              lineHeight: level === 1 ? 24 : 22,
-              marginBottom: 6,
-              marginTop: key === 0 ? 0 : 2,
-            }}
-          >
-            {renderInlineMarkdown(headingText, { textColor })}
-          </Text>,
-        );
-        key += 1;
-        continue;
-      }
-
-      const bulletMatch = /^[-*]\s+(.+)$/.exec(line);
-      if (bulletMatch) {
-        flushParagraph();
-        nodes.push(
-          <View key={`ul-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>{'\u2022 '}</Text>
-            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24, flex: 1 }}>
-              {renderInlineMarkdown(bulletMatch[1], { textColor })}
-            </Text>
-          </View>,
-        );
-        key += 1;
-        continue;
-      }
-
-      const orderedMatch = /^(\d+)\.\s+(.+)$/.exec(line);
-      if (orderedMatch) {
-        flushParagraph();
-        nodes.push(
-          <View key={`ol-${key}`} className="flex-row" style={{ marginBottom: 4 }}>
-            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>{`${orderedMatch[1]}. `}</Text>
-            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24, flex: 1 }}>
-              {renderInlineMarkdown(orderedMatch[2], { textColor })}
-            </Text>
-          </View>,
-        );
-        key += 1;
-        continue;
-      }
-
-      const quoteMatch = /^>\s?(.+)$/.exec(line);
-      if (quoteMatch) {
-        flushParagraph();
-        nodes.push(
-          <View
-            key={`q-${key}`}
-            className="rounded-r-lg px-2 py-1"
-            style={{
-              borderLeftWidth: 3,
-              borderLeftColor: isUser ? 'rgba(255,255,255,0.65)' : colors.primary,
-              marginBottom: 6,
-              backgroundColor: isDark ? '#121218' : '#F0F2F8',
-            }}
-          >
-            <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
-              {renderInlineMarkdown(quoteMatch[1], { textColor })}
-            </Text>
-          </View>,
-        );
-        key += 1;
-        continue;
-      }
-
-      paragraphBuffer.push(line);
-    }
-
-    flushParagraph();
-    if (inCodeFence) {
-      flushCodeFence();
-    }
-
-    if (!nodes.length) {
-      return (
-        <Text selectable style={{ color: textColor, fontSize: 16, lineHeight: 24 }}>
-          {normalizeAssistantSearchResponse(content)}
-        </Text>
-      );
-    }
-    return nodes;
-  }, [colors.primary, colors.textPrimary, copiedCodeBlockId, isDark, normalizeAssistantSearchResponse, normalizeCodeLanguage, renderHighlightedCode, renderInlineMarkdown]);
 
   const showTooltip = (text: string, event?: GestureResponderEvent) => {
     hapticSelection();
@@ -5833,7 +5316,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       if (downloadToastTimeoutRef.current) clearTimeout(downloadToastTimeoutRef.current);
       if (ttsToastTimeoutRef.current) clearTimeout(ttsToastTimeoutRef.current);
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-      if (codeCopyTimeoutRef.current) clearTimeout(codeCopyTimeoutRef.current);
       if (deltaFlushTimerRef.current) clearTimeout(deltaFlushTimerRef.current);
       speechRecognitionRequestedRef.current = false;
       ExpoSpeechRecognitionModule.abort();
@@ -7272,7 +6754,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           >
                             {(() => {
                               const visibleContent = item.content || (isSending && !isUser ? streamingDots : '');
-                              return renderMessageMarkdown(visibleContent, isUser);
+                              const isLiveStreamingMessage = isSending
+                                && !isUser
+                                && item.id === messages[messages.length - 1]?.id;
+                              return (
+                                <StreamingMarkdown
+                                  content={visibleContent}
+                                  isUser={isUser}
+                                  isStreaming={isLiveStreamingMessage}
+                                  onOpenLink={openInAppBrowser}
+                                />
+                              );
                             })()}
                           </View>
                         </View>
