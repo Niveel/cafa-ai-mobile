@@ -188,20 +188,6 @@ export function DocumentWizardCard({
       return;
     }
 
-    let formData: Record<string, string>;
-    try {
-      formData = JSON.parse(payload);
-    } catch {
-      return;
-    }
-
-    if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return;
-    if (Object.keys(formData).length === 0) {
-      setError('The form fields could not be read. Please reload the form and try again.');
-      AccessibilityInfo.announceForAccessibility?.('The form fields could not be read. Please reload the form and try again.');
-      return;
-    }
-
     if (payload.startsWith(DRAFT_MESSAGE_PREFIX)) {
       try {
         const draft = JSON.parse(payload.slice(DRAFT_MESSAGE_PREFIX.length)) as {
@@ -221,6 +207,21 @@ export function DocumentWizardCard({
       console.log('submitting form...');
       return;
     }
+
+    let formData: Record<string, string>;
+    try {
+      formData = JSON.parse(payload);
+    } catch {
+      return;
+    }
+
+    if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return;
+    if (Object.keys(formData).length === 0) {
+      setError('The form fields could not be read. Please reload the form and try again.');
+      AccessibilityInfo.announceForAccessibility?.('The form fields could not be read. Please reload the form and try again.');
+      return;
+    }
+
     if (submissionInFlightRef.current) return;
     submissionInFlightRef.current = true;
 

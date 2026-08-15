@@ -450,6 +450,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [promptSuggestions, setPromptSuggestions] = useState<string[]>([]);
   const [isPromptSuggestionsLoading, setIsPromptSuggestionsLoading] = useState(false);
   const [documentFormWarningVisible, setDocumentFormWarningVisible] = useState(false);
+  const [documentWizardFocusTargetId, setDocumentWizardFocusTargetId] = useState<string | null>(null);
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const allowDocumentAttachment = screenConfig.allowDocumentAttachment && canAttachDocuments;
   const tier = authUser?.subscriptionTier ?? 'free';
@@ -1234,27 +1235,45 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, []);
 
   const expandDocumentWizard = useCallback((messageId: string) => {
-    setMessages((prev) => {
-      const wizardIndex = prev.findIndex((message) => message.id === messageId);
-      if (wizardIndex >= 0) {
-        requestAnimationFrame(() => {
-          messagesListRef.current?.scrollToIndex({ index: wizardIndex, animated: true, viewPosition: 0.08 });
-        });
-      }
-      return prev.map((message) => {
-        if (!message.documentWizard) return message;
-        return {
-          ...message,
-          documentWizard: {
-            ...message.documentWizard,
-            collapsed: message.id === messageId ? false : true,
-          },
-        };
-      });
-    });
-    autoScrollEnabledRef.current = true;
+    autoScrollEnabledRef.current = false;
+    showScrollButtonRef.current = false;
     setShowScrollToBottom(false);
+    setDocumentWizardFocusTargetId(messageId);
+    setMessages((prev) => prev.map((message) => {
+      if (!message.documentWizard) return message;
+      return {
+        ...message,
+        documentWizard: {
+          ...message.documentWizard,
+          collapsed: message.id === messageId ? false : true,
+        },
+      };
+    }));
   }, []);
+
+  useEffect(() => {
+    if (!documentWizardFocusTargetId) return;
+    const wizardIndex = visibleMessages.findIndex((message) => message.id === documentWizardFocusTargetId);
+    if (wizardIndex < 0) {
+      setDocumentWizardFocusTargetId(null);
+      return;
+    }
+
+    let secondScrollTimer: ReturnType<typeof setTimeout> | null = null;
+    const firstScrollTimer = setTimeout(() => {
+      messagesListRef.current?.scrollToIndex({ index: wizardIndex, animated: true, viewPosition: 0.04 });
+      secondScrollTimer = setTimeout(() => {
+        messagesListRef.current?.scrollToIndex({ index: wizardIndex, animated: false, viewPosition: 0.04 });
+        AccessibilityInfo.announceForAccessibility?.('Document form opened. Continue filling the form.');
+        setDocumentWizardFocusTargetId(null);
+      }, 320);
+    }, 180);
+
+    return () => {
+      clearTimeout(firstScrollTimer);
+      if (secondScrollTimer) clearTimeout(secondScrollTimer);
+    };
+  }, [documentWizardFocusTargetId, visibleMessages]);
 
   const hasExpandedDocumentWizard = useCallback(
     () => messages.some((message) => message.documentWizard && !message.documentWizard.collapsed),
