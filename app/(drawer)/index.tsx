@@ -341,12 +341,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const VIDEO_JOB_RATE_LIMIT_BACKOFF_MS = 9000;
   const VIDEO_AUTO_SYNC_ATTEMPTS = 40;
   const VIDEO_AUTO_SYNC_INTERVAL_MS = 12000;
+  const REWARD_VERIFICATION_ATTEMPTS = 15;
+  const REWARD_VERIFICATION_INTERVAL_MS = 4000;
   const LIMIT_RESTORE_SYNC_TIMEOUT_MS = 60_000;
   const LIMIT_RESTORE_SYNC_POLL_MS = 3_000;
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { isAuthenticated, authUser, refreshAuthUser, setAuthSubscriptionTier } = useAppContext();
-  const { restorePurchases, refreshCustomerInfo } = useRevenueCat();
+  const { activeTier, restorePurchases, refreshCustomerInfo } = useRevenueCat();
   const { t, language } = useI18n();
   const screenConfig = useMemo(() => {
     if (screenMode === 'image-to-video') {
@@ -454,6 +456,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const canAttachDocuments = isAuthenticated && (authUser?.subscriptionTier ?? 'free') !== 'free';
   const allowDocumentAttachment = screenConfig.allowDocumentAttachment && canAttachDocuments;
   const tier = authUser?.subscriptionTier ?? 'free';
+  const canWatchRewardedAds = isAuthenticated && tier === 'free' && activeTier === 'free';
   const canUseUltraModel = isAuthenticated && (tier === 'cafa_pro' || tier === 'cafa_max');
   const availableChatModelOptions = useMemo(
     () => CHAT_MODEL_OPTIONS.filter((option) => option.key !== 'ultra' || canUseUltraModel),
@@ -1901,6 +1904,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const watchAdForLimitReward = useCallback(async () => {
     const rewardType = upgradeNoticeKind;
     if (!rewardType || !isAuthenticated || isRewardAdProcessing) return;
+    if (!canWatchRewardedAds) {
+      if (__DEV__) console.log('[ads:reward-flow:blocked-paid-tier]', {
+        rewardType,
+        authTier: tier,
+        activeTier,
+      });
+      setStatusNotice('Rewarded ads are only available on the Free plan.');
+      return;
+    }
 
     if (__DEV__) console.log('[ads:reward-flow:start]', { rewardType, authenticated: isAuthenticated });
     setIsRewardAdProcessing(true);
@@ -1928,19 +1940,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       }
 
       let grant = await claimRewardSession(session.sessionId, result.adReward);
-      for (let attempt = 0; grant.status === 'pending_verification' && attempt < 4; attempt += 1) {
+      for (
+        let attempt = 1;
+        grant.status === 'pending_verification' && attempt < REWARD_VERIFICATION_ATTEMPTS;
+        attempt += 1
+      ) {
         setStatusNotice('Ad completed. Verifying your reward…');
-        await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+        await new Promise((resolve) => setTimeout(resolve, REWARD_VERIFICATION_INTERVAL_MS));
         grant = await claimRewardSession(session.sessionId, result.adReward);
       }
       if (grant.status === 'pending_verification') {
-        setStatusNotice('Reward not granted. We could not verify the completed ad, so no credit was added. Please try again shortly or contact support if this continues.');
-        if (__DEV__) console.warn('[ads:reward-flow:not-granted]', {
+        setStatusNotice('Ad completed. Google verification is taking longer than usual. Your reward will be added automatically when verification arrives.');
+        setUpgradeNoticeKind(null);
+        setUpgradeNoticeResetHours(null);
+        if (__DEV__) console.warn('[ads:reward-flow:verification-delayed]', {
           rewardType,
           sessionId: session.sessionId,
           reason: 'pending_verification',
         });
-        hapticError();
         return;
       }
 
@@ -1989,7 +2006,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     } finally {
       setIsRewardAdProcessing(false);
     }
-  }, [isAuthenticated, isRewardAdProcessing, refreshAuthUser, upgradeNoticeKind]);
+  }, [activeTier, canWatchRewardedAds, isAuthenticated, isRewardAdProcessing, refreshAuthUser, tier, upgradeNoticeKind]);
 
   const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {
     if (Platform.OS !== 'ios' || !isAuthenticated || isLimitRestoreSyncing) return;
@@ -7394,25 +7411,27 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 </View>
                 {upgradeNoticeKind ? (
                   <View className="mt-2 flex-row flex-wrap items-center gap-2">
-                    <Pressable
-                      onPress={() => {
-                        hapticSelection();
-                        void watchAdForLimitReward();
-                      }}
-                      disabled={isRewardAdProcessing}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Watch an ad for ${AD_REWARD_GRANTS[upgradeNoticeKind]} extra ${upgradeNoticeKind} credits`}
-                      className="h-8 items-center justify-center rounded-full px-3"
-                      style={{ backgroundColor: '#16A34A', opacity: isRewardAdProcessing ? 0.7 : 1 }}
-                    >
-                      {isRewardAdProcessing ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
-                          Watch ad · +{AD_REWARD_GRANTS[upgradeNoticeKind]} {upgradeNoticeKind === 'chat' ? 'prompts' : 'generation'}
-                        </Text>
-                      )}
-                    </Pressable>
+                    {canWatchRewardedAds ? (
+                      <Pressable
+                        onPress={() => {
+                          hapticSelection();
+                          void watchAdForLimitReward();
+                        }}
+                        disabled={isRewardAdProcessing}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Watch an ad for ${AD_REWARD_GRANTS[upgradeNoticeKind]} extra ${upgradeNoticeKind} credits`}
+                        className="h-8 items-center justify-center rounded-full px-3"
+                        style={{ backgroundColor: '#16A34A', opacity: isRewardAdProcessing ? 0.7 : 1 }}
+                      >
+                        {isRewardAdProcessing ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
+                            Watch ad · +{AD_REWARD_GRANTS[upgradeNoticeKind]} {upgradeNoticeKind === 'chat' ? 'prompts' : 'generation'}
+                          </Text>
+                        )}
+                      </Pressable>
+                    ) : null}
                     <Pressable
                       onPress={() => {
                         hapticSelection();
