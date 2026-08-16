@@ -127,6 +127,7 @@ import {
   generateDocumentDirect,
   emitChatMutated,
   getDocumentWizardDraftMessages,
+  getRewardEligibility,
   getAccessToken,
   getDefaultVoicePreference,
   setDocumentWizardDraftMessages,
@@ -426,6 +427,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [upgradeNoticeResetHours, setUpgradeNoticeResetHours] = useState<number | null>(null);
   const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
   const [isRewardAdProcessing, setIsRewardAdProcessing] = useState(false);
+  const [rewardAdOffer, setRewardAdOffer] = useState<{
+    kind: 'chat' | 'image' | 'video';
+    available: boolean | null;
+  } | null>(null);
   const [guestUpsellVisible, setGuestUpsellVisible] = useState(false);
   const [guestAllowanceHydrated, setGuestAllowanceHydrated] = useState(false);
   const [guestMessageCount, setGuestMessageCount] = useState(0);
@@ -488,6 +493,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const autoScrollEnabledRef = useRef(true);
   const showScrollButtonRef = useRef(false);
   const noticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rewardEligibilityRequestRef = useRef(0);
   const downloadToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ttsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1897,9 +1903,37 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     setUpgradeNoticeKind(kind);
     setUpgradeNoticeResetHours(resetHours ?? null);
     setStatusNotice(getLimitNoticeMessage(kind));
+    const requestId = rewardEligibilityRequestRef.current + 1;
+    rewardEligibilityRequestRef.current = requestId;
+    if (!canWatchRewardedAds) {
+      setRewardAdOffer({ kind, available: false });
+    } else {
+      setRewardAdOffer({ kind, available: null });
+      void getRewardEligibility(kind)
+        .then((eligibility) => {
+          if (rewardEligibilityRequestRef.current !== requestId) return;
+          const available = eligibility.eligible && eligibility.remainingToday > 0;
+          setRewardAdOffer({ kind, available });
+          if (__DEV__) console.log('[ads:reward-eligibility:limit-notice]', {
+            rewardType: kind,
+            eligible: eligibility.eligible,
+            reason: eligibility.reason ?? null,
+            remainingToday: eligibility.remainingToday,
+            dailyLimit: eligibility.dailyLimit,
+          });
+        })
+        .catch((error) => {
+          if (rewardEligibilityRequestRef.current !== requestId) return;
+          setRewardAdOffer({ kind, available: false });
+          if (__DEV__) console.warn('[ads:reward-eligibility:error]', {
+            rewardType: kind,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
     if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
     noticeTimeoutRef.current = null;
-  }, [getLimitNoticeMessage]);
+  }, [canWatchRewardedAds, getLimitNoticeMessage]);
 
   const watchAdForLimitReward = useCallback(async () => {
     const rewardType = upgradeNoticeKind;
@@ -1919,6 +1953,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     try {
       const session = await createRewardSession(rewardType);
       if (!session.eligible) {
+        setRewardAdOffer({ kind: rewardType, available: false });
         if (__DEV__) console.log('[ads:reward-flow:ineligible]', { rewardType, reason: session.reason, sessionId: session.sessionId });
         const capMessage = session.reason === 'daily_cap_reached'
           ? `You've used all ${session.dailyLimit} ${rewardType === 'chat' ? 'chat' : rewardType} rewarded ads for today.`
@@ -1994,6 +2029,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             : status === 403
               ? (response?.data?.message || 'This account is not eligible for an ad reward right now.')
               : 'We could not process the rewarded ad. No reward was used. Please try again later.';
+      if (status === 429 || status === 403 || code === 'AD_REWARD_DAILY_CAP_REACHED') {
+        setRewardAdOffer({ kind: rewardType, available: false });
+      }
       if (__DEV__) console.warn('[ads:reward-flow:error]', {
         rewardType,
         status,
@@ -7411,7 +7449,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 </View>
                 {upgradeNoticeKind ? (
                   <View className="mt-2 flex-row flex-wrap items-center gap-2">
-                    {canWatchRewardedAds ? (
+                    {canWatchRewardedAds
+                      && rewardAdOffer?.kind === upgradeNoticeKind
+                      && rewardAdOffer.available === true ? (
                       <Pressable
                         onPress={() => {
                           hapticSelection();
