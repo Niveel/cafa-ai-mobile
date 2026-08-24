@@ -582,7 +582,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const isSendDisabled = (!input.trim() && attachedAssets.length === 0)
     || isSending
     || isUnderstandingPrompt
-    || !!statusNotice
     || (!isAuthenticated && (!guestAllowanceHydrated || guestModeLocked));
   const clearDedicatedMediaValidationMessages = useCallback((options: { clearPromptRequired?: boolean; clearImageRequired?: boolean }) => {
     if (!options.clearPromptRequired && !options.clearImageRequired) return;
@@ -1935,6 +1934,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     noticeTimeoutRef.current = null;
   }, [canWatchRewardedAds, getLimitNoticeMessage]);
 
+  const showRewardFlowNotice = useCallback((message: string, durationMs = 5000) => {
+    setUpgradeNoticeKind(null);
+    setUpgradeNoticeResetHours(null);
+    setStatusNotice(message);
+    if (noticeTimeoutRef.current) clearTimeout(noticeTimeoutRef.current);
+    noticeTimeoutRef.current = setTimeout(() => {
+      setStatusNotice('');
+      noticeTimeoutRef.current = null;
+    }, durationMs);
+  }, []);
+
   const watchAdForLimitReward = useCallback(async () => {
     const rewardType = upgradeNoticeKind;
     if (!rewardType || !isAuthenticated || isRewardAdProcessing) return;
@@ -1944,7 +1954,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         authTier: tier,
         activeTier,
       });
-      setStatusNotice('Rewarded ads are only available on the Free plan.');
+      showRewardFlowNotice('Rewarded ads are only available on the Free plan.');
       return;
     }
 
@@ -1958,7 +1968,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const capMessage = session.reason === 'daily_cap_reached'
           ? `You've used all ${session.dailyLimit} ${rewardType === 'chat' ? 'chat' : rewardType} rewarded ads for today.`
           : 'A rewarded ad is not available for this limit right now.';
-        setStatusNotice(capMessage);
+        showRewardFlowNotice(capMessage);
         return;
       }
 
@@ -1970,7 +1980,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       });
       if (result.status === 'cancelled') {
         if (__DEV__) console.log('[ads:reward-flow:cancelled]', { rewardType, sessionId: session.sessionId });
-        setStatusNotice('Ad cancelled. No reward was used.');
+        showRewardFlowNotice('Ad cancelled. No reward was used.');
         return;
       }
 
@@ -1985,9 +1995,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         grant = await claimRewardSession(session.sessionId, result.adReward);
       }
       if (grant.status === 'pending_verification') {
-        setStatusNotice('Ad completed. Google verification is taking longer than usual. Your reward will be added automatically when verification arrives.');
-        setUpgradeNoticeKind(null);
-        setUpgradeNoticeResetHours(null);
+        showRewardFlowNotice('Ad completed. Google verification is taking longer than usual. Your reward will be added automatically when verification arrives.', 8000);
         if (__DEV__) console.warn('[ads:reward-flow:verification-delayed]', {
           rewardType,
           sessionId: session.sessionId,
@@ -2010,9 +2018,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         : rewardType === 'image'
           ? 'image generation'
           : 'video generation';
-      setUpgradeNoticeKind(null);
-      setUpgradeNoticeResetHours(null);
-      setStatusNotice(`Reward granted: +${grant.grantAmount} ${unit}. Use it before today's reset.`);
+      showRewardFlowNotice(`Reward granted: +${grant.grantAmount} ${unit}. Use it before today's reset.`);
       await refreshAuthUser().catch(() => {});
     } catch (error) {
       const response = (error as {
@@ -2039,12 +2045,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         message: response?.data?.message ?? (error instanceof Error ? error.message : String(error)),
         error,
       });
-      setStatusNotice(message);
+      showRewardFlowNotice(message, 6500);
       hapticError();
     } finally {
       setIsRewardAdProcessing(false);
     }
-  }, [activeTier, canWatchRewardedAds, isAuthenticated, isRewardAdProcessing, refreshAuthUser, tier, upgradeNoticeKind]);
+  }, [activeTier, canWatchRewardedAds, isAuthenticated, isRewardAdProcessing, refreshAuthUser, showRewardFlowNotice, tier, upgradeNoticeKind]);
 
   const restorePurchasesAndSyncFromLimitNotice = useCallback(async () => {
     if (Platform.OS !== 'ios' || !isAuthenticated || isLimitRestoreSyncing) return;
