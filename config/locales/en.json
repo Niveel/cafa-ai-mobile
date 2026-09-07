@@ -571,7 +571,7 @@
   "hub.openHint": "Navigates to {{title}}.",
   "tools.subtitle": "Create, transform, and refine with focused workspaces designed for media and writing tasks.",
   "tools.card.avatar.title": "Avatar Video",
-  "tools.card.avatar.description": "Create a talking avatar video with gallery faces or your own portrait, auto-written script, and voice selection.",
+  "tools.card.avatar.description": "Turn a photo into a talking video. Choose a face, add what you want it to say, and pick a voice.",
   "tools.card.avatar.eyebrow": "Talking Video",
   "tools.card.imageToVideo.title": "Image to Video",
   "tools.card.imageToVideo.description": "Turn a still image into a motion-ready clip with a workflow tuned for video prompts.",
