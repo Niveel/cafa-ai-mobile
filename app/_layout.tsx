@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { Stack, useNavigationContainerRef, usePathname, useSegments } from 'expo-router';
 import { isRunningInExpoGo } from 'expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { Animated, AppState, Easing, Image, Linking, Platform, useColorScheme, View } from 'react-native';
+import { Animated, AppState, Easing, Image, Linking, Platform, Text, useColorScheme, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import * as Sentry from '@sentry/react-native';
 
 import '../global.css';
-import { AppPromptModal } from '@/components';
+import { AppLogo, AppPromptModal } from '@/components';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
 import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
@@ -27,6 +28,12 @@ const SPLASH_DARK_BACKGROUND = '#10264D';
 const SPLASH_LIGHT_BACKGROUND = '#ffffff';
 const IS_EXPO_GO = isRunningInExpoGo();
 const IS_DEV_RUNTIME = __DEV__;
+const MAINTENANCE_CONFIG = {
+  // Urgent override: keep the entire app unavailable until this is explicitly lifted.
+  // The health URL is retained for the automatic availability gate that will replace it.
+  forced: true,
+  healthUrl: 'https://cafaapi.niveel.com/api/v1/health',
+} as const;
 
 const sentryNavigationIntegration = Sentry.reactNavigationIntegration({
   enableTimeToInitialDisplay: !IS_EXPO_GO,
@@ -86,6 +93,141 @@ function PostHogScreenTracker() {
   return null;
 }
 
+function MaintenanceScreen() {
+  const { isDark, colors } = useAppTheme();
+  const panelBackground = isDark ? '#0D1420' : '#F8FAFD';
+  const softAccent = isDark ? 'rgba(95,127,184,0.18)' : 'rgba(32,64,121,0.09)';
+
+  return (
+    <View
+      accessibilityViewIsModal
+      style={{
+        flex: 1,
+        overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 22,
+        paddingVertical: Platform.OS === 'web' ? 40 : 28,
+        backgroundColor: colors.background,
+      }}
+    >
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: 330,
+          height: 330,
+          borderRadius: 165,
+          top: -145,
+          right: -120,
+          backgroundColor: softAccent,
+        }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: 250,
+          height: 250,
+          borderRadius: 125,
+          bottom: -120,
+          left: -105,
+          backgroundColor: softAccent,
+        }}
+      />
+
+      <View style={{ width: '100%', maxWidth: 560 }}>
+        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+          <AppLogo size={42} />
+        </View>
+
+        <View
+          style={{
+            alignItems: 'center',
+            borderRadius: 28,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: panelBackground,
+            paddingHorizontal: 26,
+            paddingVertical: 34,
+            shadowColor: '#000000',
+            shadowOpacity: isDark ? 0.32 : 0.1,
+            shadowRadius: 24,
+            shadowOffset: { width: 0, height: 12 },
+            elevation: 8,
+          }}
+        >
+          <View
+            style={{
+              width: 64,
+              height: 64,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 32,
+              backgroundColor: softAccent,
+              marginBottom: 20,
+            }}
+          >
+            <Ionicons name="construct-outline" size={30} color={colors.primary} />
+          </View>
+
+          <Text
+            accessibilityRole="header"
+            style={{
+              color: colors.textPrimary,
+              fontSize: 25,
+              lineHeight: 32,
+              fontWeight: '800',
+              textAlign: 'center',
+            }}
+          >
+            We’re temporarily unavailable
+          </Text>
+          <Text
+            style={{
+              color: colors.textSecondary,
+              fontSize: 15,
+              lineHeight: 23,
+              textAlign: 'center',
+              marginTop: 14,
+              maxWidth: 440,
+            }}
+          >
+            We sincerely apologize for the interruption. Cafa AI is undergoing essential maintenance so we can restore a reliable experience for you.
+          </Text>
+          <Text
+            style={{
+              color: colors.textPrimary,
+              fontSize: 14,
+              lineHeight: 21,
+              fontWeight: '600',
+              textAlign: 'center',
+              marginTop: 12,
+              maxWidth: 420,
+            }}
+          >
+            Please check back shortly. Thank you for your patience and understanding.
+          </Text>
+
+          <View
+            style={{
+              marginTop: 24,
+              borderRadius: 999,
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              backgroundColor: softAccent,
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>
+              Maintenance in progress
+            </Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
   const { t } = useI18n();
@@ -143,6 +285,15 @@ function AppNavigator() {
         if (__DEV__) console.warn('[tiktok-events:init]', error);
       });
   }, [appIsReady]);
+
+  if (MAINTENANCE_CONFIG.forced) {
+    return (
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <MaintenanceScreen />
+      </>
+    );
+  }
 
   if (!appIsReady) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
