@@ -31,7 +31,7 @@ const IS_DEV_RUNTIME = __DEV__;
 const MAINTENANCE_CONFIG = {
   // Urgent override: keep the entire app unavailable until this is explicitly lifted.
   // The health URL is retained for the automatic availability gate that will replace it.
-  forced: false,
+  forced: true,
   healthUrl: 'https://cafaapi.niveel.com/api/v1/health',
 } as const;
 
