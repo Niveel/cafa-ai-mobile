@@ -79,7 +79,16 @@ import {
   type AttachedAsset,
   type UiMessage,
   type UiMessageAttachment,
+  type UiMessageToolCall,
+  type UiMessageProduct,
+  type UiArtifactItem,
+  ToolStatusChips,
+  ThinkingPanel,
+  ProductCards,
+  ArtifactPanel,
+  AssistantWidget,
 } from '@/components';
+import { NotificationBell, PushNudgeBanner } from '@/features/notifications';
 import { AppPromptModal } from '@/components/ui/AppPromptModal';
 import { useAppContext } from '@/context';
 import { useRevenueCat } from '@/context/RevenueCatContext';
@@ -108,8 +117,12 @@ import {
   startVideoGeneration,
   startVideoGenerationFromImage,
   synthesizeVoice,
+  createSynthesizeStreamToken,
+  getSynthesizeStreamUrl,
   toggleAuthenticatedMessageReaction,
   isDedicatedMediaConversationUnavailable,
+  deleteArtifact,
+  getSuggestedPrompts,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
@@ -122,9 +135,6 @@ import {
   createRewardSession,
   clearDocumentWizardDraftMessages,
   discardDocumentWizardDraftMessages,
-  classifyChatResponse,
-  detectDocumentRequest,
-  generateDocumentDirect,
   emitChatMutated,
   getDocumentWizardDraftMessages,
   getRewardEligibility,
@@ -154,8 +164,10 @@ type AudioPlayer = {
   remove: () => void;
 };
 
+type AudioPlayerSource = string | { uri?: string; headers?: Record<string, string> };
+
 type ExpoAudioModule = {
-  createAudioPlayer: (uri: string, options?: { keepAudioSessionActive?: boolean }) => AudioPlayer;
+  createAudioPlayer: (source: AudioPlayerSource, options?: { keepAudioSessionActive?: boolean }) => AudioPlayer;
 };
 
 type ImagePickerModule = {
@@ -192,6 +204,100 @@ type ComposerMediaReference = {
 };
 
 type ChatScreenMode = 'chat' | 'image-to-video' | 'edit-image';
+
+// Real parity port of web's IMAGE_MODE_PROMPTS / VIDEO_MODE_PROMPTS
+// (features/chat/components/chat-shell/constants.tsx) -- the "Image
+// generation shortcut" / "Video generation shortcut" composer buttons
+// insert a random one of these into the composer, matching web exactly.
+const IMAGE_MODE_PROMPTS = [
+  'Generate image of a futuristic government operations center.',
+  'Generate image of a floating eco-city above the ocean at dawn.',
+  'Generate image of a cyberpunk marketplace in heavy rain.',
+  'Generate image of an ancient library on the moon.',
+  'Generate image of a luxury train crossing a glass desert.',
+  'Generate image of a high-tech hospital in a rainforest valley.',
+  'Generate image of a robotics lab inside a mountain.',
+  'Generate image of an underwater research city with glowing coral.',
+  'Generate image of a medieval castle rebuilt with modern architecture.',
+  'Generate image of a minimalist smart home on a cliffside.',
+  'Generate image of a bustling Mars colony main street at sunset.',
+  'Generate image of a cinematic aerial view of a neon megacity.',
+  'Generate image of a serene Japanese garden on a space station.',
+  'Generate image of a rescue command center during a snowstorm.',
+  'Generate image of a desert festival with giant kinetic sculptures.',
+];
+
+// Real parity port of web's personalized empty-state greeting
+// (ChatShell.tsx GREETING_TEMPLATES/getTimeBucket/hashString/
+// personalizedGreeting) -- real local time-of-day + the real user's name,
+// picked deterministically from a small set of variants (not an LLM call)
+// so it stays stable through the day/session rather than reshuffling.
+const GREETING_TEMPLATES: Record<'morning' | 'afternoon' | 'evening' | 'night', string[]> = {
+  morning: [
+    'Good morning, {name}.',
+    'Morning, {name}! Ready when you are.',
+    'Good morning, {name} -- what are we diving into today?',
+  ],
+  afternoon: [
+    'Good afternoon, {name}.',
+    'Afternoon, {name}! What can I help with?',
+    "Good afternoon, {name} -- what's on your mind?",
+  ],
+  evening: [
+    'Good evening, {name}.',
+    'Evening, {name}! How can I help?',
+    "Good evening, {name} -- let's get started.",
+  ],
+  night: [
+    'Working late, {name}?',
+    'Good to see you, {name}.',
+    "Hey {name}, still up? Let's make it count.",
+  ],
+};
+
+function hashGreetingKey(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function capitalizeName(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.split('-').map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1)).join('-'))
+    .join(' ');
+}
+
+function getGreetingTimeBucket(hour: number): keyof typeof GREETING_TEMPLATES {
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 22) return 'evening';
+  return 'night';
+}
+
+const VIDEO_MODE_PROMPTS = [
+  'Generate video of a futuristic government operations center at shift change.',
+  'Generate video of drones coordinating disaster relief over a coastal city.',
+  'Generate video of a smart city skyline transitioning from sunset to neon night.',
+  'Generate video of a high-speed train entering a mountain megastation.',
+  'Generate video of a climate control room visualizing global weather in real time.',
+  'Generate video of an autonomous port with robotic cranes loading cargo ships.',
+  'Generate video of an AI classroom where holographic lessons adapt to students.',
+  'Generate video of a space colony marketplace bustling at dawn.',
+  'Generate video of a biotech lab assembling custom medicine with robots.',
+  'Generate video of a wildfire command center coordinating response teams.',
+  'Generate video of an underwater research city with glowing transit pods.',
+  'Generate video of emergency responders deploying flood barriers in minutes.',
+  'Generate video of a courtroom using holographic evidence playback.',
+  'Generate video of a mountain observatory opening at night under auroras.',
+  'Generate video of a future airport terminal with autonomous baggage swarms.',
+];
 
 type ScreenHandoffConfig = {
   target: 'index' | 'image-to-video' | 'edit-image';
@@ -351,6 +457,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const { isAuthenticated, authUser, refreshAuthUser, setAuthSubscriptionTier } = useAppContext();
   const { activeTier, restorePurchases, refreshCustomerInfo } = useRevenueCat();
   const { t, language } = useI18n();
+  const personalizedGreeting = useMemo(() => {
+    if (!isAuthenticated) return null;
+    const displayName = capitalizeName(authUser?.name ?? '') || 'User';
+    const now = new Date();
+    const bucket = getGreetingTimeBucket(now.getHours());
+    const dayKey = now.toDateString();
+    const templates = GREETING_TEMPLATES[bucket];
+    const index = Math.abs(hashGreetingKey(`${dayKey}-${bucket}-${displayName}`)) % templates.length;
+    return templates[index].replace('{name}', displayName);
+  }, [authUser?.name, isAuthenticated]);
   const screenConfig = useMemo(() => {
     if (screenMode === 'image-to-video') {
       return {
@@ -381,7 +497,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       };
     }
     return {
-      welcome: t('chat.welcome'),
+      welcome: personalizedGreeting ?? t('chat.welcome'),
       attachmentMenuAnnouncement: 'Upload menu opened. Choose image upload or document upload.',
       uploadTriggerLabel: 'Upload',
       uploadTriggerHint: 'Opens upload options.',
@@ -392,7 +508,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       allowDocumentAttachment: true,
       placeholder: t('chat.input.placeholder'),
     };
-  }, [screenMode, t]);
+  }, [personalizedGreeting, screenMode, t]);
   const createWelcomeMessage = useCallback(
     (): UiMessage => ({
       id: 'welcome-1',
@@ -406,6 +522,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string; messageId?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [uploadProgressPercent, setUploadProgressPercent] = useState<number | null>(null);
   const [isUnderstandingPrompt, setIsUnderstandingPrompt] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
@@ -415,6 +532,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [tooltipState, setTooltipState] = useState<{ text: string; x: number; y: number } | null>(null);
   const [activeModel, setActiveModel] = useState<'ultra' | 'smart' | 'swift'>('smart');
   const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [artifactsPanelOpen, setArtifactsPanelOpen] = useState(false);
   const [isHydratingAuthChat, setIsHydratingAuthChat] = useState(false);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [composerScrollable, setComposerScrollable] = useState(false);
@@ -446,6 +564,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [ttsToastNotice, setTtsToastNotice] = useState('');
   const [messageReactions, setMessageReactions] = useState<Record<string, 'like' | 'dislike' | undefined>>({});
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
+  const [isReadAloudPaused, setIsReadAloudPaused] = useState(false);
+  const readAloudUsesNativeFallbackRef = useRef(false);
   const [assetAccessToken, setAssetAccessToken] = useState<string | null>(null);
   const [readAloudSpeaker, setReadAloudSpeaker] = useState<string | null>(null);
   const [isReadAloudLoading, setIsReadAloudLoading] = useState(false);
@@ -517,6 +637,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const chooserCancelOptionRef = useRef<View | null>(null);
   const speechDraftRef = useRef('');
   const isRecordingRef = useRef(false);
+  const lastImagePromptIndexRef = useRef(-1);
+  const lastVideoPromptIndexRef = useRef(-1);
   const speechRecognitionRequestedRef = useRef(false);
   const activeReadAloudRequestRef = useRef(0);
   const assistantFirstDeltaRef = useRef(false);
@@ -672,7 +794,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     if (selected.length) {
       setStarterPrompts(selected);
     }
-  }, [screenMode]);
+
+    // Real, backend-driven suggestions (2026-09-13) -- ports web's
+    // getSuggestedPrompts (a real, cached, potentially personalized row the
+    // backend serves, not an LLM call). Only for authenticated users,
+    // matching web's own gating; replaces the local static pick above once
+    // it resolves, but never blocks on it -- the static pool is what's on
+    // screen immediately, same as web's guest/failure fallback.
+    if (isAuthenticated) {
+      getSuggestedPrompts()
+        .then((data) => {
+          if (data.suggestions.length) setStarterPrompts(data.suggestions.slice(0, 4));
+        })
+        .catch(() => {
+          // Keep the local static pick; not worth surfacing an error for this.
+        });
+    }
+  }, [isAuthenticated, screenMode]);
 
   const getScreenHandoffConfigFromAssistantText = useCallback((
     content: string,
@@ -992,6 +1130,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       userMessageId?: string;
       assistantMessageId?: string;
     };
+    toolCalls?: {
+      name: string;
+      args?: Record<string, unknown>;
+      ok: boolean;
+      products?: { query: string; items: UiMessageProduct[] };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      widget?: import('@/components/chat').UiWidgetSpec;
+      label?: string;
+    }[];
   }): UiMessage => {
     const role = message.role === 'assistant' ? 'assistant' : 'user';
     const createdAtMs = new Date(message.createdAt).getTime();
@@ -1069,14 +1216,87 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       );
     });
 
+    // Real, confirmed root-cause fix (2026-09-14, Issue A): imageUrl/videoUrl
+    // were only ever derived from the legacy message.imageUrl/videoUrl fields
+    // (or an uploaded-attachment fallback) -- fields the current native
+    // tool-calling backend never writes; it only persists toolCalls[].mediaRef
+    // (which backfilledArtifacts, a few lines below, already correctly reads
+    // for the Artifacts panel). Whenever the live SSE 'media' event was
+    // missed (real, confirmed on real hardware with a longer/more complex
+    // prompt -- reproduced live: the exact same reconciliation path that's
+    // supposed to backfill this had nothing to backfill FROM), this made it
+    // structurally impossible for the chat bubble to ever recover the image,
+    // even though it was always genuinely available in the same toolCalls
+    // array the Artifacts panel was already rendering it from.
+    const toolCallImageUrl = [...(message.toolCalls ?? [])].reverse().find(
+      (call) => call.mediaRef?.kind === 'image' && call.mediaRef.url,
+    )?.mediaRef?.url;
+    const toolCallVideoUrl = [...(message.toolCalls ?? [])].reverse().find(
+      (call) => call.mediaRef?.kind === 'video' && call.mediaRef.url,
+    )?.mediaRef?.url;
+
     const effectiveImageUrl = normalizedImageUrl
       ?? fallbackImageAttachment?.url
       ?? fallbackImageAttachment?.thumbnailUrl
-      ?? undefined;
+      ?? (toolCallImageUrl ? resolveBackendAssetUrl(toolCallImageUrl) ?? toolCallImageUrl : undefined);
     const effectiveVideoUrl = normalizedVideoUrl
       ?? fallbackVideoAttachment?.url
       ?? fallbackVideoAttachment?.thumbnailUrl
-      ?? undefined;
+      ?? (toolCallVideoUrl ? resolveBackendAssetUrl(toolCallVideoUrl) ?? toolCallVideoUrl : undefined);
+
+    // Real fix (2026-09-12): matches web's backfillToolStateFromToolCalls
+    // (chat-shell/utils.ts) -- the live-streamed `tools`/`products` fields
+    // are never persisted themselves, only the real toolCalls record that
+    // produced them is. Without reconstructing from it here, a message
+    // loaded from any conversation-detail refresh (the same background
+    // reconciliation that runs after every send) silently lost its product
+    // cards and tool chips seconds after they first appeared -- confirmed
+    // live: search_products cards vanished right after the turn settled.
+    // Real, confirmed bug fix (2026-09-19): this used to omit `label`
+    // entirely, so ToolStatusChips' `label ?? tool` fallback showed the raw
+    // tool name (e.g. "run_python_chart") for every backfilled message, not
+    // just newly-added tools -- the live stream always had a label, this
+    // backfill path never did. Now reads the same friendly label the
+    // backend persisted (see Conversation.model.ts's IToolCall.label).
+    const backfilledTools: UiMessageToolCall[] | undefined = message.toolCalls?.length
+      ? message.toolCalls.map((call) => ({ tool: call.name, label: call.label, ok: call.ok, running: false }))
+      : undefined;
+    const backfilledProducts = [...(message.toolCalls ?? [])].reverse().find((call) => call.products)?.products;
+    // Real, matches web's backfillToolStateFromToolCalls widget handling --
+    // widgetDone is always seeded false here (a completed render_widget tool
+    // call is not the same as the user having submitted it); the real
+    // submission-lock recompute runs in applyWidgetSubmissionState below,
+    // over the full ordered message list.
+    const backfilledWidget = [...(message.toolCalls ?? [])].reverse().find((call) => call.widget)?.widget;
+    // Real fix (2026-09-12, Part 4): ports web's deriveArtifactsFromMessages
+    // (chat-shell/utils.ts) -- the artifacts gallery is built from this same
+    // real, persisted toolCalls array, not from imageUrl/videoUrl alone, so
+    // an edited image's real pre-edit sourceUrl (edit_image's own image_url
+    // arg) survives a reload for the before/after comparison.
+    const backfilledArtifacts: UiArtifactItem[] = (message.toolCalls ?? []).reduce<UiArtifactItem[]>(
+      (acc, call, toolCallIndex) => {
+        const rawUrl = call.mediaRef?.url;
+        if (!rawUrl) return acc;
+        const kind: UiArtifactItem['kind'] =
+          call.name === 'generate_video' || call.name === 'image_to_video'
+            ? 'video'
+            : call.name === 'generate_document'
+              ? 'document'
+              : 'image';
+        const rawSourceUrl = call.name === 'edit_image' ? String(call.args?.image_url ?? '').trim() : '';
+        acc.push({
+          id: `${message.id}-artifact-${call.name}-${acc.length}`,
+          kind,
+          url: resolveBackendAssetUrl(rawUrl) ?? rawUrl,
+          sourceUrl: rawSourceUrl ? resolveBackendAssetUrl(rawSourceUrl) ?? rawSourceUrl : undefined,
+          messageId: message.id,
+          toolCallIndex,
+          createdAt: createdAtMs,
+        });
+        return acc;
+      },
+      [],
+    );
 
     return {
       id: message.id,
@@ -1103,8 +1323,26 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             assistantMessageId: message.documentWizard.assistantMessageId,
           }
         : undefined,
+      tools: backfilledTools,
+      products: backfilledProducts,
+      artifacts: backfilledArtifacts.length ? backfilledArtifacts : undefined,
+      widget: backfilledWidget,
+      widgetDone: backfilledWidget ? false : undefined,
     };
   }, [getScreenHandoffConfigFromAssistantText, resolveBackendAssetUrl]);
+
+  // Real, matches web's applyWidgetSubmissionState (chat-shell/utils.ts) --
+  // a widget is only "done" once the message immediately following it is
+  // the real "[Form response] ..." user message handleWidgetSubmit sends,
+  // not merely because the render_widget tool call itself completed. Must
+  // run over the full ordered array (not per-message), since it looks ahead.
+  const applyWidgetSubmissionState = useCallback((list: UiMessage[]): UiMessage[] =>
+    list.map((message, index) => {
+      if (!message.widget) return message;
+      const nextUserMessage = list.slice(index + 1).find((candidate) => candidate.role === 'user');
+      const widgetDone = Boolean(nextUserMessage?.content.startsWith('[Form response]'));
+      return widgetDone === message.widgetDone ? message : { ...message, widgetDone };
+    }), []);
 
   const mapDedicatedMediaConversationToAuthDetail = useCallback((conversation: {
     id: string;
@@ -1586,7 +1824,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
       const next = localAssistantFallback ? [...merged, localAssistantFallback] : merged;
       const preservedDrafts = collectDocumentWizardDraftMessages(prev);
-      return applyDescriptiveAttachmentNames(mergeDocumentWizardDraftMessages(next, preservedDrafts));
+      return applyWidgetSubmissionState(
+        applyDescriptiveAttachmentNames(mergeDocumentWizardDraftMessages(next, preservedDrafts)),
+      );
     });
     setMessageReactions(() =>
       detail.messages.reduce<Record<string, 'like' | 'dislike' | undefined>>((acc, message) => {
@@ -1602,6 +1842,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     void hydrateAssistantAttachmentsFromArtifacts(detail.id);
   }, [
     applyDescriptiveAttachmentNames,
+    applyWidgetSubmissionState,
     collectDocumentWizardDraftMessages,
     hydrateAssistantAttachmentsFromArtifacts,
     mapAuthMessageToUiMessage,
@@ -1619,6 +1860,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     localFallbackId: string,
     fallbackAttachments: UiMessageAttachment[] = [],
   ) => {
+    // Real fix (2026-09-14, Issue 5): cafa-ai-web's own chat stream never
+    // reconciles from the server after a live 'media' SSE event -- it
+    // patches imageUrl/videoUrl into local state the instant the event
+    // arrives and trusts it completely, no refetch, no merge. This
+    // reconciliation loop exists only as a fallback for when the live
+    // stream never delivered the media event at all; if it already did,
+    // running up to 6 extra network round-trips here is both unnecessary
+    // load and a needless second chance for a stale poll to interfere.
+    let hasVisualAlready = false;
+    setMessages((prev) => {
+      const current = prev.find((item) => item.id === assistantMessageId || item.id === localFallbackId);
+      hasVisualAlready = Boolean(
+        current?.imageUrl || current?.videoUrl || (current?.artifacts?.length ?? 0) > 0,
+      );
+      return prev;
+    });
+    if (hasVisualAlready) return;
+
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         const detail = await getAuthenticatedConversation(conversationId, { force: true });
@@ -1649,17 +1908,38 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   })),
                 }
               : mapped;
+            // Real fix (2026-09-14, Issue 5): the persisted-server snapshot
+            // this poll fetches can genuinely lag the live SSE stream's own
+            // already-rendered media state -- the toolCalls/mediaRef write
+            // is async on the backend, so an early poll attempt can land
+            // before it's committed. Blindly replacing the message with
+            // that stale snapshot wiped out an image/video the live stream
+            // had already shown (confirmed live: it visibly appeared, then
+            // disappeared). Keep whichever side actually has the richer
+            // visual state instead of always trusting the poll result.
             const byServerId = prev.findIndex((item) => item.id === assistantMessageId);
             if (byServerId >= 0) {
               const next = [...prev];
-              next[byServerId] = enhancedMapped;
+              const existing = next[byServerId];
+              next[byServerId] = {
+                ...enhancedMapped,
+                imageUrl: enhancedMapped.imageUrl ?? existing.imageUrl,
+                videoUrl: enhancedMapped.videoUrl ?? existing.videoUrl,
+                artifacts: (enhancedMapped.artifacts?.length ?? 0) > 0 ? enhancedMapped.artifacts : existing.artifacts,
+              };
               return next;
             }
 
             const byFallbackId = prev.findIndex((item) => item.id === localFallbackId);
             if (byFallbackId >= 0) {
               const next = [...prev];
-              next[byFallbackId] = enhancedMapped;
+              const existing = next[byFallbackId];
+              next[byFallbackId] = {
+                ...enhancedMapped,
+                imageUrl: enhancedMapped.imageUrl ?? existing.imageUrl,
+                videoUrl: enhancedMapped.videoUrl ?? existing.videoUrl,
+                artifacts: (enhancedMapped.artifacts?.length ?? 0) > 0 ? enhancedMapped.artifacts : existing.artifacts,
+              };
               return next;
             }
 
@@ -2721,19 +3001,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             scrollToBottom();
 
             const hasAttachment = attachmentsForSend.length > 0;
-            if (!hasAttachment) {
-              lastEndpoint = `${API_BASE_URL}/chat/classify`;
-              logSendPayload({
-                endpoint: lastEndpoint,
-                mode: 'auth-chat-classify',
-                conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
-                message: trimmed,
-                language,
-                model: activeModel,
-                reference: composerMediaReference ?? null,
-                attachments: [],
-              });
-            }
+            // Real cleanup (2026-09-12): this used to call /chat/classify
+            // (and, on an 'artifact' result, /documents/wizard/detect)
+            // before every send. Both routes' only real backend
+            // (apis.niveel.com/ai-inference-hub) is permanently
+            // decommissioned -- confirmed live against cafatest.niveel.com,
+            // where /chat/classify always falls through to a hardcoded
+            // { responseType: 'text' } after a wasted round trip. The new
+            // tool-calling backend decides media/document intent itself via
+            // real tool calls, so mobile no longer needs a pre-send guess --
+            // this local default is exactly what the network call always
+            // resolved to anyway, just without the latency.
             const classification: import('@/types').ChatClassificationResult = hasAttachment
               ? {
                   responseType: 'text',
@@ -2742,33 +3020,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   label: 'Analyzing attachment',
                   description: 'Reviewing your attachment',
                 }
-              : await classifyChatResponse(trimmed);
-            const actionableClassificationResponseType = classification.responseType;
-            const shouldRunDocumentDetection = !hasAttachment && classification.responseType === 'artifact';
-            if (shouldRunDocumentDetection) {
-              lastEndpoint = `${API_BASE_URL}/documents/wizard/detect`;
-              logSendPayload({
-                endpoint: lastEndpoint,
-                mode: 'auth-document-detect',
-                conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
-                message: trimmed,
-                language,
-                model: activeModel,
-                reference: composerMediaReference ?? null,
-                attachments: [],
-              });
-            }
-            const detection = shouldRunDocumentDetection
-              ? await detectDocumentRequest(trimmed)
               : {
-                  isDocumentRequest: false,
-                  documentType: null,
-                  format: null,
-                  confidence: 0,
-                  expectedResponseType: 'text' as const,
-                  needsForm: false,
-                  formReason: null,
+                  responseType: 'text',
+                  confidence: 0.5,
+                  subIntent: 'general',
+                  label: 'Thinking',
+                  description: 'Getting your answer ready',
                 };
+            const actionableClassificationResponseType = classification.responseType;
+            const detection: import('@/types').DetectDocumentRequestResult = {
+              isDocumentRequest: false,
+              documentType: null,
+              format: null,
+              confidence: 0,
+              expectedResponseType: 'text',
+              needsForm: false,
+              formReason: null,
+            };
             detectedExpectedResponseType = detection.expectedResponseType === 'artifact'
               ? 'artifact'
               : actionableClassificationResponseType;
@@ -2792,7 +3060,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 }));
                 console.log('[document-detect:result]', JSON.stringify({
                   endpoint: `${API_BASE_URL}/documents/wizard/detect`,
-                  skipped: !shouldRunDocumentDetection,
+                  skipped: true,
                   conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
                   isDocumentRequest: detection.isDocumentRequest,
                   documentType: detection.documentType,
@@ -2815,7 +3083,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 });
                 console.log('[document-detect:result]', {
                   endpoint: `${API_BASE_URL}/documents/wizard/detect`,
-                  skipped: !shouldRunDocumentDetection,
+                  skipped: true,
                   conversationId: activeAuthConversationId ?? authConversationId ?? guestConversationId ?? null,
                   isDocumentRequest: detection.isDocumentRequest,
                   documentType: detection.documentType,
@@ -2951,49 +3219,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               } finally {
                 setStatusNotice('');
               }
-            } else if (shouldRunDocumentDetection) {
-              let directConversationId = activeAuthConversationId ?? authConversationId;
-              if (!directConversationId) {
-                lastEndpoint = `${API_BASE_URL}/chat`;
-                const created = await createAuthenticatedConversation(getPromptTitle(trimmed, t('drawer.newChat')));
-                directConversationId = created.conversationId;
-                activeAuthConversationId = directConversationId;
-                setAuthConversationId(directConversationId);
-                didMutateChats = true;
-              }
-              lastEndpoint = `${API_BASE_URL}/documents/wizard/generate-direct`;
-              logSendPayload({
-                endpoint: lastEndpoint,
-                mode: 'auth-document-generate-direct',
-                conversationId: directConversationId,
-                message: trimmed,
-                documentType: detection.documentType,
-                format: detection.format,
-              });
-              setStatusNotice(classification.description || 'Generating your document…');
-              const generated = await generateDocumentDirect(
-                trimmed,
-                detection.documentType,
-                detection.format,
-                directConversationId,
-              );
-              logResponsePayloadForAttempt({
-                responseType: 'document-generate-direct',
-                artifactCount: generated.artifacts.length,
-                userMessageId: generated.userMessageId,
-                assistantMessageId: generated.assistantMessageId,
-              });
-              const detail = await getAuthenticatedConversation(directConversationId, { force: true });
-              applyAuthConversationDetail(detail);
-              if (directConversationId !== params.conversationId) {
-                router.setParams({ conversationId: directConversationId, newChat: undefined });
-              }
-              setStreamingModelLabel(null);
-              setStatusNotice('');
-              hapticSuccess();
-              didMutateChats = true;
-              return;
             } else {
+              // Real cleanup (2026-09-12): the direct-generate branch that
+              // used to live here was gated on shouldRunDocumentDetection,
+              // tied to the now-removed /documents/wizard/detect call --
+              // detection.isDocumentRequest is always false now, so it could
+              // never trigger. shouldStartDocumentWizard's own real
+              // form-based path above still covers document requests.
               setStatusNotice('');
             }
           }
@@ -3841,6 +4073,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             uri: asset.uri,
           })),
         });
+        let toolCalls: UiMessageToolCall[] = [];
+        let reasoningText = '';
+        let reasoningStartedAt = 0;
+        let liveArtifacts: UiArtifactItem[] = [];
+        let artifactCounter = 0;
         await sendAuthenticatedMessageStream(
           conversationId,
           trimmed,
@@ -3871,6 +4108,169 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 assistantResponseBuffer += event.content;
                 if (!suppressStreamingTextForArtifact) {
                   queueAssistantDelta(activeAssistantId, event.content);
+                }
+                return;
+              }
+
+              if (event.type === 'reasoning') {
+                if (!reasoningStartedAt) reasoningStartedAt = Date.now();
+                reasoningText += event.text;
+                const capturedReasoning = reasoningText;
+                const capturedStartedAt = reasoningStartedAt;
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, reasoning: capturedReasoning, reasoningStartedAt: capturedStartedAt }
+                      : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'reasoning_step') {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId ? { ...message, currentStep: event.text } : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'reasoning_summary') {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId ? { ...message, reasoningSummary: event.text } : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'products') {
+                if (event.items?.length) {
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === activeAssistantId
+                        ? { ...message, products: { query: event.query ?? '', items: event.items! } }
+                        : message,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              if (event.type === 'widget') {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, widget: event.spec, widgetDone: false }
+                      : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'tool_start') {
+                toolCalls = [...toolCalls, { tool: event.tool, label: event.label, running: true }];
+                const artifactKind = event.tool === 'generate_image' || event.tool === 'edit_image'
+                  ? 'image' as const
+                  : event.tool === 'generate_video' || event.tool === 'image_to_video'
+                    ? 'video' as const
+                    : event.tool === 'generate_document'
+                      ? 'document' as const
+                      : null;
+                if (artifactKind) {
+                  artifactCounter += 1;
+                  const rawSourceUrl = event.tool === 'edit_image' && typeof event.args === 'object' && event.args
+                    ? String((event.args as Record<string, unknown>).image_url ?? '').trim()
+                    : '';
+                  liveArtifacts = [
+                    ...liveArtifacts,
+                    {
+                      id: `${activeAssistantId}-artifact-${artifactCounter}`,
+                      kind: artifactKind,
+                      sourceUrl: rawSourceUrl ? resolveBackendAssetUrl(rawSourceUrl) ?? rawSourceUrl : undefined,
+                      messageId: activeAssistantId,
+                      createdAt: Date.now(),
+                      generating: true,
+                    },
+                  ];
+                }
+                const capturedTools = toolCalls;
+                const capturedArtifacts = liveArtifacts;
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, tools: capturedTools, artifacts: capturedArtifacts.length ? capturedArtifacts : message.artifacts }
+                      : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'tool_end') {
+                const nextTools = [...toolCalls];
+                for (let i = nextTools.length - 1; i >= 0; i -= 1) {
+                  if (nextTools[i].tool === event.tool && nextTools[i].running) {
+                    nextTools[i] = { ...nextTools[i], ok: event.ok, ms: event.ms, running: false };
+                    break;
+                  }
+                }
+                toolCalls = nextTools;
+                if (!event.ok) {
+                  const nextArtifacts = [...liveArtifacts];
+                  for (let i = nextArtifacts.length - 1; i >= 0; i -= 1) {
+                    if (nextArtifacts[i].generating) {
+                      nextArtifacts[i] = { ...nextArtifacts[i], generating: false, failed: true };
+                      break;
+                    }
+                  }
+                  liveArtifacts = nextArtifacts;
+                }
+                const capturedTools = toolCalls;
+                const capturedArtifacts = liveArtifacts;
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, tools: capturedTools, artifacts: capturedArtifacts.length ? capturedArtifacts : message.artifacts }
+                      : message,
+                  ),
+                );
+                return;
+              }
+
+              if (event.type === 'media') {
+                const nextArtifacts = [...liveArtifacts];
+                const pendingIndex = nextArtifacts.findIndex((artifact) => artifact.generating);
+                if (pendingIndex >= 0) {
+                  const resolvedUrl = resolveBackendAssetUrl(event.url) ?? event.url;
+                  const artifactKind = nextArtifacts[pendingIndex].kind;
+                  nextArtifacts[pendingIndex] = {
+                    ...nextArtifacts[pendingIndex],
+                    url: resolvedUrl,
+                    name: event.name,
+                    generating: false,
+                  };
+                  liveArtifacts = nextArtifacts;
+                  const capturedArtifacts = liveArtifacts;
+                  // Real fix (2026-09-13, Issue 5): also populate imageUrl/videoUrl
+                  // on the message itself -- the tool-calling artifacts pipeline only
+                  // ever wrote to message.artifacts, but the message bubble's inline
+                  // download/preview branches (isImageMessage/isVideoMessage) check
+                  // message.imageUrl/videoUrl, not artifacts. Without this, a freshly
+                  // generated image/video from this pipeline was invisible inline and
+                  // only reachable via the separate Artifacts panel.
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === activeAssistantId
+                        ? {
+                            ...message,
+                            artifacts: capturedArtifacts,
+                            imageUrl: artifactKind === 'image' ? resolvedUrl : message.imageUrl,
+                            videoUrl: artifactKind === 'video' ? resolvedUrl : message.videoUrl,
+                          }
+                        : message,
+                    ),
+                  );
                 }
                 return;
               }
@@ -3949,6 +4349,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             lastIdempotencyKey = debugEvent.idempotencyKey;
           },
           preClassifiedChatType,
+          attachmentsForSend.length
+            ? (percent) => {
+                setUploadProgressPercent(percent < 100 ? percent : null);
+              }
+            : undefined,
         );
         const streamedText = assistantResponseBuffer.trim();
         if (streamedText.length > 0) {
@@ -4437,6 +4842,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             setStatusNotice('');
           }
           setIsSending(false);
+          setUploadProgressPercent(null);
           isSendRunInFlightRef.current = false;
           if (didMutateChats) {
             emitChatMutated();
@@ -4445,6 +4851,18 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
 
     void run();
+  };
+
+  // Real, native tool-calling feature (render_widget) -- ports web's
+  // handleWidgetSubmit. A widget's own submit button sends its formatted
+  // "[Form response] ..." line directly as the next turn; there's nothing
+  // in the composer to send, so it's staged into the same input state
+  // handleSend already reads, then sent through the same path a typed
+  // message would take (queues/debounces the same way).
+  const handleWidgetSubmit = (line: string) => {
+    inputValueRef.current = line;
+    setInput(line);
+    handleSend({ skipDocumentFormWarning: true });
   };
 
   const insertStarterPrompt = (prompt: string) => {
@@ -4544,6 +4962,38 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       }, 60);
     });
   }, []);
+
+  const applyRandomImagePrompt = useCallback(() => {
+    if (IMAGE_MODE_PROMPTS.length === 0) return;
+    let nextIndex = Math.floor(Math.random() * IMAGE_MODE_PROMPTS.length);
+    if (IMAGE_MODE_PROMPTS.length > 1) {
+      while (nextIndex === lastImagePromptIndexRef.current) {
+        nextIndex = Math.floor(Math.random() * IMAGE_MODE_PROMPTS.length);
+      }
+    }
+    lastImagePromptIndexRef.current = nextIndex;
+    const prompt = IMAGE_MODE_PROMPTS[nextIndex];
+    inputValueRef.current = prompt;
+    setInput(prompt);
+    hapticSelection();
+    focusComposerInputSoon();
+  }, [focusComposerInputSoon]);
+
+  const applyRandomVideoPrompt = useCallback(() => {
+    if (VIDEO_MODE_PROMPTS.length === 0) return;
+    let nextIndex = Math.floor(Math.random() * VIDEO_MODE_PROMPTS.length);
+    if (VIDEO_MODE_PROMPTS.length > 1) {
+      while (nextIndex === lastVideoPromptIndexRef.current) {
+        nextIndex = Math.floor(Math.random() * VIDEO_MODE_PROMPTS.length);
+      }
+    }
+    lastVideoPromptIndexRef.current = nextIndex;
+    const prompt = VIDEO_MODE_PROMPTS[nextIndex];
+    inputValueRef.current = prompt;
+    setInput(prompt);
+    hapticSelection();
+    focusComposerInputSoon();
+  }, [focusComposerInputSoon]);
 
   const toggleRecording = async () => {
     if (isRecordingRef.current) {
@@ -4917,6 +5367,55 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     }
   };
 
+  const allArtifacts = useMemo(
+    () => messages.flatMap((message) => message.artifacts ?? []),
+    [messages],
+  );
+
+  const downloadArtifact = async (artifact: UiArtifactItem) => {
+    const resolvedUrl = resolveBackendAssetUrl(artifact.url);
+    if (!resolvedUrl) {
+      showTransientNotice(t('chat.imageDownloadFailed'));
+      return;
+    }
+    hapticSelection();
+    showDownloadToast(t(artifact.kind === 'video' ? 'chat.videoDownloadStarting' : 'chat.imageDownloadStarting'), null);
+    try {
+      const extensionMatch = resolvedUrl.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+      const extension = extensionMatch?.[1]?.toLowerCase() || (artifact.kind === 'video' ? 'mp4' : 'jpg');
+      const fileName = `cafa-ai-${artifact.kind}-${artifact.id}.${extension}`;
+      const target = new File(Paths.cache, fileName);
+      if (target.exists) target.delete();
+      const accessToken = await getAccessToken();
+      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
+        idempotent: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      });
+      await saveMediaToCafaAlbum(downloaded.uri);
+      showDownloadToast(t(artifact.kind === 'video' ? 'chat.videoDownloadSuccess' : 'chat.imageDownloadSuccess'));
+      hapticSuccess();
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : 'Unknown artifact download failure';
+      console.log(`[artifact-download:error] endpoint=${resolvedUrl} message="${messageText}"`);
+      showDownloadToast(t(artifact.kind === 'video' ? 'chat.videoDownloadFailed' : 'chat.imageDownloadFailed'), 5000);
+      hapticError();
+    }
+  };
+
+  const deleteArtifactAndUpdate = async (artifact: UiArtifactItem) => {
+    if (typeof artifact.toolCallIndex !== 'number' || !authConversationId) {
+      throw new Error('This file cannot be deleted yet.');
+    }
+    await deleteArtifact(authConversationId, artifact.messageId, artifact.toolCallIndex);
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === artifact.messageId
+          ? { ...message, artifacts: (message.artifacts ?? []).filter((item) => item.id !== artifact.id) }
+          : message,
+      ),
+    );
+  };
+
   const shareGeneratedMediaMessage = async (options: {
     messageId: string;
     remoteUrl?: string;
@@ -5194,6 +5693,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     setReadingMessageId(null);
     setReadAloudSpeaker(null);
     setIsReadAloudLoading(false);
+    setIsReadAloudPaused(false);
+    readAloudUsesNativeFallbackRef.current = false;
   }, []);
 
   const splitTextForTts = (text: string, maxLen = 1900) => {
@@ -5224,13 +5725,48 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return parts;
   };
 
+  // Real fix (2026-09-13, Issue 4): genuine pause/resume matching web's
+  // pauseVoicePlayback/resumeVoicePlayback (both just call .pause()/.play()
+  // on the same underlying player, no re-synthesis). Native Speech fallback
+  // uses expo-speech's own pause/resume, which Android's TextToSpeech engine
+  // supports natively.
+  const pauseReadAloud = useCallback(() => {
+    if (readAloudUsesNativeFallbackRef.current) {
+      Speech.pause();
+    } else {
+      try {
+        ttsPlayerRef.current?.pause();
+      } catch {
+        // no-op
+      }
+    }
+    setIsReadAloudPaused(true);
+    hapticSelection();
+  }, []);
+
+  const resumeReadAloud = useCallback(() => {
+    if (readAloudUsesNativeFallbackRef.current) {
+      Speech.resume();
+    } else {
+      try {
+        ttsPlayerRef.current?.play();
+      } catch {
+        // no-op
+      }
+    }
+    setIsReadAloudPaused(false);
+    hapticSelection();
+  }, []);
+
   const toggleReadAloud = (messageId: string, content: string) => {
     if (!content.trim()) return;
 
     if (readingMessageId === messageId) {
-      hapticSelection();
-      activeReadAloudRequestRef.current += 1;
-      stopReadAloudPlayback();
+      if (isReadAloudPaused) {
+        resumeReadAloud();
+      } else {
+        pauseReadAloud();
+      }
       return;
     }
 
@@ -5241,6 +5777,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     setReadingMessageId(messageId);
 
     const speakWithNativeFallback = () => {
+      readAloudUsesNativeFallbackRef.current = true;
       Speech.speak(content, {
         rate: GUEST_TTS_RATE,
         pitch: 1,
@@ -5266,6 +5803,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         return;
       }
 
+      readAloudUsesNativeFallbackRef.current = false;
       const synthEndpoint = `${API_BASE_URL}/voice/synthesize`;
       let selectedVoice: string | null = null;
       try {
@@ -5283,22 +5821,41 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         if (activeReadAloudRequestRef.current !== requestId) {
           return;
         }
-        const files: File[] = [];
-        for (let i = 0; i < chunks.length; i += 1) {
-          const bytes = await synthesizeVoice({ text: chunks[i], voice: selectedVoice ?? undefined, speed: 1 });
+
+        // Real fix (2026-09-13, Issue 4 Tier 1): the old code awaited every
+        // chunk's synthesis before playing ANY audio -- for a long response
+        // split into several ~1900-char chunks, that meant waiting for the
+        // full response to finish converting before the user heard a single
+        // word. The backend's real per-chunk synthesis time is the only
+        // latency that should matter: fetch chunk 0, start playing it the
+        // moment it's ready, then synthesize the rest in the background
+        // while it plays -- by the time chunk 0's few seconds of audio
+        // finish, later chunks have almost always already arrived.
+        const files: (File | undefined)[] = new Array(chunks.length).fill(undefined);
+        ttsFilesRef.current = files as File[];
+
+        const fetchChunk = async (index: number) => {
+          const bytes = await synthesizeVoice({ text: chunks[index], voice: selectedVoice ?? undefined, speed: 1 });
           if (!bytes?.length) {
-            throw new Error(`Empty TTS payload for chunk ${i + 1}.`);
+            throw new Error(`Empty TTS payload for chunk ${index + 1}.`);
           }
-          const file = new File(Paths.cache, `chat-read-aloud-${messageId}-${Date.now()}-${i}.wav`);
+          const file = new File(Paths.cache, `chat-read-aloud-${messageId}-${Date.now()}-${index}.wav`);
           file.create({ intermediates: true, overwrite: true });
           file.write(bytes);
-          files.push(file);
-        }
-        ttsFilesRef.current = files;
+          files[index] = file;
+          return file;
+        };
 
         const playChunk = async (index: number) => {
           if (activeReadAloudRequestRef.current !== requestId) return;
-          const target = ttsFilesRef.current[index];
+          let target = files[index];
+          if (!target && index < chunks.length) {
+            for (let waitTick = 0; waitTick < 100 && !target; waitTick += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              if (activeReadAloudRequestRef.current !== requestId) return;
+              target = files[index];
+            }
+          }
           if (!target) {
             stopReadAloudPlayback();
             return;
@@ -5328,7 +5885,90 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           player.play();
         };
 
-        await playChunk(0);
+        // Real build (2026-09-13, Issue 4 Tier 2): chunk 0 still had to wait
+        // for its full arrayBuffer to arrive before any audio played, even
+        // with Tier 1's background prefetch of later chunks. A native audio
+        // player can progressively stream a GET response as bytes arrive --
+        // it just can't submit the POST body synthesizeVoice() needs -- so
+        // mint a short-lived signed token and stream chunk 0 straight from
+        // the network instead of buffering it to a file first. Falls back to
+        // the proven fetch-then-play path if the streaming attempt fails.
+        const playFirstChunkStreaming = async () => {
+          try {
+            const { token } = await createSynthesizeStreamToken({
+              text: chunks[0],
+              voice: selectedVoice ?? undefined,
+              speed: 1,
+            });
+            if (activeReadAloudRequestRef.current !== requestId) return true;
+            const accessToken = await getAccessToken();
+            const { createAudioPlayer } = await getExpoAudioModule();
+            const player = createAudioPlayer(
+              {
+                uri: getSynthesizeStreamUrl(token),
+                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+              },
+              { keepAudioSessionActive: true },
+            );
+            ttsPlayerRef.current = player;
+            setIsReadAloudLoading(false);
+            ttsPlayerSubRef.current = player.addListener('playbackStatusUpdate', (status) => {
+              if (!status.didJustFinish) return;
+              try {
+                ttsPlayerSubRef.current?.remove();
+              } catch {
+                // no-op
+              }
+              ttsPlayerSubRef.current = null;
+              try {
+                player.remove();
+              } catch {
+                // no-op
+              }
+              ttsPlayerRef.current = null;
+              void playChunk(1);
+            });
+            player.play();
+            return true;
+          } catch (streamError) {
+            console.log(
+              `[tts:stream-fallback] message="${streamError instanceof Error ? streamError.message : 'unknown'}"`,
+            );
+            return false;
+          }
+        };
+
+        const streamedFirstChunk = await playFirstChunkStreaming();
+        if (activeReadAloudRequestRef.current !== requestId) {
+          return;
+        }
+
+        if (!streamedFirstChunk) {
+          await fetchChunk(0);
+          if (activeReadAloudRequestRef.current !== requestId) {
+            return;
+          }
+        }
+
+        if (chunks.length > 1) {
+          void (async () => {
+            for (let i = 1; i < chunks.length; i += 1) {
+              if (activeReadAloudRequestRef.current !== requestId) return;
+              try {
+                await fetchChunk(i);
+              } catch (backgroundError) {
+                console.log(
+                  `[tts:background-chunk-error] index=${i} message="${backgroundError instanceof Error ? backgroundError.message : 'unknown'}"`,
+                );
+                return;
+              }
+            }
+          })();
+        }
+
+        if (!streamedFirstChunk) {
+          await playChunk(0);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown TTS failure';
         console.log(
@@ -5567,7 +6207,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           const mappedMessages = applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage));
           const localDrafts = await getDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
           if (!isCurrentRequest()) return;
-          const mergedMessages = mergeDocumentWizardDraftMessages(mappedMessages, localDrafts);
+          const mergedMessages = applyWidgetSubmissionState(mergeDocumentWizardDraftMessages(mappedMessages, localDrafts));
           if (!mergedMessages.length) {
             setMessages([createWelcomeMessage()]);
             rotateStarterPrompts();
@@ -5626,6 +6266,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
   }, [
     applyDescriptiveAttachmentNames,
+    applyWidgetSubmissionState,
     authConversationId,
     createWelcomeMessage,
     getDocumentWizardDraftKey,
@@ -5775,6 +6416,22 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [activeModel, canUseUltraModel]);
 
   const topBarModelSwitcher = isAuthenticated ? (
+    <View className="flex-row items-center" style={{ gap: 8 }}>
+      <NotificationBell isDark={isDark} onNavigate={(link) => router.push(link as never)} />
+      {allArtifacts.length ? (
+        <Pressable
+          onPress={() => {
+            hapticSelection();
+            setArtifactsPanelOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Artifacts"
+          className="h-8 w-8 items-center justify-center rounded-full border"
+          style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
+        >
+          <Ionicons name="images-outline" size={16} color={colors.primary} />
+        </Pressable>
+      ) : null}
     <View
       className="relative rounded-full border px-1.5 py-1"
       style={{
@@ -5847,6 +6504,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           })}
         </Animated.View>
       ) : null}
+    </View>
     </View>
   ) : undefined;
 
@@ -6527,13 +7185,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       ) : null}
 
                       {isVideoGenerating ? (
-                        <VideoGenerationPlaceholder
-                          width={236}
-                          height={133}
-                          isDark={isDark}
-                          accentColor={colors.primary}
-                          timingNote={t('chat.videoGenerationTimingNote')}
-                        />
+                        <>
+                          <VideoGenerationPlaceholder
+                            width={236}
+                            height={133}
+                            isDark={isDark}
+                            accentColor={colors.primary}
+                            timingNote={t('chat.videoGenerationTimingNote')}
+                          />
+                          <PushNudgeBanner isDark={isDark} />
+                        </>
                       ) : null}
 
                       {isArtifactGenerating ? (
@@ -6805,6 +7466,32 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
+                      {!isUser && item.reasoning ? (
+                        <ThinkingPanel
+                          reasoning={item.reasoning}
+                          reasoningSummary={item.reasoningSummary}
+                          currentStep={item.currentStep}
+                          isStreaming={isSending && !isUser && item.id === messages[messages.length - 1]?.id}
+                          startedAt={item.reasoningStartedAt}
+                          isDark={isDark}
+                        />
+                      ) : null}
+
+                      {!isUser && item.tools?.length ? (
+                        <ToolStatusChips tools={item.tools} isDark={isDark} />
+                      ) : null}
+
+                      {/* Real fix (2026-09-13): the native tool-calling video path
+                          (generate_video/image_to_video) never sets the legacy
+                          isVideoGenerating flag -- its live "in progress" signal is
+                          a running tool call, not the older dedicated-video-screen
+                          flow the nudge banner was originally wired to. Gate on
+                          that real, current signal instead so the nudge actually
+                          appears during an in-chat video generation. */}
+                      {!isUser && item.tools?.some((tool) => tool.running && (tool.tool === 'generate_video' || tool.tool === 'image_to_video')) ? (
+                        <PushNudgeBanner isDark={isDark} />
+                      ) : null}
+
                       {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
@@ -6848,6 +7535,19 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             })()}
                           </View>
                         </View>
+                      ) : null}
+
+                      {!isUser && item.widget ? (
+                        <AssistantWidget
+                          spec={item.widget}
+                          disabled={item.widgetDone}
+                          isDark={isDark}
+                          onSubmit={handleWidgetSubmit}
+                        />
+                      ) : null}
+
+                      {!isUser && item.products ? (
+                        <ProductCards query={item.products.query} items={item.products.items} isDark={isDark} />
                       ) : null}
 
                       {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && isImageMessage ? (
@@ -6938,9 +7638,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
-                      {!isUser && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
+                      {!isUser && !isWelcomeMessage(item) && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
                         <MessageActionsRow
                           isReading={isReading}
+                          isReadingPaused={isReading && isReadAloudPaused}
                           reaction={reaction}
                           primaryColor={colors.primary}
                           borderColor={colors.border}
@@ -6958,6 +7659,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             void shareMessage(item.content);
                           }}
                           onReadAloud={() => toggleReadAloud(item.id, item.content)}
+                          onStopReadAloud={() => {
+                            activeReadAloudRequestRef.current += 1;
+                            stopReadAloudPlayback();
+                          }}
                           onTooltip={showTooltip}
                           labels={{
                             copy: t('chat.tooltip.copyResponse'),
@@ -6971,6 +7676,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             read: t('chat.tooltip.read'),
                             stopRead: t('chat.tooltip.stopRead'),
                             readHint: t('chat.tooltip.read'),
+                            pauseRead: 'Pause reading',
+                            resumeRead: 'Resume reading',
                           }}
                         />
                       ) : null}
@@ -7002,6 +7709,23 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               uri={imageLightboxUri}
               onClose={() => setImageLightboxUri(null)}
               accessibilityLabel={t('chat.generatedImageAlt')}
+            />
+            <ArtifactPanel
+              visible={artifactsPanelOpen}
+              artifacts={allArtifacts}
+              onClose={() => setArtifactsPanelOpen(false)}
+              onDownload={downloadArtifact}
+              onDelete={deleteArtifactAndUpdate}
+              onSelect={
+                screenMode !== 'chat'
+                  ? (artifact) => {
+                      if (!artifact.url) return;
+                      setComposerMediaReference({ kind: artifact.kind === 'video' ? 'video' : 'image', id: artifact.id, url: artifact.url });
+                      hapticSelection();
+                      setArtifactsPanelOpen(false);
+                    }
+                  : undefined
+              }
             />
 
             {showScrollToBottom ? (
@@ -7037,44 +7761,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             marginBottom: composerBottomInset,
           }}
         >
-          {hasPromptSuggestionTrigger ? (
-            <Animated.View
-              entering={FadeInUp.duration(MOTION.duration.quick)}
-              exiting={FadeOutDown.duration(MOTION.duration.quick)}
-              style={{
-                position: 'absolute',
-                top: -56,
-                right: 10,
-                zIndex: 30,
-                elevation: 30,
-              }}
-            >
-              <Pressable
-                onPress={openPromptSuggestions}
-                accessibilityRole="button"
-                accessibilityLabel={t('chat.promptSuggestions.open')}
-                accessibilityHint={t('chat.promptSuggestions.openHint')}
-                accessibilityState={{ busy: isPromptSuggestionsLoading }}
-                className="h-12 w-12 items-center justify-center rounded-full border"
-                style={{
-                  borderColor: colors.primary,
-                  backgroundColor: isDark ? '#101826' : '#FFFFFF',
-                  shadowColor: '#000000',
-                  shadowOpacity: isDark ? 0.28 : 0.14,
-                  shadowRadius: 14,
-                  shadowOffset: { width: 0, height: 6 },
-                  elevation: 12,
-                }}
-              >
-                <Ionicons
-                  name={isPromptSuggestionsLoading ? 'sync-outline' : 'chatbubble-ellipses-outline'}
-                  size={20}
-                  color={colors.primary}
-                />
-              </Pressable>
-            </Animated.View>
-          ) : null}
-
           {useCompactComposerPlaceholder && !input.trim() ? (
             <Text
               pointerEvents="none"
@@ -7155,14 +7841,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             }}
           />
 
-          <PromptSuggestionsModal
-            visible={promptSuggestionsVisible}
-            suggestions={promptSuggestions}
-            loading={isPromptSuggestionsLoading}
-            onClose={closePromptSuggestions}
-            onSelectSuggestion={applyPromptSuggestion}
-          />
-
           {isAuthenticated && attachedAssets.length ? (
             <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
               {attachedAssets.map((asset) => (
@@ -7208,7 +7886,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             </View>
           ) : null}
 
-          {screenMode === 'chat' && isAuthenticated && composerMediaReference ? (
+          {isAuthenticated && composerMediaReference ? (
             <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
               <View
                 className="flex-row items-center rounded-full border px-2 py-0.5"
@@ -7241,6 +7919,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 >
                   <Ionicons name="close" size={12} color={colors.primary} />
                 </Pressable>
+              </View>
+            </View>
+          ) : null}
+
+          {uploadProgressPercent !== null ? (
+            <View className="mx-1 mb-1 mt-1">
+              <View className="flex-row items-center justify-between">
+                <Text style={{ color: colors.textSecondary, fontSize: 10 }}>Uploading...</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 10 }}>{uploadProgressPercent}%</Text>
+              </View>
+              <View className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+                <View
+                  className="h-full rounded-full"
+                  style={{ width: `${uploadProgressPercent}%`, backgroundColor: colors.primary }}
+                />
               </View>
             </View>
           ) : null}
@@ -7339,6 +8032,34 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     ) : null}
                   </Pressable>
                 </View>
+
+                {screenMode === 'chat' ? (
+                  <>
+                    <Pressable
+                      onPress={applyRandomImagePrompt}
+                      disabled={tier === 'free'}
+                      onLongPress={(event) =>
+                        showTooltip(tier === 'free' ? 'Upgrade to generate images' : 'Image generation shortcut', event)
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Image generation shortcut"
+                      className="h-8 px-2 flex-row items-center justify-center rounded-full border"
+                      style={{ borderColor: colors.border, opacity: tier === 'free' ? 0.55 : 1 }}
+                    >
+                      <Ionicons name="image-outline" size={14} color={colors.textPrimary} />
+                    </Pressable>
+                    <Pressable
+                      onPress={applyRandomVideoPrompt}
+                      onLongPress={(event) => showTooltip('Video generation shortcut', event)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Video generation shortcut"
+                      className="h-8 px-2 flex-row items-center justify-center rounded-full border"
+                      style={{ borderColor: colors.border }}
+                    >
+                      <Ionicons name="videocam-outline" size={14} color={colors.textPrimary} />
+                    </Pressable>
+                  </>
+                ) : null}
 
               </View>
 
