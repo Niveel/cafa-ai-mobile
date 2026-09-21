@@ -49,6 +49,21 @@ type AuthConversationDetailDto = {
       userMessageId?: string;
       assistantMessageId?: string;
     } | null;
+    // Real, persisted tool-call record (native tool-calling backend) --
+    // the only durable source for `products`/`tools` after any refresh,
+    // since the live SSE tool_start/tool_end/products fields are ephemeral
+    // and never persisted themselves. See mapAuthMessageToUiMessage's
+    // backfill (index.tsx), which ports web's own
+    // backfillToolStateFromToolCalls (chat-shell/utils.ts).
+    toolCalls?: {
+      name: string;
+      args?: Record<string, unknown>;
+      ok: boolean;
+      products?: { query: string; items: import('@/components/chat').UiMessageProduct[] };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      widget?: import('@/components/chat').UiWidgetSpec;
+      label?: string;
+    }[];
   }[];
   createdAt: string;
   updatedAt: string;
@@ -101,6 +116,15 @@ export type AuthConversationDetail = {
       userMessageId?: string;
       assistantMessageId?: string;
     };
+    toolCalls?: {
+      name: string;
+      args?: Record<string, unknown>;
+      ok: boolean;
+      products?: { query: string; items: import('@/components/chat').UiMessageProduct[] };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      widget?: import('@/components/chat').UiWidgetSpec;
+      label?: string;
+    }[];
   }[];
 };
 
@@ -122,7 +146,21 @@ export type AuthChatStreamEvent =
       thumbnailUrl?: string;
     }[];
   }
-  | { type: 'error'; code?: string; message: string; requestId?: string; timestamp?: string };
+  | { type: 'error'; code?: string; message: string; requestId?: string; timestamp?: string }
+  // new-cafa-ai-api's tool-calling wire format (see stream.ts) has no
+  // `meta`/no messageId-on-`done` -- these are its real event shapes,
+  // recognized here so downstream `if (event.type === ...)` checks stay
+  // type-safe. `token`/`text` is remapped to `delta`/`content` in
+  // parseSseEventPayload below rather than handled as its own branch, so
+  // every existing consumer keeps working unchanged.
+  | { type: 'reasoning' | 'reasoning_step' | 'reasoning_summary' | 'notice'; text: string }
+  | { type: 'tool_start'; tool: string; label?: string; args?: unknown }
+  | { type: 'tool_end'; tool: string; ok: boolean; ms?: number; args?: unknown }
+  | { type: 'widget'; spec: import('@/components/chat').UiWidgetSpec }
+  | { type: 'products'; query?: string; items?: import('@/components/chat').UiMessageProduct[] }
+  | { type: 'sandbox_session'; sessionId: string }
+  | { type: 'upgrade_prompt'; reason: string; feature: string }
+  | { type: 'media'; kind: 'image' | 'video' | 'file'; url: string; name?: string; size?: number };
 type AuthSendDebugEvent =
   | { stage: 'start'; endpoint: string; idempotencyKey: string; platform: string; transport: 'xhr' | 'fetch-web' }
   | { stage: 'response'; endpoint: string; idempotencyKey: string; status: number; contentType: string | null; transport: string }
@@ -259,6 +297,7 @@ function mapDetail(dto: AuthConversationDetailDto): AuthConversationDetail {
               assistantMessageId: message.documentWizard.assistantMessageId,
             }
           : undefined,
+        toolCalls: message.toolCalls,
       };
     }),
   };
@@ -321,7 +360,7 @@ function inferMimeType(fileName?: string, fallback = 'application/octet-stream')
   return fallback;
 }
 
-function resolveUploadMimeType(fileName?: string, providedMimeType?: string) {
+export function resolveUploadMimeType(fileName?: string, providedMimeType?: string) {
   const inferred = inferMimeType(fileName);
   if (inferred === 'application/pdf') return 'application/pdf';
   if (providedMimeType && providedMimeType.trim()) return providedMimeType;
@@ -345,16 +384,31 @@ function parseSseChunk(chunk: string) {
   return parseSseEventPayload(raw);
 }
 
+// new-cafa-ai-api emits the streamed response text as `{ type: 'token',
+// text }`, not the old backend's `{ type: 'delta', content }` -- confirmed
+// directly against src/tool-chat/stream.ts. Remapped here, at the single
+// choke point every raw event passes through, so every existing `delta`
+// consumer (queueAssistantDelta, extractSseDeltaTextFromRaw, etc.) keeps
+// working unchanged against either backend.
+function normalizeStreamEvent(event: AuthChatStreamEvent): AuthChatStreamEvent {
+  if (event && (event as { type?: string }).type === 'token') {
+    const text = (event as unknown as { text?: string }).text ?? '';
+    const { type: _type, text: _text, ...rest } = event as unknown as { type: string; text?: string };
+    return { type: 'delta', content: text, ...rest } as AuthChatStreamEvent;
+  }
+  return event;
+}
+
 function parseSseEventPayload(raw: string): AuthChatStreamEvent {
   try {
-    return JSON.parse(raw) as AuthChatStreamEvent;
+    return normalizeStreamEvent(JSON.parse(raw) as AuthChatStreamEvent);
   } catch {
     // Some mobile transports surface escaped JSON payloads: {\"type\":\"delta\",...}
     const unescaped = raw
       .replace(/\\"/g, '"')
       .replace(/\\\\/g, '\\')
       .trim();
-    return JSON.parse(unescaped) as AuthChatStreamEvent;
+    return normalizeStreamEvent(JSON.parse(unescaped) as AuthChatStreamEvent);
   }
 }
 
@@ -389,6 +443,36 @@ function extractSseDeltaTextFromRaw(raw: string): string {
     .map((event) => event.content ?? '')
     .join('');
   return content.trim();
+}
+
+// Real fix (2026-09-13, Issue 5): every fallback-recovery path below only
+// ever re-emitted `delta`/`done` from a persisted message's plain `content`
+// -- never the real `toolCalls` record the tool-calling backend also
+// persists (see IToolCall/mediaRef on the backend's Conversation model).
+// Whenever incremental SSE delivery doesn't fire live (a real, confirmed
+// XHR reliability gap, not this function's concern to fix), the app fell
+// back to one of these recovery paths and silently dropped every real
+// generated image/video/document -- the artifact still existed server-side
+// (confirmed live: it showed up in the separate Artifacts panel, which
+// syncs from the same persisted toolCalls via mapAuthMessageToUiMessage's
+// own backfill), but never inline in the chat bubble, because these
+// recovery paths never told the UI it existed at all. Synthesizing the
+// same tool_start/tool_end/media events the live stream would have sent
+// makes every recovery path exercise the exact same, already-correct
+// UI code path (including the media-event imageUrl/videoUrl fix above).
+function emitToolCallEventsFromPersistedMessage(
+  toolCalls: AuthConversationDetail['messages'][number]['toolCalls'],
+  emit: (event: AuthChatStreamEvent, transport: 'xhr' | 'fetch-web' | 'fallback-json') => void,
+  transport: 'xhr' | 'fetch-web' | 'fallback-json',
+) {
+  if (!toolCalls?.length) return;
+  for (const call of toolCalls) {
+    emit({ type: 'tool_start', tool: call.name, args: call.args }, transport);
+    if (call.mediaRef?.url && (call.mediaRef.kind === 'image' || call.mediaRef.kind === 'video')) {
+      emit({ type: 'media', kind: call.mediaRef.kind, url: call.mediaRef.url }, transport);
+    }
+    emit({ type: 'tool_end', tool: call.name, ok: call.ok }, transport);
+  }
 }
 
 function parseRawSseEvents(raw: string): AuthChatStreamEvent[] {
@@ -668,6 +752,7 @@ export async function sendAuthenticatedMessageStream(
   selectedModel: 'ultra' | 'smart' | 'swift' = 'smart',
   onDebug?: (event: AuthSendDebugEvent) => void,
   preClassifiedAs?: 'text' | 'search',
+  onUploadProgress?: (percent: number) => void,
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -804,6 +889,7 @@ export async function sendAuthenticatedMessageStream(
           },
           'fallback-json',
         );
+        emitToolCallEventsFromPersistedMessage(target.toolCalls, emitStreamEvent, 'fallback-json');
         emitStreamEvent(
           {
             type: 'done',
@@ -857,6 +943,7 @@ export async function sendAuthenticatedMessageStream(
 
       if (target?.content?.trim()) {
         emitStreamEvent({ type: 'delta', content: target.content, requestId }, 'fallback-json');
+        emitToolCallEventsFromPersistedMessage(target.toolCalls, emitStreamEvent, 'fallback-json');
         emitStreamEvent({
           type: 'done',
           messageId: target.id,
@@ -963,6 +1050,13 @@ export async function sendAuthenticatedMessageStream(
       xhr.setRequestHeader('Accept', 'text/event-stream');
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
       xhr.setRequestHeader('Idempotency-Key', idempotencyKey);
+
+      if (onUploadProgress && xhr.upload) {
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          onUploadProgress(Math.round((event.loaded / event.total) * 100));
+        };
+      }
 
       xhr.onprogress = () => {
         const next = xhr.responseText.slice(lastOffset);
