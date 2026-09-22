@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Yup from 'yup';
 
 import { changePassword } from '@/features';
+import { logoutAllDevices } from '@/features/auth/services/auth';
 import { AppForm, AppFormField, SubmitButton } from '@/components/form';
 import { AppPromptModal } from '../AppPromptModal';
 
@@ -44,6 +45,8 @@ const EMPTY_PASSWORD_STATE: PasswordState = {
 export function SecuritySection({ isDark, colors, t, signOut }: SecuritySectionProps) {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showLogoutPrompt, setShowLogoutPrompt] = useState(false);
+  const [showLogoutAllPrompt, setShowLogoutAllPrompt] = useState(false);
+  const [isLoggingOutAll, setIsLoggingOutAll] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [statusText, setStatusText] = useState('');
@@ -114,6 +117,22 @@ export function SecuritySection({ isDark, colors, t, signOut }: SecuritySectionP
         <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{t('settings.security.logoutDevice')}</Text>
       </TouchableOpacity>
 
+      {/* Real, matches web's "Log out of all devices" (ChatShell.tsx's
+          logoutAllDevices, backed by a real /auth/logout-all endpoint) --
+          previously dead code on mobile with no UI entry point at all. */}
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Log out of all devices"
+        onPress={() => setShowLogoutAllPrompt(true)}
+        disabled={isLoggingOutAll}
+        className="h-11 items-center justify-center rounded-full px-3"
+        style={{ borderWidth: 1.2, borderColor: '#E11D48', opacity: isLoggingOutAll ? 0.7 : 1 }}
+      >
+        <Text style={{ color: '#E11D48', fontSize: 13, fontWeight: '700' }}>
+          {isLoggingOutAll ? 'Logging out...' : 'Log out of all devices'}
+        </Text>
+      </TouchableOpacity>
+
       {statusText ? (
         <Text accessibilityLiveRegion="polite" style={{ color: colors.textSecondary, fontSize: 12 }}>
           {statusText}
@@ -131,6 +150,27 @@ export function SecuritySection({ isDark, colors, t, signOut }: SecuritySectionP
         onConfirm={() => {
           setShowLogoutPrompt(false);
           signOut();
+        }}
+      />
+
+      <AppPromptModal
+        visible={showLogoutAllPrompt}
+        title="Log out of all devices?"
+        message="This signs you out everywhere -- this device and any others -- and you'll need to log in again."
+        confirmLabel="Log out everywhere"
+        cancelLabel={t('drawer.cancel')}
+        confirmTone="danger"
+        iconName="log-out-outline"
+        onCancel={() => setShowLogoutAllPrompt(false)}
+        onConfirm={() => {
+          setShowLogoutAllPrompt(false);
+          setIsLoggingOutAll(true);
+          void logoutAllDevices()
+            .then(() => signOut())
+            .catch((error) => {
+              setStatusText(error instanceof Error ? error.message : 'Could not log out of all devices right now.');
+            })
+            .finally(() => setIsLoggingOutAll(false));
         }}
       />
 

@@ -28,6 +28,7 @@ import {
   useCafaLifeSession,
 } from '@/features';
 import { hapticSelection } from '@/utils';
+import { getUserPersonalization, updateUserPersonalization } from '@/features/settings/services/personalization';
 import type { CafaLifeHistoryTurn, CafaLifeSessionState, CafaLifeVoiceOption } from '@/types';
 
 type AudioPlayer = {
@@ -790,6 +791,11 @@ export default function CafaLifeScreen() {
   const previewUriByVoiceIdRef = useRef<Record<string, string>>({});
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voicePickerOpenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Real, matches web's CafaLifeScreen.tsx -- the chosen voice is persisted
+  // server-side via personalization.cafaLifeVoiceId, not just a local
+  // useState default. Read once on mount into a ref so loadVoices' fallback
+  // computation can prefer it over the voices endpoint's own default.
+  const persistedVoiceIdRef = useRef<string | null>(null);
 
   const presentation = getStatusPresentation(state, t);
 
@@ -846,7 +852,9 @@ export default function CafaLifeScreen() {
     try {
       const payload = await getCafaLifeVoices({ forceRefresh: refresh });
       const nextVoices = payload.voices ?? [];
-      const fallbackVoiceId = payload.defaultVoice
+      const persistedVoiceId = persistedVoiceIdRef.current;
+      const fallbackVoiceId = (persistedVoiceId && nextVoices.some((voice) => voice.id === persistedVoiceId) ? persistedVoiceId : null)
+        || payload.defaultVoice
         || nextVoices.find((voice) => voice.default)?.id
         || nextVoices[0]?.id
         || null;
@@ -869,7 +877,15 @@ export default function CafaLifeScreen() {
   }, []);
 
   useEffect(() => {
-    void loadVoices();
+    void (async () => {
+      try {
+        const personalization = await getUserPersonalization();
+        if (isMountedRef.current) persistedVoiceIdRef.current = personalization.cafaLifeVoiceId ?? null;
+      } catch {
+        // Best-effort; falls back to the voices endpoint's own default.
+      }
+      void loadVoices();
+    })();
   }, [loadVoices]);
 
   useEffect(() => {
@@ -1136,6 +1152,8 @@ export default function CafaLifeScreen() {
           setIsVoicePickerVisible(false);
           setIsSettingsVisible(true);
           announceForAccessibilitySafe(`${voices.find((voice) => voice.id === voiceId)?.name ?? 'Voice'} selected.`);
+          persistedVoiceIdRef.current = voiceId;
+          void updateUserPersonalization({ cafaLifeVoiceId: voiceId }).catch(() => {});
         }}
         onPreviewVoice={handlePreviewVoice}
         previewVoiceId={previewVoiceId}

@@ -3,13 +3,27 @@ import { AxiosResponse } from 'axios';
 import { API_BASE_URL } from '@/lib';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
-import { apiClient, apiEndpoints, mapApiError } from '@/services/api';
+import { apiClient, apiEndpoints, mapApiError, type RetryableRequestConfig } from '@/services/api';
 import { clearGuestSessionStorage, getGuestSessionToken } from '@/services/storage';
 import { AuthSession, AuthUser, LoginRequest, SignupRequest, VerifyOtpRequest } from '@/types';
 
 export async function login(request: LoginRequest) {
   try {
-    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.login, request);
+    // Real fix (2026-09-13): the axios response interceptor
+    // (auth.interceptor.ts) retries ANY 401 with a silent token-refresh
+    // attempt, with no awareness that this is the login request itself.
+    // A genuinely wrong password commonly returns 401 -- confirmed live:
+    // right after "log out of all devices" (no refresh token stored at
+    // all), that real "invalid credentials" 401 was being swallowed and
+    // replaced with the refresh attempt's own "Refresh token not
+    // provided" error, hiding the actual problem from the user. Login
+    // should never trigger that retry -- if you're logging in, you don't
+    // have a valid session to refresh in the first place.
+    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(
+      apiEndpoints.auth.login,
+      request,
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
+    );
     captureEvent(AnalyticsEvents.authLoginSuccess, { hasEmail: Boolean(request.email) });
     return response.data.data;
   } catch (error) {
@@ -24,7 +38,11 @@ export async function login(request: LoginRequest) {
 
 export async function signup(request: SignupRequest) {
   try {
-    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.register, request);
+    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(
+      apiEndpoints.auth.register,
+      request,
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
+    );
     captureEvent(AnalyticsEvents.authSignupSuccess, { hasReferralCode: Boolean((request as { referralCode?: string }).referralCode) });
     return response.data.data;
   } catch (error) {
@@ -36,7 +54,11 @@ export async function signup(request: SignupRequest) {
 
 export async function verifyOtp(request: VerifyOtpRequest) {
   try {
-    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(apiEndpoints.auth.verifyOtp, request);
+    const response: AxiosResponse<{ data: AuthSession }> = await apiClient.post(
+      apiEndpoints.auth.verifyOtp,
+      request,
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
+    );
     captureEvent(AnalyticsEvents.authOtpVerified);
     return response.data.data;
   } catch (error) {
@@ -49,6 +71,7 @@ export async function resendOtp(email: string) {
     const response: AxiosResponse<{ message?: string; data?: { devOtp?: string } }> = await apiClient.post(
       apiEndpoints.auth.resendOtp,
       { email },
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
     );
     captureEvent(AnalyticsEvents.authOtpResent, { hasEmail: Boolean(email) });
     return {
@@ -65,6 +88,7 @@ export async function forgotPassword(email: string) {
     const response: AxiosResponse<{ message?: string; data?: { devOtp?: string } }> = await apiClient.post(
       apiEndpoints.auth.forgotPassword,
       { email },
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
     );
     captureEvent(AnalyticsEvents.authForgotPasswordRequested, { hasEmail: Boolean(email) });
     return {
@@ -110,11 +134,11 @@ export async function claimGuestUpgradeOnLogin(accessToken: string) {
 
 export async function resetPassword(email: string, otp: string, newPassword: string) {
   try {
-    const response: AxiosResponse<{ message?: string }> = await apiClient.post(apiEndpoints.auth.resetPassword, {
-      email,
-      otp,
-      newPassword,
-    });
+    const response: AxiosResponse<{ message?: string }> = await apiClient.post(
+      apiEndpoints.auth.resetPassword,
+      { email, otp, newPassword },
+      { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
+    );
     captureEvent(AnalyticsEvents.authPasswordReset, {
       hasEmail: Boolean(email),
       otpLength: otp?.length ?? 0,
@@ -159,9 +183,15 @@ export async function logout(refreshToken?: string) {
   }
 }
 
+// Real fix (2026-09-13, mobile parity): this previously posted to the same
+// single-session /auth/logout endpoint with an unverified {allDevices: true}
+// body flag, and had no UI entry point anywhere (dead code). Ports web's
+// real mechanism instead -- a dedicated /auth/logout-all endpoint (see
+// app/api/auth/logout-all/route.ts on web, backed by auth.controller.ts's
+// logoutAll on the real backend).
 export async function logoutAllDevices() {
   try {
-    await apiClient.post(apiEndpoints.auth.logout, { allDevices: true }, { withCredentials: true });
+    await apiClient.post(apiEndpoints.auth.logoutAll, {}, { withCredentials: true });
     captureEvent(AnalyticsEvents.authLogout, { allDevices: true });
   } catch (error) {
     throw mapApiError(error);

@@ -44,6 +44,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
+    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
     adaptiveIcon: {
       backgroundColor: '#E6F4FE',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -51,9 +52,19 @@ const config: ExpoConfig = {
       monochromeImage: './assets/images/android-icon-monochrome.png',
     },
     blockedPermissions: [
-      'android.permission.FOREGROUND_SERVICE',
+      // Real fix (2026-09-13, Issue 2): @livekit/react-native's own
+      // AndroidManifest.xml requires android.permission.FOREGROUND_SERVICE
+      // to keep the call's audio session alive -- blocking it here was
+      // stripping that permission from the merged manifest, which is the
+      // real, confirmed root cause of "Cafa Live service failed to start"
+      // on real hardware (background/foreground-service enforcement is
+      // stricter on real devices than on the emulator, so this reproduced
+      // there but not here). FOREGROUND_SERVICE_MICROPHONE is the Android
+      // 14+ (API 34+) typed variant required alongside it for a
+      // microphone-using foreground service. FOREGROUND_SERVICE_MEDIA_PLAYBACK
+      // stays blocked -- unrelated to this feature (background music/video
+      // playback notifications), no evidence it's needed.
       'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
-      'android.permission.FOREGROUND_SERVICE_MICROPHONE',
       'android.permission.READ_EXTERNAL_STORAGE',
       'android.permission.WRITE_EXTERNAL_STORAGE',
       'android.permission.ACCESS_MEDIA_LOCATION',
@@ -100,6 +111,13 @@ const config: ExpoConfig = {
       'android.permission.RECORD_AUDIO',
       'android.permission.CAMERA',
       'android.permission.MODIFY_AUDIO_SETTINGS',
+      // Real fix (2026-09-13): without this, Android 13+ (API 33+) never
+      // shows the system permission dialog at all -- requestPermissionsAsync
+      // silently resolves to "denied" because the manifest never declared
+      // intent to post notifications. expo-notifications' own config plugin
+      // does not add this permission automatically (confirmed by reading its
+      // plugin source), so it must be listed here explicitly.
+      'android.permission.POST_NOTIFICATIONS',
     ],
   },
   androidStatusBar: {
@@ -113,6 +131,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-notifications',
+      {
+        icon: './assets/images/android-icon-monochrome.png',
+        color: '#10264D',
+      },
+    ],
     [
       'expo-splash-screen',
       {
@@ -198,6 +223,13 @@ const config: ExpoConfig = {
       {
         androidAppId: ADMOB_ANDROID_APP_ID,
         iosAppId: ADMOB_IOS_APP_ID,
+      },
+    ],
+    [
+      '@stripe/stripe-react-native',
+      {
+        merchantIdentifier: 'merchant.com.shopwit.cafaai',
+        enableGooglePay: false,
       },
     ],
   ],

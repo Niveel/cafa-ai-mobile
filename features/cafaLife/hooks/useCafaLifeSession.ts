@@ -56,6 +56,10 @@ function mapFriendlySessionError(error: unknown): CafaLifeSessionError {
     return createSessionError('Could not start your voice session. Please try again.', 'TOKEN_REQUEST_FAILED', status);
   }
 
+  if (/audio session|audio_session|audiosession/i.test(message)) {
+    return createSessionError('Could not set up audio for Cafa Live. Please try again.', 'AUDIO_SESSION_FAILED', status);
+  }
+
   if (/connect|room|livekit/i.test(message)) {
     return createSessionError('Could not connect to Cafa Live right now. Please try again.', 'LIVEKIT_CONNECT_FAILED', status);
   }
@@ -204,16 +208,25 @@ export function useCafaLifeSession() {
 
     try {
       ensureCafaLifeGlobalsRegistered();
-      await configureCafaLifeAudioSession();
 
+      // Real fix (2026-09-13, Issue 2 continued): request microphone
+      // permission BEFORE configuring a recording-capable audio session.
+      // Configuring the session first (as this previously did) can throw a
+      // real native error on a device where mic permission for this app has
+      // never been granted yet -- confirmed real-device error "audio session
+      // failed" surfaced right after the earlier foreground-service fix
+      // resolved the first failure point. Never touch the audio session
+      // before the permission it depends on is confirmed granted.
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         throw createSessionError('Microphone permission is required for Cafa Live.', 'MIC_PERMISSION_DENIED');
       }
 
+      await configureCafaLifeAudioSession();
+
       setState('connecting');
 
-      const { token, livekitUrl, roomName: nextRoomName } = await getCafaLifeToken(selectedVoice);
+      const { token, url: livekitUrl, room: nextRoomName } = await getCafaLifeToken(selectedVoice);
       const { Room, RoomEvent, Track } = getLiveKitRuntime();
       const sessionToken = sessionTokenRef.current + 1;
       sessionTokenRef.current = sessionToken;

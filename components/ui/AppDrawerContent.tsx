@@ -7,7 +7,6 @@ import { router } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
 
 import { useAppContext } from '@/context';
-import { API_BASE_URL } from '@/lib';
 import {
   archiveAuthenticatedConversation,
   deleteAuthenticatedConversation,
@@ -23,7 +22,7 @@ import {
 import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
 import { getAccessToken, subscribeToChatMutated } from '@/services';
 import { markDrawerShouldReopenOnFocus } from '@/services/navigation/drawerRestore';
-import { hapticSelection } from '@/utils';
+import { hapticSelection, probeAvatarCandidates, resolveAvatarUri, resolveAvatarUriCandidates } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
 import { AppPromptModal } from './AppPromptModal';
@@ -38,33 +37,6 @@ function toCapitalizedName(value: string) {
     .join(' ');
 }
 
-function resolveAvatarUri(input?: string | null) {
-  if (!input) return undefined;
-  const value = input.trim();
-  if (!value) return undefined;
-  if (/^(https?:|file:|content:|data:)/i.test(value)) return value;
-
-  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  if (value.startsWith('/')) return `${apiOrigin}${value}`;
-  return `${apiOrigin}/${value}`;
-}
-
-function resolveAvatarUriCandidates(input?: string | null) {
-  if (!input) return [];
-  const value = input.trim();
-  if (!value) return [];
-  if (/^(https?:|file:|content:|data:)/i.test(value)) return [value];
-
-  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
-  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  const prodOrigin = 'https://cafaapi.niveel.com';
-
-  return Array.from(new Set([
-    `${apiOrigin}${withLeadingSlash}`,
-    `${apiOrigin}/api/v1${withLeadingSlash}`,
-    `${prodOrigin}${withLeadingSlash}`,
-  ]));
-}
 
 type DrawerChatItem = {
   id: string;
@@ -453,24 +425,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     const needsAuth = candidates.some((candidate) => candidate.includes('/uploads/'));
     if (needsAuth && !avatarAccessToken) return;
     let cancelled = false;
-    void (async () => {
-      for (const candidate of candidates) {
-        try {
-          const response = await fetch(candidate, {
-            method: 'GET',
-            headers: avatarAccessToken ? { Authorization: `Bearer ${avatarAccessToken}` } : undefined,
-          });
-          if (cancelled) return;
-          if (response.ok) {
-            setActiveAvatarUri(candidate);
-            return;
-          }
-        } catch {
-          if (cancelled) return;
-        }
-      }
-      setActiveAvatarUri(candidates[0]);
-    })();
+    void probeAvatarCandidates(candidates, avatarAccessToken).then((uri) => {
+      if (!cancelled) setActiveAvatarUri(uri);
+    });
     return () => {
       cancelled = true;
     };

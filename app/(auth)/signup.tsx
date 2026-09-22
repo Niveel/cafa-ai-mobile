@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, QuickHelpWidget, SecondaryNav, SubmitButton } from '@/components';
 import { SignupFormValues, SignupValidationSchema } from '@/data';
 import { signup as signupRequest } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
@@ -152,6 +152,7 @@ export default function SignupScreen() {
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+      <QuickHelpWidget isDark={isDark} />
     </AppScreen>
   );
 }

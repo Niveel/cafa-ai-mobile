@@ -7,12 +7,14 @@ import { StatusBar } from 'expo-status-bar';
 import { Animated, AppState, Easing, Image, Linking, Platform, Text, useColorScheme, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import * as Sentry from '@sentry/react-native';
 
 import '../global.css';
 import { AppLogo, AppPromptModal } from '@/components';
 import { AppProvider, useAppContext } from '@/context/AppContext';
 import { RevenueCatProvider } from '@/context/RevenueCatContext';
+import { STRIPE_PUBLISHABLE_KEY } from '@/lib/stripe';
 import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
@@ -498,7 +500,9 @@ function RootLayout() {
   const appTree = (
     <AppProvider>
       <RevenueCatProvider>
-        <AppNavigator />
+        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+          <AppNavigator />
+        </StripeProvider>
       </RevenueCatProvider>
     </AppProvider>
   );

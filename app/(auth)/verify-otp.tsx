@@ -25,6 +25,7 @@ import {
   resendOtp as resendOtpRequest,
   verifyOtp as verifyOtpRequest,
 } from '@/features';
+import { usePostAuthPushPrompt } from '@/features/notifications';
 
 type VerifyOtpScreenValues = {
   email: string;
@@ -43,6 +44,7 @@ export default function VerifyOtpScreen() {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
   const { login, signup } = useAppContext();
+  const { maybeShowPrompt, modal: pushPromptModal } = usePostAuthPushPrompt();
   const params = useLocalSearchParams<{ email?: string; flow?: string; devOtp?: string }>();
   const [notice, setNotice] = useState('');
   const [authError, setAuthError] = useState('');
@@ -61,6 +63,7 @@ export default function VerifyOtpScreen() {
 
   return (
     <AppScreen title={t('auth.verifyOtp')} subtitle={t('auth.verifyOtpSubtitle')} showTopChrome={false} showHeading={false}>
+      {pushPromptModal}
       <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 10}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
@@ -146,6 +149,7 @@ export default function VerifyOtpScreen() {
                         }
                         if (flow === 'signup') signup();
                         else login();
+                        await maybeShowPrompt();
                         router.replace('/(drawer)');
                       } catch (error) {
                         const mapped = error as { message?: string };

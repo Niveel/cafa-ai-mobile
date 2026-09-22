@@ -11,10 +11,12 @@ import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
 import {
   createBillingPortalSession,
   createCheckoutSession,
+  getCreditsStatus,
   getDailyUsage,
   getSubscriptionOverview,
   getSubscriptionPlans,
   syncSubscriptionState,
+  type CreditsStatus,
 } from '@/features';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
@@ -24,6 +26,14 @@ import { getRevenueCatAppUserId, identifyUser, openIosSubscriptionManagement } f
 import { getActiveExpirationDate, resolveRCTier } from '@/services/revenuecat/entitlements';
 import { clearPendingBillingTier, setPendingBillingTier } from '@/services';
 import type { SubscriptionOverview, SubscriptionPlan, SubscriptionTier, UsageSnapshot } from '@/types';
+
+function creditFeatureLabel(feature: string) {
+  if (feature === 'image') return 'Images';
+  if (feature === 'video') return 'Videos';
+  if (feature === 'document') return 'Documents';
+  if (feature === 'tts') return 'Voice (TTS)';
+  return 'Cafa Live';
+}
 
 function tierLabel(tier?: SubscriptionTier) {
   switch (tier) {
@@ -257,6 +267,8 @@ export default function PlansScreen() {
   const [overview, setOverview] = useState<SubscriptionOverview | null>(null);
   const [dailyUsage, setDailyUsage] = useState<UsageSnapshot | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [creditsStatus, setCreditsStatus] = useState<CreditsStatus | null>(null);
+  const [creditsError, setCreditsError] = useState('');
   const [statusText, setStatusText] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showChangePlanPrompt, setShowChangePlanPrompt] = useState(false);
@@ -270,6 +282,14 @@ export default function PlansScreen() {
   const syncInFlightRef = useRef<Promise<Awaited<ReturnType<typeof syncSubscriptionState>> | null> | null>(null);
   const portalFlowActiveRef = useRef(false);
   const latestSubscriptionRef = useRef<{ tier: SubscriptionTier; status: string } | null>(null);
+  // Real fix: syncSubscriptionAfterCheckout/syncSubscriptionAfterPortalReturn
+  // poll for up to 60s/24s with no way to know the user already left this
+  // screen -- without this guard they kept firing network calls and setState
+  // on an unmounted Plans screen for the rest of that window.
+  const isMountedRef = useRef(true);
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
   const plansDebug = useCallback((_event: string, _payload?: Record<string, unknown>) => {}, []);
 
   const toErrorMessage = (error: unknown) => {
@@ -305,6 +325,16 @@ export default function PlansScreen() {
       throw error;
     }
   }, [plansDebug]);
+
+  const loadCreditsStatus = useCallback(async (options?: { force?: boolean }) => {
+    try {
+      const next = await getCreditsStatus({ force: options?.force });
+      setCreditsStatus(next);
+      setCreditsError('');
+    } catch (error) {
+      setCreditsError(toErrorMessage(error) || 'Could not load credit usage.');
+    }
+  }, []);
 
   const syncSubscriptionAndApplyTier = useCallback(async (options?: { force?: boolean; traceId?: string; reason?: string }) => {
     const now = Date.now();
@@ -363,6 +393,7 @@ export default function PlansScreen() {
     let attempt = 0;
     const run = async () => {
       while (Date.now() < timeoutAt) {
+        if (!isMountedRef.current) return;
         try {
           if (attempt === 0 || attempt % 3 === 0) {
             await syncSubscriptionAndApplyTier({
@@ -371,7 +402,9 @@ export default function PlansScreen() {
               reason: 'post-checkout-poll',
             }).catch(() => null);
           }
+          if (!isMountedRef.current) return;
           const latest = await getSubscriptionOverview({ force: true });
+          if (!isMountedRef.current) return;
           setOverview(latest);
           latestSubscriptionRef.current = {
             tier: latest.subscription.tier,
@@ -392,6 +425,7 @@ export default function PlansScreen() {
                 : t('plans.alreadySubscribed'),
             );
             await loadBillingData({ force: true });
+            if (!isMountedRef.current) return;
             await refreshAuthUser().catch(() => {});
             return;
           }
@@ -402,6 +436,7 @@ export default function PlansScreen() {
             const when = scheduledChangeAt ? new Date(scheduledChangeAt).toLocaleDateString() : 'the next billing cycle';
             setStatusText(`Plan change to ${tierLabel(requestedTier)} is scheduled for ${when}.`);
             await loadBillingData({ force: true });
+            if (!isMountedRef.current) return;
             await refreshAuthUser().catch(() => {});
             return;
           }
@@ -409,16 +444,19 @@ export default function PlansScreen() {
           if (isPaymentProblemStatus(latest.subscription.status)) {
             setStatusText('Payment is pending or failed. Please update your payment method in the billing portal.');
             await loadBillingData({ force: true });
+            if (!isMountedRef.current) return;
             await refreshAuthUser().catch(() => {});
             return;
           }
         } catch {
           // keep polling until timeout
         }
+        if (!isMountedRef.current) return;
         const pollDelayMs = attempt < 4 ? 5_000 : 8_000;
         attempt += 1;
         await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
       }
+      if (!isMountedRef.current) return;
       setStatusText(t('plans.upgradeSyncPending'));
       plansDebug('syncAfterCheckout:timeout', { requestedTier });
     };
@@ -437,8 +475,16 @@ export default function PlansScreen() {
     let hadError = false;
 
     while (Date.now() < timeoutAt) {
+      if (!isMountedRef.current) {
+        portalFlowActiveRef.current = false;
+        return;
+      }
       try {
         latestOverview = await loadBillingData({ force: true });
+        if (!isMountedRef.current) {
+          portalFlowActiveRef.current = false;
+          return;
+        }
         plansDebug('syncAfterPortal:poll', {
           latestTier: latestOverview.subscription.tier,
           latestStatus: latestOverview.subscription.status,
@@ -465,6 +511,10 @@ export default function PlansScreen() {
       await new Promise((resolve) => setTimeout(resolve, 3_000));
     }
 
+    if (!isMountedRef.current) {
+      portalFlowActiveRef.current = false;
+      return;
+    }
     if (hadError && !latestOverview) {
       setStatusText(t('plans.portalSyncError'));
     } else {
@@ -492,6 +542,7 @@ export default function PlansScreen() {
         try {
           await syncSubscriptionAndApplyTier().catch(() => null);
           await loadBillingData();
+          void loadCreditsStatus();
         } catch (error) {
           setStatusText(toErrorMessage(error) || t('plans.loadError'));
         } finally {
@@ -499,7 +550,7 @@ export default function PlansScreen() {
         }
       })().catch(() => {});
       return () => {};
-    }, [loadBillingData, syncSubscriptionAndApplyTier, t]),
+    }, [loadBillingData, loadCreditsStatus, syncSubscriptionAndApplyTier, t]),
   );
 
   useEffect(() => {
@@ -519,12 +570,13 @@ export default function PlansScreen() {
     try {
       await syncSubscriptionAndApplyTier({ force: true }).catch(() => null);
       await loadBillingData({ force: true });
+      void loadCreditsStatus({ force: true });
     } catch (error) {
       setStatusText(toErrorMessage(error) || t('plans.loadError'));
     } finally {
       setIsRefreshing(false);
     }
-  }, [loadBillingData, syncSubscriptionAndApplyTier, t]);
+  }, [loadBillingData, loadCreditsStatus, syncSubscriptionAndApplyTier, t]);
 
   const currentTier = Platform.OS === 'ios' ? activeTier : (overview?.subscription.tier ?? 'free');
   const subscriptionLifecycle = overview?.subscriptionLifecycle;
@@ -604,15 +656,6 @@ export default function PlansScreen() {
     [currentTier, displayPlans],
   );
   const stats = normalizeUsageAndLimits(overview, dailyUsage, currentPlan);
-  const usagePeriodLabel = formatUsageWindow(stats.usageBucketDate);
-  const chatLimitState = getLimitState(stats.chatUsed, stats.chatLimit);
-  const imageLimitState = getLimitState(stats.imageUsed, stats.imageLimit);
-  const videoLimitState = getLimitState(stats.videoUsed, stats.videoLimit);
-  const ttsLimitState = getLimitState(stats.ttsUsed, stats.ttsLimit);
-  const aiDetectionLimitState = getLimitState(stats.aiDetectionWordsUsed, stats.aiDetectionWordsLimit);
-  const humanizeLimitState = getLimitState(stats.humanizeWordsUsed, stats.humanizeWordsLimit);
-  const docAnalysesLimitState = getLimitState(stats.docAnalysesUsed, stats.docAnalysesPerMonth);
-  const exportsLimitState = getLimitState(stats.exportsUsed, stats.exportsPerMonth);
   const openCheckoutUrl = async (
     rawUrl: string,
     mode: 'checkout' | 'portal' = 'checkout',
@@ -1061,135 +1104,80 @@ export default function PlansScreen() {
               }.`}
             </Text>
           ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>
-            Usage window: {usagePeriodLabel}
+          <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginTop: 14 }}>
+            Credit usage
           </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10 }}>
-            {t('plans.chatUsed')}: {stats.chatUsed} / {formatLimit(stats.chatLimit)} used this month
-          </Text>
-          {!isUnlimitedLimit(stats.chatLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${chatLimitState.percent}%`, backgroundColor: chatLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            {t('plans.imagesUsed')}: {stats.imageUsed} / {formatLimit(stats.imageLimit)} used this month
-          </Text>
-          {!isUnlimitedLimit(stats.imageLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${imageLimitState.percent}%`, backgroundColor: imageLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-            Videos (regular + avatar): {stats.videoUsed} / {formatLimit(stats.videoLimit)} used this month
-          </Text>
-          {!isUnlimitedLimit(stats.videoLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${videoLimitState.percent}%`, backgroundColor: videoLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.ttsLimit === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              Text to Speech: {stats.ttsUsed} / {formatLimit(stats.ttsLimit)} conversions used this month
-            </Text>
-          ) : null}
-          {typeof stats.ttsLimit === 'number' && !isUnlimitedLimit(stats.ttsLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${ttsLimitState.percent}%`, backgroundColor: ttsLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.aiDetectionWordsLimit === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              AI detection words: {stats.aiDetectionWordsUsed} / {formatLimit(stats.aiDetectionWordsLimit)} this month
-            </Text>
-          ) : null}
-          {typeof stats.aiDetectionWordsLimit === 'number' && !isUnlimitedLimit(stats.aiDetectionWordsLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${aiDetectionLimitState.percent}%`, backgroundColor: aiDetectionLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.humanizeWordsLimit === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              Humanize words: {stats.humanizeWordsUsed} / {formatLimit(stats.humanizeWordsLimit)} this month
-            </Text>
-          ) : null}
-          {typeof stats.humanizeWordsLimit === 'number' && !isUnlimitedLimit(stats.humanizeWordsLimit) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${humanizeLimitState.percent}%`, backgroundColor: humanizeLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.docAnalysesPerMonth === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              Doc analyses: {stats.docAnalysesUsed} / {formatLimit(stats.docAnalysesPerMonth)} this month
-            </Text>
-          ) : null}
-          {typeof stats.docAnalysesPerMonth === 'number' && !isUnlimitedLimit(stats.docAnalysesPerMonth) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${docAnalysesLimitState.percent}%`, backgroundColor: docAnalysesLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.exportsPerMonth === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-              File exports: {stats.exportsUsed} / {formatLimit(stats.exportsPerMonth)} this month
-            </Text>
-          ) : null}
-          {typeof stats.exportsPerMonth === 'number' && !isUnlimitedLimit(stats.exportsPerMonth) ? (
-            <View className="mt-1 h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
-              <View
-                className="h-full rounded-full"
-                style={{ width: `${exportsLimitState.percent}%`, backgroundColor: exportsLimitState.reached ? '#DC2626' : colors.primary }}
-              />
-            </View>
-          ) : null}
-          {typeof stats.maxUploadSizeMB === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>
-              Max upload: {formatLimit(stats.maxUploadSizeMB)} MB
-            </Text>
-          ) : null}
-          {typeof stats.maxPdfPages === 'number' || typeof stats.maxDocxPages === 'number' || typeof stats.maxPptxSlides === 'number' ? (
-            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+          {creditsError ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>{creditsError}</Text>
+          ) : !creditsStatus ? (
+            <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 6 }}>Loading credit usage...</Text>
+          ) : (
+            <>
               {[
-                typeof stats.maxPdfPages === 'number' ? `PDF pages: ${formatLimit(stats.maxPdfPages)}` : null,
-                typeof stats.maxDocxPages === 'number' ? `DOCX pages: ${formatLimit(stats.maxDocxPages)}` : null,
-                typeof stats.maxPptxSlides === 'number' ? `PPTX slides: ${formatLimit(stats.maxPptxSlides)}` : null,
-              ].filter(Boolean).join(' | ')}
-            </Text>
-          ) : null}
-          {chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || aiDetectionLimitState.reached || humanizeLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached ? (
-            <Text style={{ color: '#DC2626', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
-              One or more monthly limits reached. Some features are blocked until next month or plan upgrade.
-            </Text>
-          ) : null}
-          {!(
-            chatLimitState.reached || imageLimitState.reached || videoLimitState.reached || aiDetectionLimitState.reached || humanizeLimitState.reached || docAnalysesLimitState.reached || exportsLimitState.reached
-          ) && (
-            chatLimitState.nearLimit || imageLimitState.nearLimit || videoLimitState.nearLimit || aiDetectionLimitState.nearLimit || humanizeLimitState.nearLimit || docAnalysesLimitState.nearLimit || exportsLimitState.nearLimit
-          ) ? (
-            <Text style={{ color: '#B45309', fontSize: 12, marginTop: 8, fontWeight: '700' }}>
-              You have used at least 80% of a monthly limit. Upgrade to avoid interruptions.
-            </Text>
-          ) : null}
+                { label: 'This week', pool: creditsStatus.weekly },
+                { label: 'This month', pool: creditsStatus.monthly },
+              ].map(({ label, pool }) => {
+                const remaining = Math.max(0, pool.total - pool.used);
+                const percentUsed = pool.total > 0 ? Math.min(100, (pool.used / pool.total) * 100) : 0;
+                const nearLimit = percentUsed >= 80 && percentUsed < 100;
+                const exhausted = remaining <= 0;
+                return (
+                  <View
+                    key={label}
+                    className="mt-2 rounded-xl border p-3"
+                    style={{
+                      borderColor: exhausted ? '#DC2626' : colors.border,
+                      backgroundColor: exhausted ? (isDark ? 'rgba(127,29,29,0.18)' : 'rgba(254,226,226,0.6)') : 'transparent',
+                    }}
+                  >
+                    <View className="flex-row items-center justify-between">
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                        {pool.used.toLocaleString()} / {pool.total.toLocaleString()} credits
+                      </Text>
+                    </View>
+                    <View className="mt-2 h-1.5 w-full overflow-hidden rounded-full" style={{ backgroundColor: isDark ? '#1E293B' : '#E2E8F0' }}>
+                      <View
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${percentUsed}%`,
+                          backgroundColor: exhausted ? '#DC2626' : nearLimit ? '#B45309' : '#059669',
+                        }}
+                      />
+                    </View>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 4 }}>
+                      {exhausted
+                        ? `Exhausted -- resets ${pool.resetAt ? new Date(pool.resetAt).toLocaleDateString() : 'soon'}`
+                        : `${remaining.toLocaleString()} credits left, resets ${pool.resetAt ? new Date(pool.resetAt).toLocaleDateString() : 'soon'}`}
+                    </Text>
+                  </View>
+                );
+              })}
+
+              {creditsStatus.topupBalance > 0 ? (
+                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>
+                  Top-up balance: <Text style={{ fontWeight: '700' }}>{creditsStatus.topupBalance.toLocaleString()} credits</Text>{' '}
+                  <Text style={{ fontSize: 11 }}>(never expires)</Text>
+                </Text>
+              ) : null}
+
+              {creditsStatus.byFeature.length > 0 ? (
+                <View className="mt-3">
+                  <Text style={{ color: colors.textSecondary, fontSize: 11, textTransform: 'uppercase' }}>
+                    This month, by feature
+                  </Text>
+                  {creditsStatus.byFeature.map((item) => (
+                    <View key={item.feature} className="mt-1 flex-row items-center justify-between">
+                      <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{creditFeatureLabel(item.feature)}</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                        {item.credits.toLocaleString()} credits &middot; {item.count} uses
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          )}
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
             {t('plans.maxVideoLength')}: {stats.maxVideoDurationSeconds ?? 3}s
           </Text>
@@ -1316,6 +1304,29 @@ export default function PlansScreen() {
               </View>
             </TouchableOpacity>
           )}
+
+          {Platform.OS !== 'ios' ? (
+            <View className="mt-2 flex-row" style={{ gap: 8 }}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Buy credits"
+                onPress={() => router.push('/billing/credits')}
+                className="h-10 flex-1 items-center justify-center rounded-full px-4"
+                style={{ borderWidth: 1.2, borderColor: colors.primary }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>Buy credits</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Payment method"
+                onPress={() => router.push('/billing/payment-method')}
+                className="h-10 flex-1 items-center justify-center rounded-full px-4"
+                style={{ borderWidth: 1.2, borderColor: colors.primary }}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>Payment method</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
 
         <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginTop: 14, marginBottom: 8 }}>

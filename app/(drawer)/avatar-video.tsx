@@ -5,6 +5,7 @@ import {
   Alert,
   Animated,
   Easing,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -39,6 +40,7 @@ import {
   getAvatarVoiceClones,
   previewAvatarVoice,
   uploadAvatarImage,
+  generateImage,
 } from '@/features';
 import { useAppTheme, useI18n, useReducedMotionPreference } from '@/hooks';
 import {
@@ -756,7 +758,14 @@ export default function AvatarVideoScreen() {
   const [selectedGalleryAvatarId, setSelectedGalleryAvatarId] = useState<string | null>(null);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
   const [uploadedAvatar, setUploadedAvatar] = useState<UploadedAvatar | null>(null);
-  const [selectedAvatarType, setSelectedAvatarType] = useState<'gallery' | 'upload'>('gallery');
+  const [selectedAvatarType, setSelectedAvatarType] = useState<'gallery' | 'upload' | 'generate'>('gallery');
+  // Real, third avatar-source option (2026-09-13, mobile parity) -- ports
+  // web's AvatarVideoScreen.tsx generateAvatarImage. Stored in the same
+  // uploadedAvatar slot the upload flow uses (both are "a real,
+  // non-gallery image URL" from this point on), matching web's own choice.
+  const [isAvatarGenerateOpen, setIsAvatarGenerateOpen] = useState(false);
+  const [avatarGeneratePrompt, setAvatarGeneratePrompt] = useState('');
+  const [isGeneratingAvatarImage, setIsGeneratingAvatarImage] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [voices, setVoices] = useState<AvatarVoiceOption[]>([]);
@@ -826,7 +835,7 @@ export default function AvatarVideoScreen() {
     [gallery, selectedGalleryAvatarId],
   );
 
-  const selectedAvatarImageUrl = selectedAvatarType === 'upload'
+  const selectedAvatarImageUrl = selectedAvatarType === 'upload' || selectedAvatarType === 'generate'
     ? uploadedAvatar?.imageUrl ?? null
     : selectedGalleryAvatar?.imageUrl ?? null;
 
@@ -1205,6 +1214,47 @@ export default function AvatarVideoScreen() {
       if (isMountedRef.current) setIsUploadingAvatar(false);
     }
   }, [announce]);
+
+  // Real, third avatar-source option (2026-09-13, mobile parity) -- ports
+  // web's generateAvatarImage. Describes a portrait and generates it via the
+  // same generate_image engine used everywhere else in the app (already
+  // credit-gated), stored in the same uploadedAvatar slot the upload flow
+  // uses.
+  const generateAvatarImage = useCallback(async () => {
+    const prompt = avatarGeneratePrompt.trim();
+    if (!prompt || isGeneratingAvatarImage) return;
+
+    try {
+      setIsGeneratingAvatarImage(true);
+      setErrorMessage('');
+      const result = await generateImage({
+        prompt: `Portrait photo for a talking avatar video: ${prompt}. Front-facing, face fully visible, clear lighting.`,
+      });
+      if (!result.imageUrl) throw new Error('Image generation did not return an image. Please try again.');
+
+      if (!isMountedRef.current) return;
+      setUploadedAvatar({
+        imageUrl: result.imageUrl,
+        localUri: result.imageUrl,
+        fileName: null,
+      });
+      setSelectedAvatarType('generate');
+      setIsAvatarGenerateOpen(false);
+      setStatusNotice('Your generated avatar photo is ready to use.');
+      announce('Your generated avatar photo is ready to use.');
+      hapticSuccess();
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      logAvatarUiError('generate-avatar-image', error);
+      const message = error instanceof Error ? error.message : 'Could not generate that avatar image right now.';
+      setErrorMessage(message);
+      setStatusNotice('');
+      announce(message);
+      hapticError();
+    } finally {
+      if (isMountedRef.current) setIsGeneratingAvatarImage(false);
+    }
+  }, [avatarGeneratePrompt, isGeneratingAvatarImage, announce]);
 
   const randomizeSetup = useCallback(async () => {
     if (isRandomizingSetup || isStartingGeneration || activeJobMeta) return;
@@ -1687,6 +1737,98 @@ export default function AvatarVideoScreen() {
           ) : null}
 
           <Modal
+            visible={isAvatarGenerateOpen}
+            transparent
+            animationType="fade"
+            statusBarTranslucent
+            onRequestClose={() => setIsAvatarGenerateOpen(false)}
+          >
+            {/* Real fix -- every other modal-with-TextInput in this codebase
+                (AccountSection's delete-account form, SecuritySection's
+                change-password form) wraps its content in
+                KeyboardAvoidingView. This one didn't, and the keyboard
+                attaching to a TextInput with no KeyboardAvoidingView inside
+                a transparent, statusBarTranslucent Modal caused a real,
+                confirmed, reproducible full JS remount (same native process,
+                no crash -- an Activity-level config-change reset, not an
+                OOM kill) every time typing began. */}
+            <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 14 : 12}>
+              <View
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  paddingHorizontal: 20,
+                  backgroundColor: isDark ? 'rgba(5, 8, 14, 0.78)' : 'rgba(15, 23, 42, 0.32)',
+                }}
+              >
+                <View
+                  accessibilityViewIsModal
+                  className="rounded-[28px] border p-5"
+                  style={{
+                    borderColor: colors.border,
+                    backgroundColor: isDark ? '#11151D' : '#FFFFFF',
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                    Generate an avatar with AI
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                    Describe the portrait you want -- for example, "a friendly woman in her 30s with short brown hair, smiling, business casual."
+                  </Text>
+                  <TextInput
+                    value={avatarGeneratePrompt}
+                    onChangeText={setAvatarGeneratePrompt}
+                    placeholder="Describe the portrait..."
+                    placeholderTextColor={colors.textSecondary}
+                    multiline
+                    editable={!isGeneratingAvatarImage}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 14,
+                      padding: 12,
+                      minHeight: 88,
+                      textAlignVertical: 'top',
+                      color: colors.textPrimary,
+                      fontSize: 14,
+                      backgroundColor: isDark ? '#0C0E13' : '#F8FAFC',
+                    }}
+                  />
+                  <View className="mt-4 flex-row justify-end" style={{ gap: 10 }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setIsAvatarGenerateOpen(false)}
+                      disabled={isGeneratingAvatarImage}
+                      className="rounded-full px-4 py-2"
+                      style={{ borderWidth: 1, borderColor: colors.border }}
+                    >
+                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => { void generateAvatarImage(); }}
+                      disabled={isGeneratingAvatarImage || !avatarGeneratePrompt.trim()}
+                      className="rounded-full px-4 py-2"
+                      style={{
+                        backgroundColor: colors.primary,
+                        opacity: isGeneratingAvatarImage || !avatarGeneratePrompt.trim() ? 0.6 : 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {isGeneratingAvatarImage ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+                      <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                        {isGeneratingAvatarImage ? 'Generating...' : 'Generate'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </Modal>
+
+          <Modal
             visible={isFailureModalVisible}
             transparent
             animationType="fade"
@@ -1871,7 +2013,9 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 6 }}>
                 {selectedAvatarType === 'upload'
                   ? 'Your uploaded portrait is selected.'
-                  : selectedGalleryAvatarName}
+                  : selectedAvatarType === 'generate'
+                    ? 'Your AI-generated portrait is selected.'
+                    : selectedGalleryAvatarName}
               </Text>
               {selectedAvatarType === 'gallery' && selectedGalleryAvatar ? (
                 <View className="mt-3 flex-row items-center">
@@ -1891,7 +2035,7 @@ export default function AvatarVideoScreen() {
                     </Text>
                   </View>
                 </View>
-              ) : selectedAvatarType === 'upload' && uploadedAvatar ? (
+              ) : (selectedAvatarType === 'upload' || selectedAvatarType === 'generate') && uploadedAvatar ? (
                 <View className="mt-3 flex-row items-center">
                   <ExpoImage
                     source={{ uri: uploadedAvatar.localUri || uploadedAvatar.imageUrl }}
@@ -1971,24 +2115,84 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
                 {isGalleryLoading ? 'Loading gallery...' : `${gallery.length} avatars available`}
               </Text>
+              <View className="flex-row" style={{ gap: 8 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('avatarVideo.accessibilityLabel.uploadYourOwnPortraitPhoto')}
+                  accessibilityHint={t('avatarVideo.accessibilityHint.opensYourPhotoLibrarySoYouCan')}
+                  onPress={() => { void uploadOwnPhoto(); }}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: colors.primary,
+                    backgroundColor: `${colors.primary}12`,
+                    opacity: isUploadingAvatar ? 0.7 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                    {isUploadingAvatar ? t('avatarVideo.dynamic.uploading') : t('avatarVideo.dynamic.uploadOwnPhoto')}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Generate an avatar portrait with AI"
+                  accessibilityHint="Opens a prompt box to describe a portrait for AI image generation."
+                  onPress={() => {
+                    // Real fix -- avoid two stacked native Modals (this
+                    // button lives inside the "Choose your avatar" Modal).
+                    // A second Modal opening on top of the first, with a
+                    // TextInput inside it, is a real, confirmed-unstable
+                    // combination on Android (repeated full app restarts
+                    // when the keyboard attached to the inner Modal's
+                    // EditText). Close the picker first.
+                    setIsAvatarPickerOpen(false);
+                    setIsAvatarGenerateOpen(true);
+                  }}
+                  className="rounded-full px-3 py-2"
+                  style={{
+                    borderWidth: 1.2,
+                    borderColor: colors.primary,
+                    backgroundColor: `${colors.primary}12`,
+                  }}
+                >
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
+                    Generate with AI
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {selectedAvatarType === 'generate' && uploadedAvatar ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t('avatarVideo.accessibilityLabel.uploadYourOwnPortraitPhoto')}
-                accessibilityHint={t('avatarVideo.accessibilityHint.opensYourPhotoLibrarySoYouCan')}
-                onPress={() => { void uploadOwnPhoto(); }}
-                className="rounded-full px-3 py-2"
+                accessibilityLabel="Use your AI-generated avatar photo"
+                accessibilityState={{ selected: true }}
+                onPress={() => setSelectedAvatarType('generate')}
+                className="mb-4 rounded-[22px] border p-3"
                 style={{
-                  borderWidth: 1.2,
                   borderColor: colors.primary,
-                  backgroundColor: `${colors.primary}12`,
-                  opacity: isUploadingAvatar ? 0.7 : 1,
+                  backgroundColor: `${colors.primary}10`,
                 }}
               >
-                <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                  {isUploadingAvatar ? t('avatarVideo.dynamic.uploading') : t('avatarVideo.dynamic.uploadOwnPhoto')}
-                </Text>
+                <View className="flex-row items-center">
+                  <ExpoImage
+                    source={{ uri: uploadedAvatar.imageUrl }}
+                    style={{ width: 64, height: 80, borderRadius: 16, backgroundColor: isDark ? '#0C0E13' : '#FFFFFF' }}
+                    contentFit="cover"
+                    accessible
+                    accessibilityLabel="Generated avatar preview"
+                  />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
+                      Your AI-generated photo
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
+                      {' '}{t('avatarVideo.ui.bestResultsComeFromAClearPortrait')}{' '}</Text>
+                  </View>
+                  <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                </View>
               </Pressable>
-            </View>
+            ) : null}
 
             {uploadedAvatar ? (
               <Pressable
@@ -2630,7 +2834,7 @@ export default function AvatarVideoScreen() {
               <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '800' }}>
                 {' '}{t('avatarVideo.ui.readyToSend')}{' '}</Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                {' '}{t('avatarVideo.ui.avatar')}{' '}{selectedAvatarType === 'upload' ? 'Your uploaded portrait' : selectedGalleryAvatarName}
+                {' '}{t('avatarVideo.ui.avatar')}{' '}{selectedAvatarType === 'upload' ? 'Your uploaded portrait' : selectedAvatarType === 'generate' ? 'Your AI-generated portrait' : selectedGalleryAvatarName}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
                 {' '}{t('avatarVideo.ui.voice')}{' '}{selectedVoice?.label || 'Not selected'}

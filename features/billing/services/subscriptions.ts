@@ -8,7 +8,6 @@ import {
   CanonicalSubscriptionTier,
   DailyUsagePayload,
   SubscriptionOverview,
-  SubscriptionLifecycle,
   SubscriptionPlansPayload,
   SubscriptionStatus,
   SubscriptionSyncPayload,
@@ -115,15 +114,17 @@ export async function syncSubscriptionState(options?: { traceId?: string; reason
   }
 }
 
-export async function getSubscriptionStatus() {
-  try {
-    const response: AxiosResponse<{ data: { subscription: SubscriptionStatus; subscriptionLifecycle?: SubscriptionLifecycle } }> = await apiClient.get(
-      apiEndpoints.subscriptions.status,
-    );
-    return response.data.data;
-  } catch (error) {
-    throw mapApiError(error);
-  }
+// Real fix: this used to hit apiEndpoints.subscriptions.status directly with
+// no cache of its own -- the exact same endpoint getSubscriptionOverview()
+// already caches (OVERVIEW_TTL_MS) and dedups in-flight requests for.
+// AccountSection's unconditional per-mount call and plans.tsx's own
+// useFocusEffect fetch were each hitting this endpoint independently within
+// seconds of each other. Delegating to the shared cache means whichever
+// call site asks first does the real fetch and the other gets the cached
+// result instead of firing a second one.
+export async function getSubscriptionStatus(options?: { force?: boolean }) {
+  const overview = await getSubscriptionOverview(options);
+  return { subscription: overview.subscription, subscriptionLifecycle: overview.subscriptionLifecycle };
 }
 
 export async function getSubscriptionOverview(options?: { force?: boolean }) {

@@ -10,6 +10,7 @@ export const apiEndpoints = {
     resendOtp: `${API_BASE_PATH}/auth/resend-otp`,
     refreshToken: `${API_BASE_PATH}/auth/refresh-token`,
     logout: `${API_BASE_PATH}/auth/logout`,
+    logoutAll: `${API_BASE_PATH}/auth/logout-all`,
     me: `${API_BASE_PATH}/auth/me`,
     forgotPassword: `${API_BASE_PATH}/auth/forgot-password`,
     resetPassword: `${API_BASE_PATH}/auth/reset-password`,
@@ -23,10 +24,27 @@ export const apiEndpoints = {
     archive: (conversationId: string) => `${API_BASE_PATH}/chat/${conversationId}/archive`,
     export: (conversationId: string, format: 'markdown' | 'pdf') =>
       `${API_BASE_PATH}/chat/${conversationId}/export?format=${format}`,
+    resolveProductLink: `${API_BASE_PATH}/chat/products/resolve-link`,
+    deleteArtifact: (conversationId: string, messageId: string, toolCallIndex: number) =>
+      `${API_BASE_PATH}/chat/${conversationId}/messages/${messageId}/tool-calls/${toolCallIndex}`,
+    upload: `${API_BASE_PATH}/chat/upload`,
+    suggestedPrompts: `${API_BASE_PATH}/chat/suggested-prompts`,
   },
 
   prompts: {
     suggest: `${API_BASE_PATH}/prompts/suggest`,
+  },
+
+  notifications: {
+    list: `${API_BASE_PATH}/notifications`,
+    unreadCount: `${API_BASE_PATH}/notifications/unread-count`,
+    stream: `${API_BASE_PATH}/notifications/stream`,
+    read: (id: string) => `${API_BASE_PATH}/notifications/${id}/read`,
+    readAll: `${API_BASE_PATH}/notifications/read-all`,
+    // Real, new backend addition (mobile parity, 2026-09-12) -- parallel to
+    // web's VAPID-based /notifications/push-subscriptions, but keyed by an
+    // opaque Expo push token instead of a {endpoint, keys} Web Push object.
+    pushTokens: `${API_BASE_PATH}/notifications/push-tokens`,
   },
 
   images: {
@@ -71,6 +89,19 @@ export const apiEndpoints = {
     sync: `${API_BASE_PATH}/subscriptions/sync`,
     checkout: `${API_BASE_PATH}/subscriptions/checkout`,
     portal: `${API_BASE_PATH}/subscriptions/portal`,
+    cancel: `${API_BASE_PATH}/subscriptions/cancel`,
+    resume: `${API_BASE_PATH}/subscriptions/resume`,
+    paymentMethod: `${API_BASE_PATH}/subscriptions/payment-method`,
+    paymentMethodSetupIntent: `${API_BASE_PATH}/subscriptions/payment-method/setup-intent`,
+    paymentMethodConfirm: `${API_BASE_PATH}/subscriptions/payment-method/confirm`,
+  },
+
+  credits: {
+    status: `${API_BASE_PATH}/credits/status`,
+    packs: `${API_BASE_PATH}/credits/packs`,
+    topupCheckout: `${API_BASE_PATH}/credits/topup/checkout`,
+    topupPaymentIntent: `${API_BASE_PATH}/credits/topup/payment-intent`,
+    invoices: `${API_BASE_PATH}/credits/invoices`,
   },
 
   users: {
@@ -79,16 +110,20 @@ export const apiEndpoints = {
     password: `${API_BASE_PATH}/users/me/password`,
     usage: `${API_BASE_PATH}/users/me/usage`,
     personalization: `${API_BASE_PATH}/users/me/personalization`,
+    notificationPreferences: `${API_BASE_PATH}/users/me/notification-preferences`,
   },
 
   voice: {
     transcribe: `${API_BASE_PATH}/voice/transcribe`,
     synthesize: `${API_BASE_PATH}/voice/synthesize`,
+    synthesizeStreamToken: `${API_BASE_PATH}/voice/synthesize/token`,
+    synthesizeStream: `${API_BASE_PATH}/voice/synthesize/stream`,
     voices: `${API_BASE_PATH}/voice/voices`,
   },
 
   support: {
     contact: `${API_BASE_PATH}/support/contact`,
+    quickHelp: `${API_BASE_PATH}/support/quick-help`,
   },
 
   charts: {
@@ -103,7 +138,13 @@ export const apiEndpoints = {
   },
 
   cafaLife: {
-    token: `${API_BASE_PATH}/cafa-life/token`,
+    // Real fix (2026-09-14): the backend renamed this route to
+    // /livekit-token on 2026-09-07 (retiring the old Python LiveKit agent
+    // for the native-agent transport); this client constant was never
+    // updated, so every real Cafa Life session request 404'd silently --
+    // confirmed via A100 log inspection (no request ever reached the
+    // authenticated route handler) and git history on cafa-life.routes.ts.
+    token: `${API_BASE_PATH}/cafa-life/livekit-token`,
     history: `${API_BASE_PATH}/cafa-life/history`,
     voices: `${API_BASE_PATH}/cafa-life/voices`,
     voicePreview: `${API_BASE_PATH}/cafa-life/voice-preview`,

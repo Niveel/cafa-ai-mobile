@@ -15,12 +15,14 @@ import { PersonalizationSection } from './settings/PersonalizationSection';
 import { DataControlsSection } from './settings/DataControlsSection';
 import { SecuritySection } from './settings/SecuritySection';
 import { AccountSection } from './settings/AccountSection';
+import { NotificationSettingsPanel } from '@/features/notifications';
 
 const SETTINGS_TABS = [
   { key: 'general', i18nKey: 'settings.tab.general' },
   { key: 'personalization', i18nKey: 'settings.tab.personalization' },
   { key: 'data-controls', i18nKey: 'settings.tab.data' },
   { key: 'security', i18nKey: 'settings.tab.security' },
+  { key: 'notifications', i18nKey: 'settings.tab.notifications' },
   { key: 'account', i18nKey: 'settings.tab.account' },
 ] as const;
 
@@ -376,6 +378,10 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                   signOut={signOut}
                   t={t}
                 />
+              </Animated.View>
+            ) : activeTab === 'notifications' ? (
+              <Animated.View entering={FadeInDown.duration(220)}>
+                <NotificationSettingsPanel isDark={isDark} />
               </Animated.View>
             ) : activeTab === 'account' ? (
               <Animated.View entering={FadeInDown.duration(220)}>

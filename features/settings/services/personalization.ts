@@ -25,6 +25,7 @@ const DEFAULT_PERSONALIZATION: UserPersonalization = {
     occupation: '',
     about: '',
   },
+  cafaLifeVoiceId: null,
 };
 
 function normalizePersonalization(raw?: UserPersonalization): UserPersonalization {
@@ -44,6 +45,7 @@ function normalizePersonalization(raw?: UserPersonalization): UserPersonalizatio
       occupation: raw.aboutYou?.occupation ?? '',
       about: raw.aboutYou?.about ?? '',
     },
+    cafaLifeVoiceId: raw.cafaLifeVoiceId ?? null,
   };
 }
 

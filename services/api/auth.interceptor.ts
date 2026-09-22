@@ -14,7 +14,7 @@ import {
 let authInterceptorConfigured = false;
 let refreshPromise: Promise<string> | null = null;
 
-type RetryableRequestConfig = InternalAxiosRequestConfig & {
+export type RetryableRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
   skipAuthRefresh?: boolean;
 };

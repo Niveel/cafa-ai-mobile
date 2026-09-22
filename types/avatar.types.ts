@@ -5,7 +5,7 @@ export type AvatarVoiceCategory = 'professional' | 'african' | 'creative' | 'ent
 export type AvatarScriptTone = 'friendly' | 'professional' | 'motivational' | 'educational';
 export type AvatarUseCaseTemplate = 'product ad' | 'intro' | 'explainer' | 'testimonial' | 'pitch' | 'general';
 export type AvatarDurationSeconds = 15 | 30 | 45 | 60;
-export type AvatarType = 'gallery' | 'upload';
+export type AvatarType = 'gallery' | 'upload' | 'generate';
 export type AvatarJobStatus = 'script_ready' | 'audio_generated' | 'video_generating' | 'completed' | 'failed' | 'processing' | string;
 
 export type AvatarGalleryItem = {

@@ -274,7 +274,12 @@ export async function generateVideoFromImageDirect(request: GenerateVideoFromIma
       apiEndpoints.media.imageToVideo,
       formData,
       {
-        timeout: 210_000,
+        // Backend's real HTTP-client ceiling for this call is 240s
+        // (video-service.client.ts REQUEST_TIMEOUT_MS) — this must stay
+        // above that with margin for real network overhead, or a
+        // legitimately slow-but-successful generation gets aborted
+        // client-side before the server ever responds.
+        timeout: 270_000,
         headers: {
           Accept: 'application/json',
           'Content-Type': 'multipart/form-data',
