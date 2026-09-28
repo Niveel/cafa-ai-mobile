@@ -173,3 +173,14 @@ export async function openDownloadsCafaFolder() {
   const folderUri = await resolveCafaDownloadsFolderUri();
   return folderUri;
 }
+
+export async function changeDownloadsFolder() {
+  if (Platform.OS !== 'android') {
+    throw new Error('Changing the download folder is supported on Android only.');
+  }
+
+  // Remove the cached SAF permission first so the resolver must present the
+  // native directory picker instead of silently reusing the old location.
+  await clearDownloadsSafUri();
+  return resolveCafaDownloadsFolderUri();
+}

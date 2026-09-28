@@ -63,6 +63,8 @@ export type UiArtifactItem = {
   id: string;
   kind: 'image' | 'video' | 'document';
   url?: string;
+  thumbnailUrl?: string;
+  mimeType?: string;
   sourceUrl?: string;
   name?: string;
   messageId: string;

@@ -5469,6 +5469,26 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   );
 
   const downloadArtifact = async (artifact: UiArtifactItem) => {
+    if (artifact.kind === 'document') {
+      const lowerName = (artifact.name ?? artifact.url ?? '').toLowerCase();
+      const mimeType = lowerName.includes('.pdf')
+        ? 'application/pdf'
+        : lowerName.includes('.docx')
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : lowerName.includes('.doc')
+            ? 'application/msword'
+            : 'application/octet-stream';
+      await downloadGeneratedFileAttachment(
+        {
+          id: artifact.id,
+          url: artifact.url,
+          originalName: artifact.name,
+          mimeType: artifact.mimeType ?? mimeType,
+        },
+        artifact.messageId,
+      );
+      return;
+    }
     const resolvedUrl = resolveBackendAssetUrl(artifact.url);
     if (!resolvedUrl) {
       showTransientNotice(t('chat.imageDownloadFailed'));
@@ -6508,20 +6528,22 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const topBarModelSwitcher = isAuthenticated ? (
     <View className="flex-row items-center" style={{ gap: 8 }}>
       <NotificationBell isDark={isDark} onNavigate={(link) => router.push(resolveNotificationRoute(link) as never)} />
-      {allArtifacts.length ? (
-        <Pressable
-          onPress={() => {
-            hapticSelection();
-            setArtifactsPanelOpen(true);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Artifacts"
-          className="h-8 w-8 items-center justify-center rounded-full border"
-          style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
-        >
-          <Ionicons name="images-outline" size={16} color={colors.primary} />
-        </Pressable>
-      ) : null}
+      <View style={{ width: 32, height: 32 }}>
+        {allArtifacts.length ? (
+          <Pressable
+            onPress={() => {
+              hapticSelection();
+              setArtifactsPanelOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Artifacts"
+            className="h-8 w-8 items-center justify-center rounded-full border"
+            style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
+          >
+            <Ionicons name="images-outline" size={16} color={colors.primary} />
+          </Pressable>
+        ) : null}
+      </View>
     <View
       className="relative rounded-full border px-1.5 py-1"
       style={{
@@ -6555,12 +6577,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       {modelMenuOpen ? (
         <Animated.View
           entering={FadeInDown.duration(MOTION.duration.normal)}
-          className="absolute right-0 top-9 z-40 min-w-[240px] rounded-xl border p-1"
+          className="absolute right-0 z-40 min-w-[240px] rounded-xl border p-1"
           style={{
+            top: 44,
             zIndex: 80,
             elevation: 24,
             borderColor: topPillBorder,
             backgroundColor: isDark ? '#0B0B0B' : '#FFFFFF',
+            shadowColor: '#000000',
+            shadowOpacity: isDark ? 0.4 : 0.18,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 6 },
           }}
           onTouchStart={() => {
             menuTouchRef.current = true;
@@ -7233,8 +7260,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 const isVideoGenerating = !isUser && item.isVideoGenerating && !item.videoUrl;
                 const isArtifactGenerating = !isUser && item.isArtifactGenerating && !item.videoUrl && !item.imageUrl;
                 const isAnalyzing = !isUser && item.isAnalyzing;
-                const isImageMessage = !isUser && Boolean(item.imageUrl);
-                const isVideoMessage = !isUser && Boolean(item.videoUrl);
+                const hasDocumentArtifact = !isUser && (item.artifacts ?? []).some(
+                  (artifact) => artifact.kind === 'document' && !artifact.generating && !artifact.failed,
+                );
+                // A generated PDF/DOCX can carry a thumbnail or legacy imageUrl in
+                // the response. It is document metadata, not a standalone image to
+                // show in the image lightbox. Rendering it as media produced the
+                // large blank card and black fullscreen preview.
+                const isImageMessage = !isUser && !hasDocumentArtifact && Boolean(item.imageUrl);
+                const isVideoMessage = !isUser && !hasDocumentArtifact && Boolean(item.videoUrl);
                 const isScreenHandoffMessage = !isUser && Boolean(item.screenHandoff);
                 const isImageRequirementMessage = !isUser && Boolean(item.imageRequirement);
                 const isDocumentWizardMessage = !isUser && Boolean(item.documentWizard);
@@ -7513,7 +7547,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
+                      {!hasDocumentArtifact && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && hasAttachmentPreviews ? (
                         <View className="mb-2 gap-1.5">
                           {!isImageMessage && !isVideoMessage ? imageAttachments.map((attachment, index) => {
                             const imageUri = resolveAttachmentPreviewUri(attachment);
@@ -7904,6 +7938,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               artifacts={allArtifacts}
               onClose={() => setArtifactsPanelOpen(false)}
               onDownload={downloadArtifact}
+              onOpenDocument={(artifact) => {
+                const resolvedUrl = resolveBackendAssetUrl(artifact.url);
+                if (!resolvedUrl) {
+                  showTransientNotice('This document is not available right now.');
+                  return;
+                }
+                void Linking.openURL(resolvedUrl).catch(() => {
+                  void downloadArtifact(artifact);
+                });
+              }}
               onDelete={deleteArtifactAndUpdate}
               onSelect={
                 screenMode !== 'chat'

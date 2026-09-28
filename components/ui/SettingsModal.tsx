@@ -8,7 +8,7 @@ import Animated, { Easing, FadeInDown, useAnimatedStyle, useSharedValue, withTim
 
 import { useAppContext } from '@/context';
 import { useI18n } from '@/hooks';
-import { clearDownloadsSafUri } from '@/services/storage';
+import { changeDownloadsFolder } from '@/utils';
 import { AppSwitch } from './AppSwitch';
 import type { AnimationLevel } from '@/services';
 import { PersonalizationSection } from './settings/PersonalizationSection';
@@ -74,8 +74,9 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
   const sheetHeight = Math.max(420, Math.round(windowHeight * 0.9));
 
   const onChangeDownloadFolder = async () => {
+    setGeneralStatusText('');
     try {
-      await clearDownloadsSafUri();
+      await changeDownloadsFolder();
       setGeneralStatusText(t('settings.account.downloadFolderResetSuccess'));
     } catch (error) {
       setGeneralStatusText(error instanceof Error ? error.message : t('settings.account.downloadFolderResetError'));
