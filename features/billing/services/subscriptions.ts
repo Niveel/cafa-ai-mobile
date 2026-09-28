@@ -204,7 +204,11 @@ export async function createCheckoutSession(
   },
 ) {
   type CheckoutResponseData = {
-    mode?: 'checkout_started' | 'subscription_updated' | string;
+    mode?: 'checkout_started' | 'subscription_updated' | 'subscription_payment_required' | string;
+    // Set for `subscription_payment_required` (a Free user's first paid
+    // plan): confirm it in-app with PaymentSheet, no redirect.
+    clientSecret?: string;
+    subscriptionId?: string;
     returnStrategy?: 'redirect_to_app' | 'redirect_to_web' | string;
     url?: string;
     checkoutUrl?: string;

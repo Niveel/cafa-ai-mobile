@@ -138,6 +138,16 @@ export type UiMessage = {
    * "[Form response] ..." line handleWidgetSubmit sends -- not merely
    * because the render_widget tool call itself completed. */
   widgetDone?: boolean;
+  // From the SSE `upgrade_prompt` event: a tool call hit a plan credit or rate limit mid-turn.
+  // `reason` is 'insufficient_credits' | 'rate_limit'; `feature` is the backend's own name for
+  // whatever hit the limit (e.g. "image", "video") -- shown humanized, not matched against a
+  // fixed list, so a new feature name needs no app update to render correctly.
+  upgradePrompt?: { reason: string; feature: string };
+  // Suggested follow-up prompts for the latest assistant reply (polled after a turn).
+  quickReplies?: string[];
+  // From the SSE `sandbox_session` event: a tool (generate_website) started a live build.
+  // Mobile has no viewer for it yet, so this only drives SandboxBuildNotice.
+  sandboxSessionId?: string;
 };
 
 export type UiMessageAttachment = {

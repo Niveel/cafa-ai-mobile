@@ -6,6 +6,7 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useStripe } from '@stripe/stripe-react-native';
 
 import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
 import {
@@ -260,6 +261,7 @@ export default function PlansScreen() {
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const { activeTier, offering, refreshCustomerInfo, refreshOffering, restorePurchases } = useRevenueCat();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [loading, setLoading] = useState(true);
   const [busyTier, setBusyTier] = useState<SubscriptionTier | null>(null);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
@@ -741,6 +743,34 @@ export default function PlansScreen() {
       if (checkoutMode === 'subscription_updated') {
         await clearPendingBillingTier();
         setStatusText('Syncing subscription status...');
+        await syncSubscriptionAfterCheckout(tier, baselineSubscription, traceId);
+        return;
+      }
+
+      // A Free user's first paid plan: the backend returns a clientSecret to
+      // confirm in-app (no redirect). Never trust the client callback --
+      // the tier only counts once /subscriptions/status reports it.
+      if (checkoutMode === 'subscription_payment_required') {
+        const clientSecret = checkout.clientSecret;
+        if (!clientSecret) {
+          throw new Error('Could not start the payment. Please try again.');
+        }
+        const { error: initError } = await initPaymentSheet({
+          merchantDisplayName: 'Cafa AI',
+          paymentIntentClientSecret: clientSecret,
+        });
+        if (initError) {
+          throw new Error(initError.message);
+        }
+        const { error: presentError } = await presentPaymentSheet();
+        if (presentError) {
+          await clearPendingBillingTier();
+          if (presentError.code !== 'Canceled') {
+            setStatusText(presentError.message);
+          }
+          return;
+        }
+        setStatusText('Payment received. Activating your plan...');
         await syncSubscriptionAfterCheckout(tier, baselineSubscription, traceId);
         return;
       }

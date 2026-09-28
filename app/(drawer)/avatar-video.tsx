@@ -120,6 +120,20 @@ const TONE_OPTIONS: { value: AvatarScriptTone; label: string }[] = [
 
 const FIXED_DURATION_SECONDS: AvatarDurationSeconds = 15;
 
+// Match web (2026-09-26): the gallery source and the Randomize / Quick start
+// preset are hidden while the backend gallery is empty. The API still
+// supports both; flip these back when web re-enables them.
+const SHOW_AVATAR_GALLERY = false;
+const SHOW_RANDOMIZE_SETUP = false;
+
+// Web's word budget: floor(durationSeconds / 60 * 150) spoken words, with
+// [bracket] emotion tags not counted. Longer scripts get cut off at render.
+const SCRIPT_WORD_BUDGET = Math.floor((FIXED_DURATION_SECONDS / 60) * 150);
+
+function countSpokenWords(script: string) {
+  return script.replace(/\[[^\]]*\]/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+}
+
 const USE_CASE_OPTIONS: { value: AvatarUseCaseTemplate; label: string }[] = [
   { value: 'product ad', label: 'Product ad' },
   { value: 'intro', label: 'Intro' },
@@ -841,7 +855,12 @@ export default function AvatarVideoScreen() {
 
   const selectedGalleryAvatarName = selectedGalleryAvatar?.name?.trim() || 'No avatar selected yet';
   const canGenerateScript = userGoal.trim().length > 0 && Boolean(selectedAvatarImageUrl);
-  const canGenerateVideo = Boolean(selectedAvatarImageUrl) && userGoal.trim().length > 0 && scriptText.trim().length > 0 && Boolean(selectedVoice) && !activeJobMeta;
+  const canGenerateVideo = Boolean(selectedAvatarImageUrl)
+    && userGoal.trim().length > 0
+    && scriptText.trim().length > 0
+    && countSpokenWords(scriptText) <= SCRIPT_WORD_BUDGET
+    && Boolean(selectedVoice)
+    && !activeJobMeta;
   const wizardSteps = useMemo(() => [
     { label: 'Avatar', icon: 'person-outline' as const },
     { label: 'Script', icon: 'document-text-outline' as const },
@@ -912,6 +931,12 @@ export default function AvatarVideoScreen() {
     if (wizardStep === 1 && (!userGoal.trim() || !scriptText.trim())) {
       setErrorMessage('Describe your video and generate or enter a script before continuing.');
       AccessibilityInfo.announceForAccessibility?.('Complete the video description and script before continuing.');
+      return;
+    }
+    if (wizardStep === 1 && countSpokenWords(scriptText) > SCRIPT_WORD_BUDGET) {
+      const message = `Keep the script to ${SCRIPT_WORD_BUDGET} words or fewer for a ${FIXED_DURATION_SECONDS}-second video.`;
+      setErrorMessage(message);
+      AccessibilityInfo.announceForAccessibility?.(message);
       return;
     }
     if (wizardStep === 2 && !selectedVoice) {
@@ -1264,10 +1289,13 @@ export default function AvatarVideoScreen() {
     setStatusNotice('Picking a ready-to-use setup for you...');
     stopPreview();
 
+    // Keep a photo the user uploaded or generated; only the gallery pick is random.
+    const keepOwnAvatar = selectedAvatarType !== 'gallery' && Boolean(uploadedAvatar?.imageUrl);
+
     try {
       const [avatars, availableVoices] = await withTimeout(
         Promise.all([
-          gallery.length ? Promise.resolve(gallery) : getAvatarGallery({ limit: 20 }),
+          keepOwnAvatar || gallery.length ? Promise.resolve(gallery) : getAvatarGallery({ limit: 20 }),
           voices.length
             ? Promise.resolve(voices)
             : getAvatarVoiceCatalog({}).then((catalog) => catalog.voices ?? []),
@@ -1282,8 +1310,8 @@ export default function AvatarVideoScreen() {
       const randomVoice = pickRandomItem(availableVoices);
       const randomPreset = pickRandomAvatarScriptPreset();
 
-      if (!randomAvatar) {
-        throw new Error('No avatars are available right now.');
+      if (!randomAvatar && !keepOwnAvatar) {
+        throw new Error("Gallery avatars aren't available right now. Upload your own photo, then try Randomize again.");
       }
 
       if (!randomVoice) {
@@ -1292,13 +1320,15 @@ export default function AvatarVideoScreen() {
 
       setGallery(avatars);
       setVoices(availableVoices);
-      setGalleryGender(normalizeGalleryGender(randomAvatar.gender));
-      setGalleryStyle(normalizeGalleryStyle(randomAvatar.style));
+      if (!keepOwnAvatar && randomAvatar) {
+        setGalleryGender(normalizeGalleryGender(randomAvatar.gender));
+        setGalleryStyle(normalizeGalleryStyle(randomAvatar.style));
+        setSelectedAvatarType('gallery');
+        setSelectedGalleryAvatarId(randomAvatar.id);
+      }
       setVoiceGenderFilter(normalizeVoiceGender(randomVoice.gender));
       setVoiceCategoryFilter(normalizeVoiceCategory(randomVoice.category));
       setPopularOnly(Boolean(randomVoice.popular));
-      setSelectedAvatarType('gallery');
-      setSelectedGalleryAvatarId(randomAvatar.id);
       setSelectedVoice({
         kind: 'library',
         voiceId: randomVoice.id,
@@ -1318,8 +1348,8 @@ export default function AvatarVideoScreen() {
       logAvatarUiState('[avatar-ui:randomized-setup]', {
         presetTitle: randomPreset.title,
         topic: randomPreset.topic,
-        avatarId: randomAvatar.id,
-        avatarName: randomAvatar.name,
+        avatarId: keepOwnAvatar ? 'own-photo' : randomAvatar?.id,
+        avatarName: keepOwnAvatar ? 'own-photo' : randomAvatar?.name,
         voiceId: randomVoice.id,
         voiceName: randomVoice.name,
         tone: randomPreset.tone,
@@ -1337,7 +1367,7 @@ export default function AvatarVideoScreen() {
     } finally {
       if (isMountedRef.current) setIsRandomizingSetup(false);
     }
-  }, [activeJobMeta, announce, gallery, goToWizardStep, isRandomizingSetup, isStartingGeneration, stopPreview, voices]);
+  }, [activeJobMeta, announce, gallery, goToWizardStep, isRandomizingSetup, isStartingGeneration, selectedAvatarType, stopPreview, uploadedAvatar?.imageUrl, voices]);
 
   const generateScript = useCallback(async () => {
     if (!canGenerateScript || isGeneratingScript) return;
@@ -1773,7 +1803,7 @@ export default function AvatarVideoScreen() {
                     Generate an avatar with AI
                   </Text>
                   <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
-                    Describe the portrait you want -- for example, "a friendly woman in her 30s with short brown hair, smiling, business casual."
+                    Describe the portrait you want -- for example, &quot;a friendly woman in her 30s with short brown hair, smiling, business casual.&quot;
                   </Text>
                   <TextInput
                     value={avatarGeneratePrompt}
@@ -1896,6 +1926,7 @@ export default function AvatarVideoScreen() {
             </View>
           </Modal>
 
+          {SHOW_RANDOMIZE_SETUP ? (
           <View
             className="mb-4 rounded-[20px] border px-4 py-3"
             style={{ borderColor: colors.border, backgroundColor: isDark ? '#0F1015' : '#FFFFFF' }}
@@ -1928,6 +1959,7 @@ export default function AvatarVideoScreen() {
               />
             </View>
           </View>
+          ) : null}
 
           <LinearGradient
             colors={isDark
@@ -2053,13 +2085,17 @@ export default function AvatarVideoScreen() {
                 </View>
               ) : null}
               <View className="mt-4">
-                <AppButton
-                  label={t('avatarVideo.label.chooseAvatar')}
-                  iconName="images-outline"
-                  compact
-                  onPress={openAvatarPicker}
-                />
-                <View style={{ height: 12 }} />
+                {SHOW_AVATAR_GALLERY ? (
+                  <>
+                    <AppButton
+                      label={t('avatarVideo.label.chooseAvatar')}
+                      iconName="images-outline"
+                      compact
+                      onPress={openAvatarPicker}
+                    />
+                    <View style={{ height: 12 }} />
+                  </>
+                ) : null}
                 <AppButton
                   label={isUploadingAvatar ? t('avatarVideo.dynamic.uploading') : t('avatarVideo.dynamic.uploadOwnPhoto')}
                   iconName="cloud-upload-outline"
@@ -2113,7 +2149,11 @@ export default function AvatarVideoScreen() {
 
             <View className="mb-3 flex-row items-center justify-between">
               <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                {isGalleryLoading ? 'Loading gallery...' : `${gallery.length} avatars available`}
+                {isGalleryLoading
+                  ? 'Loading gallery...'
+                  : gallery.length
+                    ? `${gallery.length} avatars available`
+                    : 'No gallery avatars right now. Upload your own photo.'}
               </Text>
               <View className="flex-row" style={{ gap: 8 }}>
                 <Pressable

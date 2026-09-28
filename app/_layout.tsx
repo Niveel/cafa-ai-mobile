@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useNavigationContainerRef, usePathname, useSegments } from 'expo-router';
+import { router, Stack, useNavigationContainerRef, usePathname, useSegments } from 'expo-router';
 import { isRunningInExpoGo } from 'expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
@@ -18,7 +18,9 @@ import { STRIPE_PUBLISHABLE_KEY } from '@/lib/stripe';
 import { checkStoreUpdate, ensureCafaLifeGlobalsRegistered } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { bindPostHogClient, screenEvent } from '@/lib/analytics/posthog';
+import { addNotificationResponseListener, syncPushTokenIfPermitted } from '@/features/notifications/services/pushRegistration';
 import { initializeTikTokEvents } from '@/services/tiktokEvents';
+import { resolveNotificationRoute } from '@/utils/notificationRoute';
 import { preloadInterstitialAd } from '@/services/ads';
 
 const POSTHOG_API_KEY = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
@@ -33,7 +35,7 @@ const IS_DEV_RUNTIME = __DEV__;
 const MAINTENANCE_CONFIG = {
   // Urgent override: keep the entire app unavailable until this is explicitly lifted.
   // The health URL is retained for the automatic availability gate that will replace it.
-  forced: true,
+  forced: false, // TEMP (2026-09-23): off for a local test APK -- set back to true before shipping.
   healthUrl: 'https://cafaapi.niveel.com/api/v1/health',
 } as const;
 
@@ -233,7 +235,7 @@ function MaintenanceScreen() {
 function AppNavigator() {
   const { isDark, colors } = useAppTheme();
   const { t } = useI18n();
-  const { isReady: appIsReady } = useAppContext();
+  const { isReady: appIsReady, isAuthenticated } = useAppContext();
   const [updateModalVisible, setUpdateModalVisible] = useState(false);
   const [storeUpdateUrl, setStoreUpdateUrl] = useState<string | null>(null);
   const [latestStoreVersion, setLatestStoreVersion] = useState<string | null>(null);
@@ -278,6 +280,22 @@ function AppNavigator() {
     // Warm the SDK and cache an interstitial after the app/native host is ready.
     // Nothing is displayed until an eligible Repo or Tools screen requests it.
     void preloadInterstitialAd();
+  }, [appIsReady]);
+
+  useEffect(() => {
+    if (!appIsReady || !isAuthenticated || Platform.OS === 'web') return;
+    void syncPushTokenIfPermitted().catch((error) => {
+      if (__DEV__) console.warn('[push:sync]', error);
+    });
+  }, [appIsReady, isAuthenticated]);
+
+  useEffect(() => {
+    if (!appIsReady || Platform.OS === 'web') return;
+    const sub = addNotificationResponseListener((link) => {
+      // Same handling as the in-app NotificationBell.
+      router.push(resolveNotificationRoute(link) as never);
+    });
+    return () => sub.remove();
   }, [appIsReady]);
 
   useEffect(() => {

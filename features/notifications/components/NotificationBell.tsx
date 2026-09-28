@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, FlatList, Modal, Pressable, Text, View } from 'react-native';
+import { AccessibilityInfo, AppState, FlatList, Modal, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getUnreadCount,
@@ -9,6 +9,7 @@ import {
   streamNotifications,
 } from '../services/notifications';
 import type { AppNotification } from '../types';
+import { resolveNotificationTarget } from '@/utils/notificationRoute';
 
 /**
  * Real, RN port of web's NotificationBell.tsx. Same real data flow: one
@@ -55,15 +56,45 @@ export function NotificationBell({
       }
     })();
 
-    streamRef.current = streamNotifications((notification) => {
-      setItems((prev) => [notification, ...prev].slice(0, 50));
-      setUnreadCount((count) => count + 1);
-      AccessibilityInfo.announceForAccessibility(`${notification.title}. ${notification.body}`);
+    const startStream = () => {
+      if (streamRef.current) return;
+      streamRef.current = streamNotifications((notification) => {
+        setItems((prev) => [notification, ...prev].slice(0, 50));
+        setUnreadCount((count) => count + 1);
+        AccessibilityInfo.announceForAccessibility(`${notification.title}. ${notification.body}`);
+      });
+    };
+    const stopStream = () => {
+      streamRef.current?.stop();
+      streamRef.current = null;
+    };
+    startStream();
+
+    // The backend only sends a phone push when the user isn't connected to
+    // this live stream. Android can keep the connection open for minutes in
+    // the background, which made the server think the user was still in the
+    // app and skip the push. Close it when the app leaves the foreground and
+    // reopen it (plus a fresh list) when the user comes back -- like web
+    // closing its stream when the tab closes.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        startStream();
+        void listNotifications()
+          .then((data) => {
+            if (cancelled) return;
+            setItems(data.items);
+            setUnreadCount(data.unreadCount);
+          })
+          .catch(() => undefined);
+      } else {
+        stopStream();
+      }
     });
 
     return () => {
       cancelled = true;
-      streamRef.current?.stop();
+      appStateSub.remove();
+      stopStream();
     };
   }, []);
 
@@ -94,7 +125,8 @@ export function NotificationBell({
       void markNotificationRead(notification._id).catch(() => void refreshUnreadCount());
     }
     setIsOpen(false);
-    if (notification.link) onNavigate?.(notification.link);
+    // Route to the exact finished item (e.g. that image), not only its list.
+    onNavigate?.(resolveNotificationTarget(notification));
   };
 
   const handleMarkAllRead = () => {

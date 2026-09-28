@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
+import { useI18n } from '@/hooks';
+import { humanizeReasoningText, readableReasoningStep, splitReasoningSteps } from './toolCaptions';
+
 /**
  * Collapsible reasoning panel for a live tool-calling turn. Ports web's
  * ThinkingPanel.tsx concept (not code) to React Native: auto-opens while
  * reasoning is actively streaming (so live growth is visible by default)
  * but never fights a manual toggle once the user has touched it; a live
- * "Thinking for Xs..." duration while streaming; the raw trace is NEVER
+ * "Thinking..." header while streaming; the raw trace is NEVER
  * shown by default at rest -- only the real, second-pass summary (or,
  * mid-stream, the current live step label) is, with an explicit "Show full
  * reasoning" opt-in.
@@ -28,12 +31,15 @@ export function ThinkingPanel({
   startedAt,
   isDark,
 }: ThinkingPanelProps) {
+  const { t } = useI18n();
   const [showReasoning, setShowReasoning] = useState(false);
   const [userToggledReasoning, setUserToggledReasoning] = useState(false);
   const [showFullReasoning, setShowFullReasoning] = useState(false);
 
   useEffect(() => {
-    if (isStreaming && !userToggledReasoning) setShowReasoning(true);
+    // Open while streaming, collapse once the answer lands (unless the user
+    // has taken control of the toggle).
+    if (!userToggledReasoning) setShowReasoning(isStreaming);
   }, [isStreaming, userToggledReasoning]);
 
   const [thinkingSecs, setThinkingSecs] = useState(0);
@@ -61,6 +67,14 @@ export function ThinkingPanel({
   const dimText = isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)';
   const panelBorder = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
   const panelBg = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+  const headerLabel = isStreaming
+    ? t('chat.thinking.live')
+    : showReasoning
+      ? t('chat.thinking.hide')
+      : t('chat.thinking.show');
+  const summarySteps = reasoningSummary
+    ? splitReasoningSteps(humanizeReasoningText(t, reasoningSummary))
+    : [];
 
   return (
     <View className="mb-2">
@@ -71,7 +85,7 @@ export function ThinkingPanel({
         }}
         className="flex-row items-center"
         accessibilityRole="button"
-        accessibilityLabel={isStreaming ? `Thinking for ${thinkingSecs} seconds` : 'Thinking'}
+        accessibilityLabel={isStreaming ? t('chat.thinking.a11yLive', { seconds: String(thinkingSecs) }) : headerLabel}
       >
         {isStreaming ? (
           <View
@@ -84,10 +98,8 @@ export function ThinkingPanel({
             }}
           />
         ) : null}
-        <Text style={{ color: mutedText, fontSize: 11 }}>{showReasoning ? '▾' : '▸'} </Text>
-        <Text style={{ color: mutedText, fontSize: 11, fontWeight: '600' }}>
-          {isStreaming ? `Thinking for ${thinkingSecs}s...` : 'Thinking'}
-        </Text>
+        <Text style={{ color: mutedText, fontSize: 12, fontWeight: '600' }}>{headerLabel}</Text>
+        <Text style={{ color: mutedText, fontSize: 11, marginLeft: 4 }}>{showReasoning ? '▴' : '▾'}</Text>
       </Pressable>
       {showReasoning ? (
         <View
@@ -98,26 +110,35 @@ export function ThinkingPanel({
             <View className="flex-row items-center">
               <ActivityIndicator size="small" color={bodyText} style={{ marginRight: 8 }} />
               <Text style={{ color: bodyText, fontSize: 12, flexShrink: 1 }}>
-                {currentStep ?? 'Thinking...'}
+                {readableReasoningStep(t, currentStep) ?? t('chat.thinking.live')}
               </Text>
             </View>
           ) : showFullReasoning ? (
             <>
-              <Text style={{ color: dimText, fontSize: 12 }}>{reasoning}</Text>
+              <Text style={{ color: dimText, fontSize: 12 }}>{humanizeReasoningText(t, reasoning)}</Text>
               <Pressable onPress={() => setShowFullReasoning(false)}>
                 <Text style={{ color: dimText, fontSize: 12, marginTop: 8, textDecorationLine: 'underline' }}>
-                  Show summary
+                  {t('chat.thinking.showSummary')}
                 </Text>
               </Pressable>
             </>
           ) : (
             <>
-              <Text style={{ color: bodyText, fontSize: 12 }}>
-                {reasoningSummary ?? 'Summarizing reasoning...'}
-              </Text>
+              {summarySteps.length > 1 ? (
+                summarySteps.map((step, index) => (
+                  <View key={`${index}-${step}`} className="flex-row items-start" style={{ marginTop: index ? 4 : 0 }}>
+                    <Text style={{ color: dimText, fontSize: 12, width: 16 }}>{index + 1}.</Text>
+                    <Text style={{ color: bodyText, fontSize: 12, flexShrink: 1 }}>{step}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={{ color: bodyText, fontSize: 12 }}>
+                  {summarySteps[0] ?? t('chat.thinking.summarizing')}
+                </Text>
+              )}
               <Pressable onPress={() => setShowFullReasoning(true)}>
                 <Text style={{ color: dimText, fontSize: 12, marginTop: 8, textDecorationLine: 'underline' }}>
-                  Show full reasoning
+                  {t('chat.thinking.showFull')}
                 </Text>
               </Pressable>
             </>

@@ -279,7 +279,7 @@ export async function generateVideoFromImageDirect(request: GenerateVideoFromIma
         // above that with margin for real network overhead, or a
         // legitimately slow-but-successful generation gets aborted
         // client-side before the server ever responds.
-        timeout: 270_000,
+        timeout: 600_000, // server allows 10 min for image-to-video (web parity)
         headers: {
           Accept: 'application/json',
           'Content-Type': 'multipart/form-data',

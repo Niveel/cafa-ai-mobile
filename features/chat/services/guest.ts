@@ -476,20 +476,42 @@ export async function sendGuestMessageStream(
   };
 
   const sendNonStreamFallback = async () => {
-    const nonStreamResponse = await withGuestAuth(
+    // Web parity body/headers (API map §3.4): same Idempotency-Key across the
+    // retries of one send, model always gpt-4o-mini, language from the UI.
+    const idempotencyKey = _idempotencyKey || `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const post = (includeModel: boolean) => withGuestAuth(
       `/guest/chat/${conversationId}/messages`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
         },
         body: JSON.stringify({
           message,
+          content: message,
+          ...(includeModel ? { model: GUEST_MODEL } : {}),
           stream: false,
+          language: _language,
         }),
       },
       true,
     );
+
+    let nonStreamResponse = await post(true);
+    // 403 GUEST_MODEL_NOT_ALLOWED: resend once without `model`.
+    if (nonStreamResponse.status === 403) {
+      const body = (await nonStreamResponse.clone().json().catch(() => null)) as { code?: string; error?: string } | null;
+      if ((body?.code ?? body?.error) === 'GUEST_MODEL_NOT_ALLOWED') {
+        nonStreamResponse = await post(false);
+      }
+    }
+    // 429: wait Retry-After (capped at 5 s) and retry once.
+    if (nonStreamResponse.status === 429) {
+      const retryAfter = Number(nonStreamResponse.headers.get('retry-after'));
+      await sleep(Math.min(5_000, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 900));
+      nonStreamResponse = await post(true);
+    }
 
     if (!nonStreamResponse.ok) {
       throw await parseGuestResponseError(nonStreamResponse, 'Could not send guest message.', `${API_BASE_URL}/guest/chat/${conversationId}/messages`);

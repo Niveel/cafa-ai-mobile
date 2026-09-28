@@ -1,4 +1,10 @@
+import { existsSync } from 'fs';
 import { ExpoConfig } from 'expo/config';
+
+// Firebase config for Android push (gitignored, not in the repo). Only reference it when it is
+// actually present, so a local build without it still works -- push registration then fails
+// quietly (caught in usePostAuthPushPrompt) instead of the whole prebuild failing.
+const GOOGLE_SERVICES_FILE = process.env.GOOGLE_SERVICES_JSON ?? './google-services.json';
 
 // AdMob application IDs are public native identifiers, not secrets. Keep
 // production-safe defaults here because EAS builds do not read a developer's
@@ -44,7 +50,7 @@ const config: ExpoConfig = {
     },
   },
   android: {
-    googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? './google-services.json',
+    googleServicesFile: existsSync(GOOGLE_SERVICES_FILE) ? GOOGLE_SERVICES_FILE : undefined,
     adaptiveIcon: {
       backgroundColor: '#E6F4FE',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -134,7 +140,10 @@ const config: ExpoConfig = {
     [
       'expo-notifications',
       {
-        icon: './assets/images/android-icon-monochrome.png',
+        // Android draws the small notification icon from alpha only, so this
+        // must be a white silhouette on transparency (the monochrome launcher
+        // icon has an opaque background and rendered as a blank square).
+        icon: './assets/images/notification-icon.png',
         color: '#10264D',
       },
     ],

@@ -3,9 +3,24 @@ import { AxiosResponse } from 'axios';
 import { API_BASE_URL } from '@/lib';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureEvent } from '@/lib/analytics/posthog';
-import { apiClient, apiEndpoints, mapApiError, type RetryableRequestConfig } from '@/services/api';
+import {
+  apiClient,
+  apiEndpoints,
+  extractRefreshTokenFromHeaders,
+  mapApiError,
+  type RetryableRequestConfig,
+} from '@/services/api';
 import { clearGuestSessionStorage, getGuestSessionToken } from '@/services/storage';
 import { AuthSession, AuthUser, LoginRequest, SignupRequest, VerifyOtpRequest } from '@/types';
+
+// login / verify-otp return the refresh token only as a Set-Cookie header;
+// surface it on the session so the screens can store it with the access token.
+function withRefreshTokenFromHeaders(response: AxiosResponse<{ data: AuthSession }>) {
+  const session = response.data.data;
+  const refreshToken = extractRefreshTokenFromHeaders(response.headers);
+  if (__DEV__) console.log('[auth] refresh token from Set-Cookie:', refreshToken ? 'captured' : 'missing');
+  return refreshToken ? { ...session, refreshToken } : session;
+}
 
 export async function login(request: LoginRequest) {
   try {
@@ -25,7 +40,7 @@ export async function login(request: LoginRequest) {
       { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
     );
     captureEvent(AnalyticsEvents.authLoginSuccess, { hasEmail: Boolean(request.email) });
-    return response.data.data;
+    return withRefreshTokenFromHeaders(response);
   } catch (error) {
     const mapped = mapApiError(error) as Error & { code?: string; status?: number };
     captureEvent(AnalyticsEvents.authLoginFailed, { code: mapped.code ?? null, status: mapped.status ?? null });
@@ -60,7 +75,7 @@ export async function verifyOtp(request: VerifyOtpRequest) {
       { skipAuthRefresh: true } as Partial<RetryableRequestConfig>,
     );
     captureEvent(AnalyticsEvents.authOtpVerified);
-    return response.data.data;
+    return withRefreshTokenFromHeaders(response);
   } catch (error) {
     throw mapApiError(error);
   }

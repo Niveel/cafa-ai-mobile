@@ -28,6 +28,11 @@ export const apiEndpoints = {
     deleteArtifact: (conversationId: string, messageId: string, toolCallIndex: number) =>
       `${API_BASE_PATH}/chat/${conversationId}/messages/${messageId}/tool-calls/${toolCallIndex}`,
     upload: `${API_BASE_PATH}/chat/upload`,
+    // Find-or-create the single persistent conversation for a dedicated media
+    // screen (web parity; replaces /media/conversations/:screen).
+    mode: (screen: 'edit-image' | 'image-to-video') => `${API_BASE_PATH}/chat/mode/${screen}`,
+    quickReplies: (conversationId: string, messageId: string) =>
+      `${API_BASE_PATH}/chat/${conversationId}/messages/${messageId}/quick-replies`,
     suggestedPrompts: `${API_BASE_PATH}/chat/suggested-prompts`,
   },
 

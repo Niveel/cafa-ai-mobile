@@ -127,10 +127,11 @@ export default function LoginScreen() {
                   >
                     <AppFormField<LoginFormValues>
                       name="emailOrUsername"
-                      label={t('field.emailOrUsername')}
-                      placeholder={t('placeholder.emailOrUsername')}
-                      autoComplete="username"
-                      textContentType="username"
+                      label={t('field.email')}
+                      placeholder={t('placeholder.email')}
+                      autoComplete="email"
+                      textContentType="emailAddress"
+                      keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
                       required

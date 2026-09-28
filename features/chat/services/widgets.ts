@@ -24,15 +24,20 @@ export async function uploadWidgetFile(
     type: resolveUploadMimeType(fileName, mimeType),
   } as unknown as Blob);
 
-  const response = await apiClient.post<ApiResponse<WidgetUploadResult>>(
+  // POST /chat/upload is one of the documented envelope exceptions: success
+  // is a top-level `{ url, name }`, not `{ success, data }`. Accept either so
+  // a future envelope change doesn't break it again.
+  const response = await apiClient.post<WidgetUploadResult & Partial<ApiResponse<WidgetUploadResult>>>(
     apiEndpoints.chat.upload,
     formData,
     { headers: { Accept: 'application/json', 'Content-Type': 'multipart/form-data' } },
   );
-  if (!response.data?.success || !response.data.data?.url) {
-    throw new Error(response.data?.message ?? 'Upload failed. Please try again.');
+  const body = response.data;
+  const result = body?.url ? { url: body.url, name: body.name } : body?.data;
+  if (!result?.url) {
+    throw new Error(body?.message ?? 'Upload failed. Please try again.');
   }
-  return response.data.data;
+  return { url: result.url, name: result.name ?? fileName };
 }
 
 /**

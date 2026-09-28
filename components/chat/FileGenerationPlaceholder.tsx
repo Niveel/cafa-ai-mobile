@@ -3,6 +3,8 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
+import { useI18n } from '@/hooks';
+
 type FileGenerationPlaceholderProps = {
   width: number;
   height: number;
@@ -16,6 +18,7 @@ export function FileGenerationPlaceholder({
   isDark,
   accentColor,
 }: FileGenerationPlaceholderProps) {
+  const { t } = useI18n();
   const shimmerX = useSharedValue(-width);
   const pulse = useSharedValue(0.55);
 
@@ -43,7 +46,7 @@ export function FileGenerationPlaceholder({
       }}
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Generating file artifact"
+      accessibilityLabel={t('chat.status.creatingFile')}
     >
       <Animated.View
         style={[
@@ -74,7 +77,7 @@ export function FileGenerationPlaceholder({
         </View>
         <ActivityIndicator size="small" color={accentColor} />
         <Text style={{ marginTop: 8, color: isDark ? '#D1D5DB' : '#4B5563', fontSize: 12, fontWeight: '600' }}>
-          Generating file...
+          {t('chat.status.creatingFile')}
         </Text>
       </View>
     </View>

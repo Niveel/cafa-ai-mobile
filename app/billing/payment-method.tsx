@@ -89,7 +89,7 @@ export default function PaymentMethodScreen() {
         ) : Platform.OS === 'ios' ? (
           <View className="mt-4 rounded-2xl border p-4" style={{ borderColor: colors.border }}>
             <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-              Manage your payment method through Apple's subscription settings.
+              Manage your payment method through Apple&apos;s subscription settings.
             </Text>
           </View>
         ) : (

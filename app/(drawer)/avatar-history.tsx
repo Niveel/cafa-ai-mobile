@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { AppButton, AppScreen, ChatVideoCard, RequireAuthRoute } from '@/components';
 import { deleteAvatarVideo, getAvatarHistory } from '@/features';
@@ -21,6 +21,9 @@ function dateLabel(value: string) {
 export default function AvatarHistoryScreen() {
   const { colors, isDark } = useAppTheme();
   const [videos, setVideos] = useState<AvatarHistoryItem[]>([]);
+  const { focusId } = useLocalSearchParams<{ focusId?: string }>();
+  const historyScrollRef = useRef<ScrollView>(null);
+  const scrolledToFocusRef = useRef<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -140,6 +143,7 @@ export default function AvatarHistoryScreen() {
     <RequireAuthRoute>
       <AppScreen title="Avatar History">
         <ScrollView
+          ref={historyScrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load(true); }} tintColor={colors.primary} />}
@@ -156,7 +160,23 @@ export default function AvatarHistoryScreen() {
           ) : null}
 
           {videos.map((video) => (
-            <View key={video.id} className="mb-4 rounded-[22px] border p-4" style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#FFFFFF' }}>
+            <View
+              key={video.id}
+              onLayout={(event) => {
+                // Opened from an "avatar video ready" notification: scroll to it.
+                if (video.id === focusId && scrolledToFocusRef.current !== focusId) {
+                  scrolledToFocusRef.current = focusId;
+                  const y = event.nativeEvent.layout.y;
+                  setTimeout(() => historyScrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true }), 200);
+                }
+              }}
+              className="mb-4 rounded-[22px] border p-4"
+              style={{
+                borderColor: video.id === focusId ? colors.primary : colors.border,
+                borderWidth: video.id === focusId ? 2 : 1,
+                backgroundColor: isDark ? '#11151D' : '#FFFFFF',
+              }}
+            >
               {video.videoUrl ? (
                 <ChatVideoCard uri={video.videoUrl} width={300} height={169} borderColor={colors.border} backgroundColor={isDark ? '#101010' : '#FFFFFF'} accessibilityLabel={`Avatar video from ${dateLabel(video.createdAt)}`} />
               ) : null}

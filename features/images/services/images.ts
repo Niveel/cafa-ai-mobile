@@ -161,7 +161,7 @@ export async function editImage(request: EditImageRequest) {
       apiEndpoints.media.imageEdit,
       formData,
       {
-        timeout: 45_000,
+        timeout: 95_000, // server allows 95 s for image edits (web parity)
         headers: {
           Accept: 'application/json',
           'Content-Type': 'multipart/form-data',

@@ -13,11 +13,15 @@ type DedicatedMediaConversationResponse = ApiResponse<DedicatedMediaConversation
   };
 };
 
-function mapDedicatedMediaConversation(dto: DedicatedMediaConversationDto): DedicatedMediaConversation {
+function mapDedicatedMediaConversation(
+  dto: DedicatedMediaConversationDto,
+  screen: DedicatedMediaScreen,
+): DedicatedMediaConversation {
   return {
     id: dto._id,
     title: dto.title,
-    screen: dto.screen,
+    // GET /chat/mode/:screen returns `mode` rather than `screen`.
+    screen: dto.screen ?? (dto as { mode?: DedicatedMediaScreen }).mode ?? screen,
     model: dto.aiModel ?? 'gpt-4o-mini',
     updatedAt: dto.updatedAt,
     messages: dto.messages ?? [],
@@ -29,11 +33,14 @@ export async function getDedicatedMediaConversation(
   query: DedicatedMediaConversationQuery = {},
 ): Promise<DedicatedMediaConversationPage> {
   try {
+    // Web parity: the dedicated Edit Image / Image to Video conversation comes
+    // from GET /chat/mode/:screen (find-or-create), and sends to it go through
+    // the normal POST /chat/:id/messages stream.
     const response: AxiosResponse<DedicatedMediaConversationResponse> = await apiClient.get(
-      apiEndpoints.media.conversation(screen),
+      apiEndpoints.chat.mode(screen),
       { params: query },
     );
-    const conversation = mapDedicatedMediaConversation(response.data.data);
+    const conversation = mapDedicatedMediaConversation(response.data.data, screen);
     const pagination = response.data.pagination;
     const limit = pagination?.limit ?? query.limit ?? Math.max(conversation.messages.length, 20);
     const returned = pagination?.returned ?? conversation.messages.length;

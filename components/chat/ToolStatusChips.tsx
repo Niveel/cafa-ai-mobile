@@ -1,5 +1,8 @@
 import { ActivityIndicator, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
+import { useI18n } from '@/hooks';
+import { getToolCaption } from './toolCaptions';
 import type { UiMessageToolCall } from './types';
 
 /**
@@ -7,10 +10,12 @@ import type { UiMessageToolCall } from './types';
  * ToolStatusChips.tsx concept (not code) to React Native — same running/
  * success/failure states driven by the same tool_start/tool_end SSE events,
  * adapted to RN's ActivityIndicator (no CSS spin) and light/dark colors.
+ * Captions come from toolCaptions.ts rather than the backend's raw label.
  */
 type ToolChipProps = UiMessageToolCall & { isDark: boolean };
 
-const ToolChip = ({ tool, label, ok, ms, running, isDark }: ToolChipProps) => {
+const ToolChip = ({ tool, label, ok, running, isDark }: ToolChipProps) => {
+  const { t } = useI18n();
   const palette = running
     ? {
         border: isDark ? '#0C4A6E' : '#7DD3FC',
@@ -28,30 +33,28 @@ const ToolChip = ({ tool, label, ok, ms, running, isDark }: ToolChipProps) => {
           background: isDark ? '#2C0A16' : '#FFF1F2',
           text: isDark ? '#FDA4AF' : '#BE123C',
         };
+  const caption = getToolCaption(t, tool, label, running ? 'running' : ok ? 'done' : 'failed');
 
   return (
     <View
-      className="mb-1 mt-1 flex-row items-center self-start rounded-lg border px-2.5 py-1"
+      className="mb-1 mt-1 max-w-full flex-row items-center self-start rounded-full border px-3 py-1"
       style={{ borderColor: palette.border, backgroundColor: palette.background }}
+      accessibilityRole="text"
+      accessibilityLabel={caption}
     >
       {running ? (
         <ActivityIndicator size="small" color={palette.text} style={{ marginRight: 6 }} />
       ) : (
         <Ionicons
-          name={ok ? 'checkmark' : 'close'}
-          size={12}
+          name={ok ? 'checkmark-circle' : 'alert-circle'}
+          size={14}
           color={palette.text}
-          style={{ marginRight: 4 }}
+          style={{ marginRight: 5 }}
         />
       )}
-      <Text style={{ color: palette.text, fontSize: 11, fontWeight: '600' }}>
-        {running ? `${label ?? tool}…` : label ?? tool}
+      <Text numberOfLines={1} style={{ flexShrink: 1, color: palette.text, fontSize: 12, fontWeight: '600' }}>
+        {caption}
       </Text>
-      {!running && ms !== undefined ? (
-        <Text style={{ color: palette.text, fontSize: 11, opacity: 0.7, marginLeft: 4 }}>
-          ({ms}ms)
-        </Text>
-      ) : null}
     </View>
   );
 };
