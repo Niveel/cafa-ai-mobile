@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { Animated, FlatList, LayoutAnimation, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,12 +7,12 @@ import { router } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
 
 import { useAppContext } from '@/context';
-import { API_BASE_URL } from '@/lib';
 import {
   archiveAuthenticatedConversation,
   deleteAuthenticatedConversation,
   listAuthenticatedConversations,
   listGuestConversations,
+  renameAuthenticatedConversation,
 } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import {
@@ -23,7 +23,7 @@ import {
 import { getArchivedChatSnapshots, removeArchivedChatSnapshot, upsertArchivedChatSnapshots } from '@/services/storage';
 import { getAccessToken, subscribeToChatMutated } from '@/services';
 import { markDrawerShouldReopenOnFocus } from '@/services/navigation/drawerRestore';
-import { hapticSelection } from '@/utils';
+import { hapticSelection, probeAvatarCandidates, resolveAvatarUri, resolveAvatarUriCandidates } from '@/utils';
 import { AppButton } from './AppButton';
 import { AppInputPromptModal } from './AppInputPromptModal';
 import { AppPromptModal } from './AppPromptModal';
@@ -38,33 +38,6 @@ function toCapitalizedName(value: string) {
     .join(' ');
 }
 
-function resolveAvatarUri(input?: string | null) {
-  if (!input) return undefined;
-  const value = input.trim();
-  if (!value) return undefined;
-  if (/^(https?:|file:|content:|data:)/i.test(value)) return value;
-
-  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  if (value.startsWith('/')) return `${apiOrigin}${value}`;
-  return `${apiOrigin}/${value}`;
-}
-
-function resolveAvatarUriCandidates(input?: string | null) {
-  if (!input) return [];
-  const value = input.trim();
-  if (!value) return [];
-  if (/^(https?:|file:|content:|data:)/i.test(value)) return [value];
-
-  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
-  const apiOrigin = API_BASE_URL.replace(/\/api\/v1\/?$/i, '');
-  const prodOrigin = 'https://cafaapi.niveel.com';
-
-  return Array.from(new Set([
-    `${apiOrigin}${withLeadingSlash}`,
-    `${apiOrigin}/api/v1${withLeadingSlash}`,
-    `${prodOrigin}${withLeadingSlash}`,
-  ]));
-}
 
 type DrawerChatItem = {
   id: string;
@@ -135,44 +108,37 @@ const ChatRow = memo(function ChatRow({
   isAuthenticated,
   t,
 }: ChatRowProps) {
-  const menuTriggerRef = useRef<View | null>(null);
-  const [menuOpenUpward, setMenuOpenUpward] = useState(false);
   const cardBg = active ? `${activeTint}1F` : 'transparent';
-  const cardBorder = active ? activeTint : borderColor;
+  const cardBorder = active || menuOpen ? activeTint : borderColor;
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    requestAnimationFrame(() => {
-      const triggerNode = menuTriggerRef.current as unknown as { measureInWindow?: (callback: (x: number, y: number, width: number, height: number) => void) => void } | null;
-      if (!triggerNode || typeof triggerNode.measureInWindow !== 'function') return;
-      try {
-        triggerNode.measureInWindow((_x, y, _width, height) => {
-          const viewportHeight = Dimensions.get('window').height;
-          const estimatedMenuHeight = isAuthenticated ? 178 : 118;
-          const spaceBelow = viewportHeight - (y + height);
-          const spaceAbove = y;
-          setMenuOpenUpward(spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow);
-        });
-      } catch {
-        // Non-fatal: if measuring fails under certain renderer/runtime combinations,
-        // keep default downward menu placement instead of crashing.
-      }
-    });
-  }, [isAuthenticated, menuOpen]);
+  const actions: {
+    key: string;
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    danger?: boolean;
+    onPress: () => void;
+  }[] = [
+    { key: 'rename', label: t('drawer.rename'), icon: 'create-outline', onPress: () => onRename(item.id) },
+    {
+      key: 'pin',
+      label: isPinned ? t('drawer.unpin') : t('drawer.pin'),
+      icon: isPinned ? 'pin-outline' : 'pin',
+      onPress: () => onPin(item.id),
+    },
+    ...(isAuthenticated
+      ? [{ key: 'archive', label: t('drawer.archive'), icon: 'archive-outline' as const, onPress: () => onArchive(item.id) }]
+      : []),
+    { key: 'delete', label: t('drawer.delete'), icon: 'trash-outline', danger: true, onPress: () => onDelete(item.id) },
+  ];
 
   return (
     <View
-      className="relative"
-      style={{
-        zIndex: menuOpen ? 120 : 1,
-        elevation: menuOpen ? 120 : 0,
-      }}
+      className="overflow-hidden rounded-2xl"
+      style={{ borderWidth: 1.2, borderColor: cardBorder }}
     >
       <View
-        className="relative rounded-2xl"
+        className="relative"
         style={{
-          borderWidth: 1.2,
-          borderColor: cardBorder,
           backgroundColor: cardBg,
           minHeight: 68,
           flexDirection: 'row',
@@ -226,10 +192,10 @@ const ChatRow = memo(function ChatRow({
         </Pressable>
 
         <Pressable
-          ref={menuTriggerRef}
           accessibilityRole="button"
           accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
           accessibilityHint={t('drawer.chatMenuHint')}
+          accessibilityState={{ expanded: menuOpen }}
           onPress={() => onToggleMenu(item.id)}
           className="absolute items-center justify-center rounded-full"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -246,70 +212,46 @@ const ChatRow = memo(function ChatRow({
           }}
           android_ripple={{ color: `${activeTint}30`, borderless: false }}
         >
-          <Ionicons name="ellipsis-vertical" size={16} color={active ? '#FFFFFF' : textPrimary} />
+          <Ionicons
+            name={menuOpen ? 'close' : 'ellipsis-vertical'}
+            size={16}
+            color={active ? '#FFFFFF' : textPrimary}
+          />
         </Pressable>
       </View>
 
       {menuOpen ? (
         <View
           onTouchStart={onMenuTouchStart}
-          className="absolute right-2 z-50 min-w-[158px] rounded-xl border p-1"
+          className="flex-row px-1.5 pb-1.5 pt-1"
           style={{
-            borderColor,
+            borderTopWidth: 1,
+            borderTopColor: borderColor,
             backgroundColor: '#0F0F0F',
-            top: menuOpenUpward ? undefined : 42,
-            bottom: menuOpenUpward ? 42 : undefined,
-            elevation: 120,
           }}
         >
-          <Pressable
-            onPress={() => {
-              onRename(item.id);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t('drawer.rename')}
-            className="flex-row items-center rounded-lg px-2.5 py-2"
-          >
-            <Ionicons name="create-outline" size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.rename')}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              onPin(item.id);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={isPinned ? t('drawer.unpin') : t('drawer.pin')}
-            className="flex-row items-center rounded-lg px-2.5 py-2"
-          >
-            <Ionicons name={isPinned ? 'pin-outline' : 'pin'} size={14} color={textPrimary} />
-            <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>
-              {isPinned ? t('drawer.unpin') : t('drawer.pin')}
-            </Text>
-          </Pressable>
-          {isAuthenticated ? (
-            <Pressable
-              onPress={() => {
-                onArchive(item.id);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={t('drawer.archive')}
-              className="flex-row items-center rounded-lg px-2.5 py-2"
-            >
-              <Ionicons name="archive-outline" size={14} color={textPrimary} />
-              <Text style={{ color: textPrimary, marginLeft: 8, fontSize: 12 }}>{t('drawer.archive')}</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            onPress={() => {
-              onDelete(item.id);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t('drawer.delete')}
-            className="flex-row items-center rounded-lg px-2.5 py-2"
-          >
-            <Ionicons name="trash-outline" size={14} color="#E11D48" />
-            <Text style={{ color: '#E11D48', marginLeft: 8, fontSize: 12, fontWeight: '600' }}>{t('drawer.delete')}</Text>
-          </Pressable>
+          {actions.map((action) => {
+            const color = action.danger ? '#E11D48' : textPrimary;
+            return (
+              <Pressable
+                key={action.key}
+                onPress={action.onPress}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+                android_ripple={{ color: `${activeTint}30`, borderless: false }}
+                className="flex-1 items-center justify-center rounded-xl py-2"
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+              >
+                <Ionicons name={action.icon} size={17} color={color} />
+                <Text
+                  numberOfLines={1}
+                  style={{ color, marginTop: 4, fontSize: 11, fontWeight: action.danger ? '600' : '500' }}
+                >
+                  {action.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -453,24 +395,9 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     const needsAuth = candidates.some((candidate) => candidate.includes('/uploads/'));
     if (needsAuth && !avatarAccessToken) return;
     let cancelled = false;
-    void (async () => {
-      for (const candidate of candidates) {
-        try {
-          const response = await fetch(candidate, {
-            method: 'GET',
-            headers: avatarAccessToken ? { Authorization: `Bearer ${avatarAccessToken}` } : undefined,
-          });
-          if (cancelled) return;
-          if (response.ok) {
-            setActiveAvatarUri(candidate);
-            return;
-          }
-        } catch {
-          if (cancelled) return;
-        }
-      }
-      setActiveAvatarUri(candidates[0]);
-    })();
+    void probeAvatarCandidates(candidates, avatarAccessToken).then((uri) => {
+      if (!cancelled) setActiveAvatarUri(uri);
+    });
     return () => {
       cancelled = true;
     };
@@ -688,7 +615,12 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
     const nextPrefs = await setCustomChatTitle(renameChatId, nextTitle.trim());
     setCustomTitles(nextPrefs.customTitles);
     setShowRenameModal(false);
-  }, [renameChatId]);
+    // Also save it on the server (web parity) so the title follows the user
+    // to other devices. Only real backend ids; the local title stays either way.
+    if (isAuthenticated && /^[a-f0-9]{24}$/i.test(renameChatId)) {
+      void renameAuthenticatedConversation(renameChatId, nextTitle).catch(() => undefined);
+    }
+  }, [isAuthenticated, renameChatId]);
 
   const onTogglePinChat = useCallback(async (chatId: string) => {
     setChatActionMenuId(null);
@@ -780,6 +712,7 @@ export function AppDrawerContent({ navigation }: DrawerContentComponentProps) {
         onPress={openChat}
         onToggleMenu={(id) => {
           menuTouchRef.current = true;
+          LayoutAnimation.configureNext(LayoutAnimation.create(180, 'easeInEaseOut', 'opacity'));
           setChatActionMenuId((prev) => (prev === id ? null : id));
         }}
         onRename={onRenameChat}

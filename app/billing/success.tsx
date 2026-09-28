@@ -31,14 +31,18 @@ export default function BillingSuccessScreen() {
       setSyncing(true);
       setSyncMessage(t('plans.checkoutOpened'));
       const pendingTier = await getPendingBillingTier();
-      const timeoutAt = Date.now() + 60_000;
+      // Web parity: poll every 2.5 s for the first minute, then every 7 s, up
+      // to 3 minutes (Stripe's webhook can lag). Success is only ever taken
+      // from /subscriptions/status, never from the session_id in the link.
+      const startedAt = Date.now();
+      const timeoutAt = startedAt + 180_000;
 
       while (!cancelled && Date.now() < timeoutAt) {
         try {
           const overview = await getSubscriptionOverview({ force: true });
           const status = overview.subscription.status;
           const tier = overview.subscription.tier;
-          const isActive = status === 'active';
+          const isActive = status === 'active' || status === 'trialing';
           const tierMatched = pendingTier ? tier === pendingTier : tier !== 'free';
 
           if (isActive && tierMatched) {
@@ -60,7 +64,7 @@ export default function BillingSuccessScreen() {
           // keep polling
         }
 
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await new Promise((resolve) => setTimeout(resolve, Date.now() - startedAt < 60_000 ? 2500 : 7000));
       }
 
       if (!cancelled) {

@@ -83,10 +83,13 @@ import {
   type UiMessageProduct,
   type UiArtifactItem,
   ToolStatusChips,
-  ThinkingPanel,
+  TypingIndicator,
   ProductCards,
   ArtifactPanel,
   AssistantWidget,
+  UpgradePromptCard,
+  SandboxBuildNotice,
+  CafaLiveToggle,
 } from '@/components';
 import { NotificationBell, PushNudgeBanner } from '@/features/notifications';
 import { AppPromptModal } from '@/components/ui/AppPromptModal';
@@ -112,6 +115,7 @@ import {
   pollVideoJob,
   getArtifactsPage,
   sendAuthenticatedMessageStream,
+  pollQuickReplies,
   sendAuthenticatedMessageNonStream,
   sendGuestMessageStream,
   startVideoGeneration,
@@ -151,6 +155,7 @@ import {
   hapticImpact,
   hapticSelection,
   hapticSuccess,
+  resolveNotificationRoute,
   saveFileToDownloadsCafaFolder,
   saveMediaToCafaAlbum,
 } from '@/utils';
@@ -204,6 +209,13 @@ type ComposerMediaReference = {
 };
 
 type ChatScreenMode = 'chat' | 'image-to-video' | 'edit-image';
+
+// Web parity (2026-09-27): Edit Image and Image to Video send through the
+// normal chat stream to the GET /chat/mode/:screen conversation. The old
+// direct /media/* calls and the /media/prompts/rewrite step are kept behind
+// these switches for rollback only.
+const USE_MEDIA_PROMPT_REWRITE = false;
+const USE_LEGACY_DEDICATED_MEDIA_CALLS = false;
 
 // Real parity port of web's IMAGE_MODE_PROMPTS / VIDEO_MODE_PROMPTS
 // (features/chat/components/chat-shell/constants.tsx) -- the "Image
@@ -437,8 +449,8 @@ async function getWebBrowserModule() {
 }
 
 export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatScreenMode } = {}) {
-  const COMPOSER_MIN_HEIGHT = 32;
-  const COMPOSER_MAX_HEIGHT = 120;
+  const COMPOSER_MIN_HEIGHT = 56;
+  const COMPOSER_MAX_HEIGHT = 180;
   const COMPOSER_VERTICAL_PADDING = Platform.OS === 'ios' ? 6 : 4;
   const ANDROID_KEYBOARD_CALIBRATION = 6;
   const STREAM_FLUSH_INTERVAL_MS = 36;
@@ -542,6 +554,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [guestConversationId, setGuestConversationId] = useState<string | null>(null);
   const [statusNotice, setStatusNotice] = useState('');
   const [upgradeNoticeKind, setUpgradeNoticeKind] = useState<'chat' | 'image' | 'video' | null>(null);
+  // CREDIT_LIMIT_EXCEEDED is fixed by buying credits; RATE_LIMIT_EXCEEDED
+  // (plan cap) only by upgrading or waiting -- different button (web parity).
+  const [upgradeNoticeIsCredits, setUpgradeNoticeIsCredits] = useState(false);
   const [upgradeNoticeResetHours, setUpgradeNoticeResetHours] = useState<number | null>(null);
   const [isLimitRestoreSyncing, setIsLimitRestoreSyncing] = useState(false);
   const [isRewardAdProcessing, setIsRewardAdProcessing] = useState(false);
@@ -569,7 +584,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const [assetAccessToken, setAssetAccessToken] = useState<string | null>(null);
   const [readAloudSpeaker, setReadAloudSpeaker] = useState<string | null>(null);
   const [isReadAloudLoading, setIsReadAloudLoading] = useState(false);
-  const [streamingDots, setStreamingDots] = useState('.');
   const [streamingModelLabel, setStreamingModelLabel] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [imageLightboxUri, setImageLightboxUri] = useState<string | null>(null);
@@ -2806,34 +2820,54 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           let screenHandoff: ScreenHandoffConfig | null = null;
 
           if (screenMode !== 'chat') {
-            lastEndpoint = `${API_BASE_URL}/media/prompts/rewrite`;
-            logSendPayload({
-              endpoint: lastEndpoint,
-              mode: 'backend-media-intent-detect',
-              screen: screenMode,
-              prompt: trimmed,
-              language,
-            });
-            const interpretationResponse = await rewriteMediaPrompt({
-              screen: screenMode,
-              prompt: trimmed,
-              language,
-            });
-            const interpretation = interpretationResponse.result;
-            if (__DEV__) {
-              try {
-                console.log('[media-intent:backend-response]', JSON.stringify({
-                  endpoint: lastEndpoint,
-                  request: { screen: screenMode, prompt: trimmed, language },
-                  response: interpretationResponse.rawResponse,
-                }));
-              } catch {
-                console.log('[media-intent:backend-response]', interpretationResponse.rawResponse);
+            // The rewrite only improves the prompt and routes misplaced
+            // requests. The web no longer calls it (it 500s), so it's off by
+            // default; the user's own prompt is sent through the chat stream.
+            let interpretation: Awaited<ReturnType<typeof rewriteMediaPrompt>>['result'] | null = null;
+            if (USE_MEDIA_PROMPT_REWRITE) try {
+              lastEndpoint = `${API_BASE_URL}/media/prompts/rewrite`;
+              logSendPayload({
+                endpoint: lastEndpoint,
+                mode: 'backend-media-intent-detect',
+                screen: screenMode,
+                prompt: trimmed,
+                language,
+              });
+              const interpretationResponse = await rewriteMediaPrompt({
+                screen: screenMode,
+                prompt: trimmed,
+                language,
+              });
+              interpretation = interpretationResponse.result;
+              if (__DEV__) {
+                try {
+                  console.log('[media-intent:backend-response]', JSON.stringify({
+                    endpoint: lastEndpoint,
+                    request: { screen: screenMode, prompt: trimmed, language },
+                    response: interpretationResponse.rawResponse,
+                  }));
+                } catch {
+                  console.log('[media-intent:backend-response]', interpretationResponse.rawResponse);
+                }
               }
+            } catch (rewriteError) {
+              if (__DEV__) console.warn('[media-intent:rewrite-failed] using original prompt', rewriteError);
             }
-            effectivePrompt = interpretation.rewrittenPrompt.trim() || trimmed;
+            effectivePrompt = interpretation?.rewrittenPrompt.trim() || trimmed;
 
-            if (!interpretation.belongsToCurrentScreen) {
+            if (!interpretation) {
+              // Needs an attached image or a referenced past image (web rule).
+              if (!hasImageAttachment && !composerMediaReference) {
+                imageRequirement = {
+                  title: 'Add an image first',
+                  description: screenMode === 'image-to-video'
+                    ? 'Upload an image before sending this prompt so Cafa AI can generate a video from it.'
+                    : 'Upload an image before sending this prompt so Cafa AI can edit it for you.',
+                  ctaLabel: 'Upload image',
+                  iconName: 'image-outline',
+                };
+              }
+            } else if (!interpretation.belongsToCurrentScreen) {
               screenHandoff = interpretation.intent === 'edit-image'
                 ? {
                     target: 'edit-image',
@@ -3017,15 +3051,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   responseType: 'text',
                   confidence: 1,
                   subIntent: null,
-                  label: 'Analyzing attachment',
-                  description: 'Reviewing your attachment',
+                  label: t('chat.status.analyzingAttachment'),
+                  description: t('chat.status.analyzingAttachmentHint'),
                 }
               : {
                   responseType: 'text',
                   confidence: 0.5,
                   subIntent: 'general',
-                  label: 'Thinking',
-                  description: 'Getting your answer ready',
+                  label: t('chat.status.thinking'),
+                  description: t('chat.status.thinkingHint'),
                 };
             const actionableClassificationResponseType = classification.responseType;
             const detection: import('@/types').DetectDocumentRequestResult = {
@@ -3442,7 +3476,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           : (!extractedImagePrompt && isLikelyImageGenerationIntent(trimmed)
             ? trimmed
             : null);
-        const effectiveImagePrompt = screenMode === 'chat' && hasAnyAttachment
+        // Dedicated media screens always go through the chat stream (web
+        // parity), never the old direct image/video routes below.
+        const isDedicatedScreenSend = screenMode !== 'chat';
+        const effectiveImagePrompt = isDedicatedScreenSend || hasAnyAttachment
           ? null
           : (
             shouldUseBackendResponseTypeForMediaIntent
@@ -3463,7 +3500,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               ? trimmed
               : null
           );
-        const effectiveVideoPrompt = screenMode === 'chat' && hasAnyAttachment
+        const effectiveVideoPrompt = isDedicatedScreenSend || hasAnyAttachment
           ? null
           : (
             shouldUseBackendResponseTypeForMediaIntent
@@ -3477,17 +3514,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             : isLikelyReferencedMediaQuestionPrompt(trimmed)
         );
         const shouldUseVideoFollowUp =
-          !shouldUseBackendResponseTypeForMediaIntent
+          !isDedicatedScreenSend
+          && !shouldUseBackendResponseTypeForMediaIntent
           && referencedKind === 'video'
           && !isReferencedMediaQuestion
           && isLikelyVideoFollowUpPrompt(trimmed);
         const shouldUseImageFollowUp =
-          !shouldUseBackendResponseTypeForMediaIntent
+          !isDedicatedScreenSend
+          && !shouldUseBackendResponseTypeForMediaIntent
           && referencedKind === 'image'
           && !isReferencedMediaQuestion
           && isLikelyImageFollowUpPrompt(trimmed);
         const shouldUseReferencedNonStreamChat =
-          Boolean(composerMediaReference)
+          !isDedicatedScreenSend
+          && Boolean(composerMediaReference)
           && (
             isReferencedMediaQuestion
             || (
@@ -3499,7 +3539,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             )
           );
 
-        if (screenMode === 'image-to-video') {
+        if (USE_LEGACY_DEDICATED_MEDIA_CALLS && screenMode === 'image-to-video') {
           const imageAttachmentForVideo = imageAttachmentForVideoIntent;
           if (!imageAttachmentForVideo) {
             throw new Error('Please upload an image to continue.');
@@ -3646,7 +3686,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
 
-        if (screenMode === 'edit-image') {
+        if (USE_LEGACY_DEDICATED_MEDIA_CALLS && screenMode === 'edit-image') {
           const imageAttachmentForEdit = attachmentsForSend.find((asset) =>
             (asset.mimeType ?? '').toLowerCase().startsWith('image/'),
           );
@@ -4238,6 +4278,32 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 return;
               }
 
+              // A tool call hit a plan credit or rate limit mid-turn (API_INTEGRATION_GUIDE.md
+              // §2, §3). Kept on the message rather than shown as a one-off toast, since the rest
+              // of the turn's text/tools are still real and worth keeping visible alongside it.
+              if (event.type === 'upgrade_prompt') {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId
+                      ? { ...message, upgradePrompt: { reason: event.reason, feature: event.feature } }
+                      : message,
+                  ),
+                );
+                return;
+              }
+
+              // generate_website started a live build. Backend confirmed (2026-09-24) this is
+              // reachable from mobile chat -- no platform gating -- but there is no in-app viewer
+              // for the build stream yet, so show a notice instead of dropping it silently.
+              if (event.type === 'sandbox_session') {
+                setMessages((prev) =>
+                  prev.map((message) =>
+                    message.id === activeAssistantId ? { ...message, sandboxSessionId: event.sessionId } : message,
+                  ),
+                );
+                return;
+              }
+
               if (event.type === 'media') {
                 const nextArtifacts = [...liveArtifacts];
                 const pendingIndex = nextArtifacts.findIndex((artifact) => artifact.generating);
@@ -4354,7 +4420,31 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 setUploadProgressPercent(percent < 100 ? percent : null);
               }
             : undefined,
+          composerMediaReference ?? undefined,
         );
+        // Quick replies (web parity): find the saved assistant message's real
+        // id, poll its quick-replies, and attach them to the reply on screen.
+        {
+          const streamedAssistantId = activeAssistantId;
+          void (async () => {
+            try {
+              const detail = await getAuthenticatedConversation(conversationId, { force: true });
+              const savedAssistant = [...detail.messages].reverse().find((item) => item.role === 'assistant');
+              if (!savedAssistant?.id || !/^[a-f0-9]{24}$/i.test(savedAssistant.id)) return;
+              const replies = await pollQuickReplies(conversationId, savedAssistant.id);
+              if (!replies.length) return;
+              setMessages((prev) =>
+                prev.map((item) =>
+                  item.id === streamedAssistantId || item.id === savedAssistant.id
+                    ? { ...item, quickReplies: replies.slice(0, 4) }
+                    : item,
+                ),
+              );
+            } catch {
+              // Best effort: no chips on failure.
+            }
+          })();
+        }
         const streamedText = assistantResponseBuffer.trim();
         if (streamedText.length > 0) {
           // Do not let an eventually-consistent backend snapshot overwrite already rendered text.
@@ -4555,17 +4645,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           isAuthStreamActiveServerError
           && recoveryConversationId
         ) {
+          // Re-read the conversation instead of re-sending the message: the
+          // first send may already be saved, and resending would duplicate
+          // the user's turn (web parity: refetch after a turn, never resend).
           let fallbackResponseText = '';
           try {
-            const fallbackResponse = await sendAuthenticatedMessageNonStream(
-              recoveryConversationId,
-              trimmed,
-              activeModel,
-              composerMediaReference ?? undefined,
-              attachmentsForSend,
-              preClassifiedChatType,
-            );
-            fallbackResponseText = fallbackResponse.data?.recoveredText?.trim() ?? '';
+            const detail = await getAuthenticatedConversation(recoveryConversationId, { force: true });
+            const savedAssistant = [...detail.messages]
+              .reverse()
+              .find((item) => (
+                item.role === 'assistant'
+                && item.content.trim().length > 0
+                && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
+              ));
+            fallbackResponseText = savedAssistant?.content.trim() ?? '';
           } catch {
             // Continue with best-effort recovery paths below.
           }
@@ -4757,6 +4850,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         }
         if (isLimitError) {
           preserveLimitNotice = true;
+          setUpgradeNoticeIsCredits(
+            ((error as { code?: string } | undefined)?.code ?? '').toUpperCase() === 'CREDIT_LIMIT_EXCEEDED',
+          );
           showLimitNotice(limitRequestKind, limitResetHours);
         }
         hapticError();
@@ -6023,8 +6119,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     speechRecognitionRequestedRef.current = false;
     isRecordingRef.current = false;
     setIsRecording(false);
-    hapticError();
-    showTransientNotice(t('chat.speechError'));
+    // "no-speech" means the recognizer ran but heard nothing (silence, or an emulator
+    // with no live microphone) -- that is not a recognition failure, so say what happened.
+    if (event.error === 'no-speech') {
+      hapticSelection();
+      showTransientNotice(t('chat.speechNoSpeech'));
+    } else {
+      hapticError();
+      showTransientNotice(event.error === 'not-allowed' ? t('chat.speechPermError') : t('chat.speechError'));
+    }
     if (__DEV__) {
       console.log('[speech-recognition:session-error]', event);
     }
@@ -6365,19 +6468,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   }, [safeBottomInset]);
 
   useEffect(() => {
-    if (!isSending) {
-      setStreamingDots('.');
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setStreamingDots((prev) => (prev.length >= 3 ? '.' : `${prev}.`));
-    }, 350);
-
-    return () => clearInterval(timer);
-  }, [isSending]);
-
-  useEffect(() => {
     if (!messages.length) return;
     if (!autoScrollEnabledRef.current) return;
     scrollToBottom(false);
@@ -6417,7 +6507,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
   const topBarModelSwitcher = isAuthenticated ? (
     <View className="flex-row items-center" style={{ gap: 8 }}>
-      <NotificationBell isDark={isDark} onNavigate={(link) => router.push(link as never)} />
+      <NotificationBell isDark={isDark} onNavigate={(link) => router.push(resolveNotificationRoute(link) as never)} />
       {allArtifacts.length ? (
         <Pressable
           onPress={() => {
@@ -7012,7 +7102,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 entering={FadeInDown.duration(MOTION.duration.quick)}
                 exiting={FadeOutDown.duration(MOTION.duration.quick)}
                 accessibilityRole="progressbar"
-                accessibilityLabel="Understanding your prompt"
+                accessibilityLabel={t('chat.status.understanding')}
                 accessibilityHint="Cafa AI is interpreting your request before sending it."
                 accessibilityState={{ busy: true }}
                 className="mb-2 self-start rounded-full border px-3 py-1.5"
@@ -7025,7 +7115,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     accessibilityLiveRegion="polite"
                     style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginLeft: 6 }}
                   >
-                    {`Understanding your prompt${streamingDots}`}
+                    {t('chat.status.understanding')}
                   </Text>
                 </View>
               </Animated.View>
@@ -7037,9 +7127,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 className="mb-2 self-start rounded-full border px-3 py-1.5"
                 style={{ borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }}
               >
-                <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '600' }}>
-                  {`${streamingModelLabel}: ${streamingDots}`}
-                </Text>
+                <View className="flex-row items-center">
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '600', marginLeft: 6 }}>
+                    {streamingModelLabel}
+                  </Text>
+                </View>
               </Animated.View>
             ) : null}
 
@@ -7206,6 +7299,68 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
+                      {/* Real fix: generate_document's tool_end (ok:true) never
+                          cleared the artifact's `generating` flag itself -- only
+                          the later `media` event does, by filling in url/name.
+                          Once it did, nothing ever rendered a "document ready"
+                          card inline (only image/video get an inline bubble via
+                          imageUrl/videoUrl) -- the assistant text was empty for
+                          a document-only turn, so the message rendered as a
+                          blank bubble. This card is that missing inline state;
+                          the file was always saved server-side and reachable
+                          via Artifacts, just never shown here. */}
+                      {!isUser && !isArtifactGenerating ? (() => {
+                        const readyDoc = [...(item.artifacts ?? [])]
+                          .reverse()
+                          .find((artifact) => artifact.kind === 'document' && !artifact.generating && artifact.url);
+                        if (!readyDoc) return null;
+                        // Real fix: this card used to Linking.openURL() the raw file
+                        // URL, which just handed a PDF/DOCX off to Chrome instead of
+                        // downloading it in-app. Route both the card body and the
+                        // download icon through the same in-app file download +
+                        // native share/save flow every other generated file
+                        // attachment already uses.
+                        const openDocument = () => {
+                          void downloadGeneratedFileAttachment(
+                            { id: readyDoc.id, url: readyDoc.url, originalName: readyDoc.name },
+                            readyDoc.messageId,
+                          );
+                        };
+                        return (
+                          <View
+                            className="mb-2 flex-row items-center rounded-2xl border px-3 py-3"
+                            style={{ borderColor: colors.border, backgroundColor: isDark ? '#101010' : '#F5F5F5', width: 236 }}
+                          >
+                            <Pressable
+                              onPress={openDocument}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Download document ${readyDoc.name ?? 'file'}`}
+                              className="flex-row items-center"
+                              style={{ flex: 1 }}
+                            >
+                              <Ionicons name="document-text-outline" size={22} color={colors.primary} />
+                              <View style={{ marginLeft: 10, flex: 1 }}>
+                                <Text numberOfLines={2} style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
+                                  {readyDoc.name || 'Generated document'}
+                                </Text>
+                                <Text style={{ color: colors.primary, fontSize: 11, marginTop: 2 }}>
+                                  Tap to download
+                                </Text>
+                              </View>
+                            </Pressable>
+                            <Pressable
+                              onPress={openDocument}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Download document"
+                              style={{ padding: 6, marginLeft: 6 }}
+                            >
+                              <Ionicons name="download-outline" size={20} color={colors.primary} />
+                            </Pressable>
+                          </View>
+                        );
+                      })() : null}
+
                       {isScreenHandoffMessage ? (
                         <ScreenHandoffCard
                           title={item.screenHandoff!.title}
@@ -7365,8 +7520,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             if (!imageUri) return null;
                             const previewSource = resolveImageSource(imageUri);
                             return (
-                              <View
+                              <Pressable
                                 key={`${item.id}-img-${attachment.id ?? index}`}
+                                onPress={() => setImageLightboxUri(imageUri)}
+                                accessibilityRole="imagebutton"
+                                accessibilityLabel={t('chat.attachmentPreviewA11y', { name: attachment.originalName ?? t('chat.uploadedImageAlt') })}
+                                accessibilityHint={t('chat.attachmentPreviewHint')}
                                 className="overflow-hidden rounded-2xl border"
                                 style={{
                                   width: 236,
@@ -7394,7 +7553,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                                 ) : (
                                   <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 84 }} />
                                 )}
-                              </View>
+                              </Pressable>
                             );
                           }) : null}
 
@@ -7466,19 +7625,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         </View>
                       ) : null}
 
-                      {!isUser && item.reasoning ? (
-                        <ThinkingPanel
-                          reasoning={item.reasoning}
-                          reasoningSummary={item.reasoningSummary}
-                          currentStep={item.currentStep}
-                          isStreaming={isSending && !isUser && item.id === messages[messages.length - 1]?.id}
-                          startedAt={item.reasoningStartedAt}
+                      {!isUser && item.tools?.length ? (
+                        <ToolStatusChips tools={item.tools} isDark={isDark} />
+                      ) : null}
+
+                      {!isUser && item.upgradePrompt ? (
+                        <UpgradePromptCard
+                          reason={item.upgradePrompt.reason}
+                          feature={item.upgradePrompt.feature}
                           isDark={isDark}
                         />
                       ) : null}
 
-                      {!isUser && item.tools?.length ? (
-                        <ToolStatusChips tools={item.tools} isDark={isDark} />
+                      {!isUser && item.sandboxSessionId ? (
+                        <SandboxBuildNotice isDark={isDark} />
                       ) : null}
 
                       {/* Real fix (2026-09-13): the native tool-calling video path
@@ -7492,7 +7652,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         <PushNudgeBanner isDark={isDark} />
                       ) : null}
 
-                      {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) ? (
+                      {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) && (item.content || isUser || !item.tools?.length) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable
@@ -7519,8 +7679,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                               backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
                             }}
                           >
-                            {(() => {
-                              const visibleContent = item.content || (isSending && !isUser ? streamingDots : '');
+                            {!item.content && isSending && !isUser ? (
+                              <TypingIndicator
+                                color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)'}
+                                accessibilityLabel={t('chat.status.thinking')}
+                              />
+                            ) : (() => {
+                              const visibleContent = item.content;
                               const isLiveStreamingMessage = isSending
                                 && !isUser
                                 && item.id === messages[messages.length - 1]?.id;
@@ -7544,6 +7709,29 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           isDark={isDark}
                           onSubmit={handleWidgetSubmit}
                         />
+                      ) : null}
+
+                      {!isUser
+                        && item.quickReplies?.length
+                        && !isSending
+                        && item.id === messages[messages.length - 1]?.id ? (
+                        <View className="mt-2 flex-row flex-wrap" style={{ gap: 6 }}>
+                          {item.quickReplies.map((reply) => (
+                            <Pressable
+                              key={reply}
+                              onPress={() => {
+                                hapticSelection();
+                                handleWidgetSubmit(reply);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={reply}
+                              className="rounded-full border px-3 py-1.5"
+                              style={{ borderColor: colors.border }}
+                            >
+                              <Text style={{ color: colors.textPrimary, fontSize: 12 }}>{reply}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
                       ) : null}
 
                       {!isUser && item.products ? (
@@ -7707,6 +7895,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             <ImageLightbox
               visible={Boolean(imageLightboxUri)}
               uri={imageLightboxUri}
+              headers={resolveImageSource(imageLightboxUri)?.headers}
               onClose={() => setImageLightboxUri(null)}
               accessibilityLabel={t('chat.generatedImageAlt')}
             />
@@ -7771,8 +7960,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 left: 12,
                 right: isAuthenticated ? 52 : 16,
                 color: colors.textSecondary,
-                fontSize: 12,
-                lineHeight: 16,
+                fontSize: 15,
+                lineHeight: 21,
                 zIndex: 1,
               }}
             >
@@ -7829,8 +8018,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             className="px-1.5"
             style={{
               color: colors.textPrimary,
-              fontSize: 13,
-              lineHeight: 18,
+              fontSize: 15,
+              lineHeight: 21,
               height: Platform.OS === 'ios' ? undefined : composerHeight,
               minHeight: COMPOSER_MIN_HEIGHT,
               maxHeight: COMPOSER_MAX_HEIGHT,
@@ -7842,26 +8031,42 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           />
 
           {isAuthenticated && attachedAssets.length ? (
-            <View className="mb-0.5 mt-0.5 flex-row flex-wrap gap-1.5 px-1">
+            <View className="mb-0.5 mt-0.5 flex-row flex-wrap items-center gap-1.5 px-1">
               {attachedAssets.map((asset) => (
+                (asset.mimeType ?? '').toLowerCase().startsWith('image/') ? (
+                  <View key={asset.id} style={{ width: 60, height: 60 }}>
+                    <Pressable
+                      onPress={() => setImageLightboxUri(asset.uri)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel={t('chat.attachmentPreviewA11y', { name: asset.label })}
+                      accessibilityHint={t('chat.attachmentPreviewHint')}
+                      className="overflow-hidden rounded-xl border"
+                      style={{ width: 60, height: 60, borderColor: colors.border }}
+                    >
+                      <ExpoImage
+                        source={{ uri: asset.uri }}
+                        style={{ width: '100%', height: '100%' }}
+                        contentFit="cover"
+                        transition={120}
+                      />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => removeAttachment(asset.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${t('chat.removeAttachment')}: ${asset.label}`}
+                      hitSlop={8}
+                      className="absolute items-center justify-center rounded-full"
+                      style={{ top: -6, right: -6, width: 20, height: 20, backgroundColor: isDark ? '#27272A' : '#3F3F46' }}
+                    >
+                      <Ionicons name="close" size={12} color="#FFFFFF" />
+                    </Pressable>
+                  </View>
+                ) : (
                 <View
                   key={asset.id}
                   className="flex-row items-center rounded-full border px-2 py-0.5"
                   style={{ borderColor: colors.border }}
                 >
-                  {(asset.mimeType ?? '').toLowerCase().startsWith('image/') ? (
-                    <Pressable
-                      onPress={() => setImageLightboxUri(asset.uri)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Preview attached image: ${asset.label}`}
-                      accessibilityHint="Opens a full-screen preview of this image."
-                      className="rounded-full py-0.5"
-                    >
-                      <Text numberOfLines={1} style={{ maxWidth: 140, color: colors.textSecondary, fontSize: 10 }}>
-                        {asset.label}
-                      </Text>
-                    </Pressable>
-                  ) : (
                     <Text
                       accessible
                       accessibilityRole="text"
@@ -7871,7 +8076,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     >
                       {asset.label}
                     </Text>
-                  )}
                   <Pressable
                     onPress={() => removeAttachment(asset.id)}
                     accessibilityRole="button"
@@ -7882,6 +8086,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     <Ionicons name="close" size={12} color={colors.textSecondary} />
                   </Pressable>
                 </View>
+                )
               ))}
             </View>
           ) : null}
@@ -8061,6 +8266,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   </>
                 ) : null}
 
+                {screenMode === 'chat' ? (
+                  <CafaLiveToggle
+                    isDark={isDark}
+                    onLongPress={(event) => showTooltip(t('chat.cafaLive.tooltip'), event)}
+                  />
+                ) : null}
               </View>
 
               <Pressable
@@ -8205,15 +8416,15 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         setStatusNotice('');
                         setUpgradeNoticeKind(null);
                         setUpgradeNoticeResetHours(null);
-                        router.push('/plans');
+                        router.push(upgradeNoticeIsCredits ? '/billing/credits' : '/plans');
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={t('chat.limit.upgradeCta')}
+                      accessibilityLabel={t(upgradeNoticeIsCredits ? 'chat.limit.buyCreditsCta' : 'chat.limit.upgradeCta')}
                       className="h-8 items-center justify-center rounded-full px-3"
                       style={{ backgroundColor: colors.primary }}
                     >
                       <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>
-                        {t('chat.limit.upgradeCta')}
+                        {t(upgradeNoticeIsCredits ? 'chat.limit.buyCreditsCta' : 'chat.limit.upgradeCta')}
                       </Text>
                     </Pressable>
                     {Platform.OS === 'ios' && isAuthenticated ? (

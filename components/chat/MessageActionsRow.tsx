@@ -3,6 +3,7 @@ import { GestureResponderEvent, Pressable, View } from 'react-native';
 
 type MessageActionsRowProps = {
   isReading: boolean;
+  isReadingPaused?: boolean;
   reaction?: 'like' | 'dislike';
   primaryColor: string;
   borderColor: string;
@@ -12,6 +13,7 @@ type MessageActionsRowProps = {
   onDislike: () => void;
   onShare: () => void;
   onReadAloud: () => void;
+  onStopReadAloud?: () => void;
   onTooltip: (label: string, event: GestureResponderEvent) => void;
   labels: {
     copy: string;
@@ -25,11 +27,14 @@ type MessageActionsRowProps = {
     read: string;
     stopRead: string;
     readHint: string;
+    pauseRead?: string;
+    resumeRead?: string;
   };
 };
 
 export function MessageActionsRow({
   isReading,
+  isReadingPaused = false,
   reaction,
   primaryColor,
   borderColor,
@@ -39,6 +44,7 @@ export function MessageActionsRow({
   onDislike,
   onShare,
   onReadAloud,
+  onStopReadAloud,
   onTooltip,
   labels,
 }: MessageActionsRowProps) {
@@ -109,16 +115,24 @@ export function MessageActionsRow({
       <Pressable
         onPress={onReadAloud}
         delayLongPress={180}
-        onLongPress={(event) => onTooltip(isReading ? labels.stopRead : labels.read, event)}
+        onLongPress={(event) => {
+          if (isReading && onStopReadAloud) {
+            onStopReadAloud();
+            return;
+          }
+          onTooltip(isReading ? labels.stopRead : labels.read, event);
+        }}
         accessibilityRole="button"
-        accessibilityLabel={isReading ? labels.stopRead : labels.read}
+        accessibilityLabel={
+          isReading ? (isReadingPaused ? labels.resumeRead ?? labels.read : labels.pauseRead ?? labels.stopRead) : labels.read
+        }
         accessibilityHint={labels.readHint}
         accessibilityState={{ selected: isReading }}
         className="h-7 w-7 items-center justify-center rounded-full border"
         style={{ borderColor: isReading ? primaryColor : borderColor }}
       >
         <Ionicons
-          name={isReading ? 'stop-circle-outline' : 'volume-high-outline'}
+          name={isReading ? (isReadingPaused ? 'play-circle-outline' : 'pause-circle-outline') : 'volume-high-outline'}
           size={13}
           color={isReading ? primaryColor : iconColor}
         />

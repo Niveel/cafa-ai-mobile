@@ -4,20 +4,12 @@ import { apiClient } from '@/services/api';
 import { mapApiError } from '@/services/api/error.mapper';
 import {
   ApiResponse,
-  ChatClassificationResult,
-  DetectDocumentRequestResult,
   DocumentWizardArtifact,
   DocumentWizardHistoryPage,
   GenerateDocumentDirectResult,
   StartDocumentWizardResult,
 } from '@/types';
 
-type DetectResponsePayload = Omit<DetectDocumentRequestResult, 'expectedResponseType'> & {
-  expectedResponseType?: DetectDocumentRequestResult['expectedResponseType'];
-  responseType?: DetectDocumentRequestResult['expectedResponseType'];
-};
-
-type DetectResponse = ApiResponse<DetectResponsePayload>;
 type StartWizardResponse = ApiResponse<StartDocumentWizardResult>;
 type GenerateWizardResponse = ApiResponse<{ artifacts: DocumentWizardArtifact[] }>;
 type GenerateDirectResponse = ApiResponse<GenerateDocumentDirectResult>;
@@ -33,58 +25,6 @@ type DocumentWizardPersistenceOptions = {
   documentType?: string;
   format?: string;
 };
-
-const DETECT_FALLBACK: DetectDocumentRequestResult = {
-  isDocumentRequest: false,
-  documentType: null,
-  format: null,
-  confidence: 0,
-  expectedResponseType: 'text',
-  needsForm: false,
-  formReason: null,
-};
-
-const CLASSIFY_FALLBACK: ChatClassificationResult = {
-  responseType: 'text',
-  confidence: 0,
-  subIntent: null,
-  label: 'Thinking',
-  description: 'Getting your answer ready',
-};
-
-export async function classifyChatResponse(
-  message: string,
-  attachments: { fileName?: string; mimeType?: string }[] = [],
-): Promise<ChatClassificationResult> {
-  try {
-    const response: AxiosResponse<ApiResponse<ChatClassificationResult>> = await apiClient.post('/chat/classify', {
-      message,
-      attachments,
-      hasImageAttachment: attachments.some((item) => item.mimeType?.toLowerCase().startsWith('image/')),
-      hasDocumentAttachment: attachments.some((item) => !item.mimeType?.toLowerCase().startsWith('image/')),
-    });
-    return response.data?.data ? { ...CLASSIFY_FALLBACK, ...response.data.data } : CLASSIFY_FALLBACK;
-  } catch {
-    return CLASSIFY_FALLBACK;
-  }
-}
-
-export async function detectDocumentRequest(message: string): Promise<DetectDocumentRequestResult> {
-  try {
-    const response: AxiosResponse<DetectResponse> = await apiClient.post(`${DOCUMENT_WIZARD_BASE}/detect`, { message });
-    const payload = response.data?.data;
-    if (!payload) {
-      return DETECT_FALLBACK;
-    }
-    return {
-      ...DETECT_FALLBACK,
-      ...payload,
-      expectedResponseType: payload.expectedResponseType ?? payload.responseType ?? 'text',
-    };
-  } catch {
-    return DETECT_FALLBACK;
-  }
-}
 
 export async function startDocumentWizard(userRequest: string, options?: DocumentWizardPersistenceOptions) {
   try {

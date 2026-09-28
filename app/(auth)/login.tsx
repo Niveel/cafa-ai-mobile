@@ -12,9 +12,10 @@ import {
   View,
 } from 'react-native';
 
-import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, SecondaryNav, SubmitButton } from '@/components';
+import { AppButton, AppForm, AppFormField, AppLogo, AppScreen, QuickHelpWidget, SecondaryNav, SubmitButton } from '@/components';
 import { LoginFormValues, LoginValidationSchema } from '@/data';
 import { claimGuestUpgradeOnLogin, login as loginRequest } from '@/features';
+import { usePostAuthPushPrompt } from '@/features/notifications';
 import { useAppContext } from '@/context';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib';
@@ -26,11 +27,13 @@ export default function LoginScreen() {
   const { login } = useAppContext();
   const { t } = useI18n();
   const [authError, setAuthError] = useState('');
+  const { maybeShowPrompt, modal: pushPromptModal } = usePostAuthPushPrompt();
   const cardBackground = isDark ? 'rgba(20, 20, 20, 0.92)' : 'rgba(255, 255, 255, 0.95)';
   const cardBorder = isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(124, 58, 237, 0.24)';
 
   return (
     <AppScreen title={t('auth.login')} subtitle={t('auth.loginSubtitle')} showTopChrome={false} showHeading={false}>
+      {pushPromptModal}
       <KeyboardAvoidingView className="flex-1" behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
@@ -93,6 +96,7 @@ export default function LoginScreen() {
                         }
                         await claimGuestUpgradeOnLogin(accessToken);
                         login();
+                        await maybeShowPrompt();
                         router.replace('/(drawer)');
                       } catch (error) {
                         const mapped = error as { code?: string; status?: number; message?: string };
@@ -123,10 +127,11 @@ export default function LoginScreen() {
                   >
                     <AppFormField<LoginFormValues>
                       name="emailOrUsername"
-                      label={t('field.emailOrUsername')}
-                      placeholder={t('placeholder.emailOrUsername')}
-                      autoComplete="username"
-                      textContentType="username"
+                      label={t('field.email')}
+                      placeholder={t('placeholder.email')}
+                      autoComplete="email"
+                      textContentType="emailAddress"
+                      keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
                       required
@@ -222,6 +227,7 @@ export default function LoginScreen() {
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
+      <QuickHelpWidget isDark={isDark} />
     </AppScreen>
   );
 }

@@ -44,6 +44,35 @@ function mapFriendlySessionError(error: unknown): CafaLifeSessionError {
     return createSessionError('Please log in again to use Cafa Live.', 'AUTH_REQUIRED', status);
   }
 
+  // The livekit-token route runs a credit + rate-limit pre-flight check before minting a token
+  // (API_INTEGRATION_GUIDE.md §10, §3: cafaLifePerMinute credit cost, plus a separate daily/hourly
+  // count cap). Both fail with 429; the code suffix is what the rest of this codebase already uses
+  // to tell them apart (isLimitOrUpgradeError in app/(drawer)/index.tsx, RATE_LIMIT_EXCEEDED in
+  // features/videos/services/videos.ts). Checked ahead of the generic 404/5xx branch below since
+  // a 429 is neither of those.
+  if (status === 429) {
+    const upperCode = (code ?? '').toUpperCase();
+    if (upperCode.includes('RATE_LIMIT')) {
+      return createSessionError(
+        'You have started too many Cafa Live sessions in a short time. Please wait a bit and try again.',
+        'RATE_LIMIT_EXCEEDED',
+        status,
+      );
+    }
+    return createSessionError(
+      'You have used up your Cafa Live minutes for this period. Upgrade your plan for more.',
+      'CREDIT_LIMIT_EXCEEDED',
+      status,
+    );
+  }
+
+  // Decide by HTTP status first: the message regexes below match backend error text
+  // (e.g. a route-not-found message containing "token"), which used to hide the real
+  // cause behind the generic "voice session" message.
+  if (status === 404 || (status !== undefined && status >= 500)) {
+    return createSessionError('Could not start your voice session. Please try again.', 'TOKEN_REQUEST_FAILED', status);
+  }
+
   if (/permission/i.test(message)) {
     return createSessionError('Microphone permission is required for Cafa Live.', 'MIC_PERMISSION_DENIED', status);
   }
@@ -54,6 +83,10 @@ function mapFriendlySessionError(error: unknown): CafaLifeSessionError {
 
   if (/token/i.test(message)) {
     return createSessionError('Could not start your voice session. Please try again.', 'TOKEN_REQUEST_FAILED', status);
+  }
+
+  if (/audio session|audio_session|audiosession/i.test(message)) {
+    return createSessionError('Could not set up audio for Cafa Live. Please try again.', 'AUDIO_SESSION_FAILED', status);
   }
 
   if (/connect|room|livekit/i.test(message)) {
@@ -204,16 +237,25 @@ export function useCafaLifeSession() {
 
     try {
       ensureCafaLifeGlobalsRegistered();
-      await configureCafaLifeAudioSession();
 
+      // Real fix (2026-09-13, Issue 2 continued): request microphone
+      // permission BEFORE configuring a recording-capable audio session.
+      // Configuring the session first (as this previously did) can throw a
+      // real native error on a device where mic permission for this app has
+      // never been granted yet -- confirmed real-device error "audio session
+      // failed" surfaced right after the earlier foreground-service fix
+      // resolved the first failure point. Never touch the audio session
+      // before the permission it depends on is confirmed granted.
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         throw createSessionError('Microphone permission is required for Cafa Live.', 'MIC_PERMISSION_DENIED');
       }
 
+      await configureCafaLifeAudioSession();
+
       setState('connecting');
 
-      const { token, livekitUrl, roomName: nextRoomName } = await getCafaLifeToken(selectedVoice);
+      const { token, url: livekitUrl, room: nextRoomName } = await getCafaLifeToken(selectedVoice);
       const { Room, RoomEvent, Track } = getLiveKitRuntime();
       const sessionToken = sessionTokenRef.current + 1;
       sessionTokenRef.current = sessionToken;

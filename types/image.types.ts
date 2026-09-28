@@ -32,6 +32,8 @@ export type ImageHistoryItem = {
   id: string;
   prompt: string;
   imageUrl?: string | null;
+  // Direct public media URL; faster than the authenticated download proxy.
+  sourceImageUrl?: string | null;
   downloadUrl?: string | null;
   fileName?: string | null;
   mimeType?: string | null;

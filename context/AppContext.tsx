@@ -15,6 +15,7 @@ import {
   updateUserPersonalization,
 } from '@/features';
 import { clearSessionTokens, getRefreshToken } from '@/services/storage/session';
+import { unregisterCurrentPushToken } from '@/features/notifications/services/pushRegistration';
 import {
   getAccessToken,
   getAppPreferences,
@@ -289,6 +290,9 @@ export function AppProvider({ children }: AppProviderProps) {
 
   const signOut = useCallback(async () => {
     const refreshToken = await getRefreshToken();
+
+    // Detach this device while the session is still valid.
+    await unregisterCurrentPushToken().catch(() => {});
 
     try {
       await logoutRequest(refreshToken ?? undefined);

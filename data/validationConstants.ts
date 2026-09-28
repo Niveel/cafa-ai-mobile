@@ -4,16 +4,16 @@ import { InferType } from 'yup';
 import { fullNameValidation, passwordValidation } from '@/utils';
 
 export const LoginValidationSchema = Yup.object().shape({
+  // Field keeps its old name, but the backend only accepts an email here:
+  // POST /auth/login with a username returns 400 "A valid email address is
+  // required" (confirmed against the live backend, 2026-09-27).
   emailOrUsername: Yup.string()
-    .required('validation.emailOrUsernameRequired')
-    .test('email-or-username', 'validation.emailOrUsernameInvalid', (value) => {
+    .required('validation.emailRequired')
+    .test('email', 'validation.emailInvalid', (value) => {
       if (!value) return false;
-
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/;
-      return emailRegex.test(value) || usernameRegex.test(value);
+      return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(value.trim());
     })
-    .label('Email or Username'),
+    .label('Email'),
   password: Yup.string().required('validation.passwordRequired').label('Password'),
 });
 export type LoginFormValues = InferType<typeof LoginValidationSchema>;

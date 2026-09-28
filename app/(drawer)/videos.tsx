@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -565,6 +566,21 @@ export default function VideosScreen() {
     setActiveVideoIds(viewableItems.map((entry) => entry.item?.id).filter((value): value is string => Boolean(value)));
   }).current;
 
+  // Opened from a "video ready" notification: scroll to that exact video and
+  // highlight it (videos play inline here; there is no separate video page).
+  const { focusId } = useLocalSearchParams<{ focusId?: string }>();
+  const videoListRef = useRef<FlatList<VideoHistoryItem>>(null);
+  const [highlightedVideoId, setHighlightedVideoId] = useState<string | null>(null);
+  const handledVideoFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusId || handledVideoFocusRef.current === focusId || !videos.length) return;
+    const index = videos.findIndex((video) => video.id === focusId);
+    if (index < 0) return;
+    handledVideoFocusRef.current = focusId;
+    setHighlightedVideoId(focusId);
+    setTimeout(() => videoListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 }), 250);
+  }, [focusId, videos]);
+
   const renderVideoItem = useCallback(({ item }: { item: VideoHistoryItem }) => {
     const resolvedVideoUrl = resolveBackendAssetUrl(
       item.videoUrl ?? item.downloadUrl ?? apiEndpoints.videos.download(item.id),
@@ -659,8 +675,18 @@ export default function VideosScreen() {
         </View>
 
         <FlatList
+          ref={videoListRef}
           data={videos}
-          renderItem={renderVideoItem}
+          renderItem={(info) => (
+            info.item.id === highlightedVideoId ? (
+              <View style={{ borderWidth: 2, borderColor: colors.primary, borderRadius: 18, padding: 2 }}>
+                {renderVideoItem(info)}
+              </View>
+            ) : renderVideoItem(info)
+          )}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => videoListRef.current?.scrollToIndex({ index, animated: true }), 300);
+          }}
           keyExtractor={keyExtractor}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}

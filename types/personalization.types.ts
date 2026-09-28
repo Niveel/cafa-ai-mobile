@@ -18,6 +18,11 @@ export type UserPersonalization = {
   voiceEnabled: boolean;
   memoryEnabled: boolean;
   aboutYou: AboutYouPersonalization;
+  // Real, matches web's real, persisted Cafa Life voice choice (features/cafa-life/hooks/
+  // useCafaLifeSession.ts / CafaLifeScreen.tsx on web) -- the voice picked in a
+  // real-time voice call, remembered across sessions/devices via the same
+  // personalization document, not a local-only preference.
+  cafaLifeVoiceId?: string | null;
 };
 
 export type UpdatePersonalizationRequest = Partial<UserPersonalization> & {

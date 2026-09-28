@@ -95,6 +95,27 @@ export async function synthesizeVoice(payload: { text: string; voice?: string; s
   }
 }
 
+// Real build (2026-09-13, Issue 4 Tier 2): mints a short-lived, single-use
+// token for the signed GET streaming endpoint, so the mobile native audio
+// player (which can only progressively stream a GET response, never a POST
+// body) can play audio as it downloads instead of waiting for the full
+// buffer -- chat text/auth never appear in the URL, only the opaque token.
+export async function createSynthesizeStreamToken(payload: { text: string; voice?: string; speed?: number }) {
+  try {
+    const response: AxiosResponse<{ data: { token: string; expiresIn: number } }> = await apiClient.post(
+      apiEndpoints.voice.synthesizeStreamToken,
+      payload,
+    );
+    return response.data.data;
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
+export function getSynthesizeStreamUrl(token: string) {
+  return `${API_BASE_URL}${apiEndpoints.voice.synthesizeStream}?token=${encodeURIComponent(token)}`;
+}
+
 export async function convertTextToSpeech(payload: TtsConvertRequest) {
   try {
     const response: AxiosResponse<{ data: TtsConversionResult }> = await apiClient.post(

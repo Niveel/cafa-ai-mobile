@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -637,8 +638,29 @@ export default function ImagesScreen() {
     }
   }, [showNotice, t, zipProgress.fileUri]);
 
+  // Opened from an "image ready" notification: show that exact image full
+  // screen once the list has it (once per focusId).
+  const { focusId } = useLocalSearchParams<{ focusId?: string }>();
+  const handledFocusIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusId || handledFocusIdRef.current === focusId || !images.length) return;
+    const target = images.find((image) => image.id === focusId);
+    if (!target) return;
+    handledFocusIdRef.current = focusId;
+    const uri = target.sourceImageUrl?.trim()
+      || resolveBackendAssetUrl(target.imageUrl ?? target.downloadUrl ?? apiEndpoints.images.download(target.id))
+      || '';
+    if (!uri) return;
+    setImageLightboxState({
+      uri,
+      headers: accessToken && uri.startsWith(backendOrigin) ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    });
+  }, [accessToken, backendOrigin, focusId, images, resolveBackendAssetUrl]);
+
   const renderImageItem = useCallback(({ item }: { item: ImageHistoryItem }) => {
-    const resolvedImageUrl = resolveBackendAssetUrl(
+    // Display from the public media URL when present: the authenticated
+    // download proxy left recent images blank. Downloads still use the proxy.
+    const resolvedImageUrl = item.sourceImageUrl?.trim() || resolveBackendAssetUrl(
       item.imageUrl ?? item.downloadUrl ?? apiEndpoints.images.download(item.id),
     ) || '';
     const imageHeaders =

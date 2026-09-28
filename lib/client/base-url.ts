@@ -1,5 +1,11 @@
-export const PROD_BASE_URL = 'https://cafaapi.niveel.com/api/v1';
-const HARDCODED_DEV_BASE_URL = 'https://cafaapi.niveel.com/api/v1';
+// Real, deliberate swap (2026-09-12): mobile now targets new-cafa-ai-api's
+// native tool-calling backend (cafatest.niveel.com), matching web's own
+// swap -- the old classifier-based cafaapi.niveel.com is being retired.
+// Chat's SSE wire format changed with this move (token/text instead of
+// delta/content, no early messageId); handled in
+// features/chat/services/authenticated.ts's parseSseEventPayload.
+export const PROD_BASE_URL = 'https://cafatest.niveel.com/api/v1';
+const HARDCODED_DEV_BASE_URL = 'https://cafatest.niveel.com/api/v1';
 // const HARDCODED_DEV_BASE_URL = 'http://10.241.225.23:5000/api/v1';
 
 // Prefer env override; otherwise resolve from Expo host or fallback LAN host.

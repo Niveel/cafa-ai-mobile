@@ -343,6 +343,27 @@ async function parseHttpError(response: Response, fallbackMessage: string) {
   return error;
 }
 
+type ChatMediaReference = {
+  kind: 'image' | 'video';
+  url: string;
+  id?: string;
+};
+
+// The contract fields for referencing a past artifact are `referenceUrl` and
+// `referenceKind` (same as web). The older `reference` / `reference[...]`
+// shapes are kept alongside for backends that still read them.
+function appendReferenceFields(formData: FormData, reference?: ChatMediaReference) {
+  if (!reference?.url) return;
+  formData.append('referenceUrl', reference.url);
+  formData.append('referenceKind', reference.kind);
+  formData.append('reference', JSON.stringify({ kind: reference.kind, url: reference.url, id: reference.id }));
+  formData.append('reference[kind]', reference.kind);
+  formData.append('reference[url]', reference.url);
+  if (reference.id) {
+    formData.append('reference[id]', reference.id);
+  }
+}
+
 function createIdempotencyKey() {
   return `auth-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -424,6 +445,26 @@ function createAuthStreamTransportError(message: string, code: string): AuthStre
   error.code = code;
   return error;
 }
+
+// Tools whose server-side work (LLM drafting + file rendering) routinely
+// takes far longer than a normal chat turn. While one of these is in
+// flight, the SSE connection can legitimately sit idle for a long stretch
+// before the next byte arrives -- that idle gap must not be treated the
+// same as a genuinely dropped connection.
+const SLOW_STREAM_TOOLS = new Set([
+  'generate_document',
+  'generate_video',
+  'image_to_video',
+  'generate_website',
+  'edit_image',
+]);
+
+// How long the XHR transport tolerates receiving zero bytes before treating
+// the connection as stalled and forcing a recovery poll instead of hanging
+// forever (native XHR has no built-in read-idle timeout).
+const STREAM_STALL_TIMEOUT_MS = 25_000;
+const SLOW_TOOL_STALL_TIMEOUT_MS = 120_000;
+const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
 
 function extractSseErrorMessageFromText(raw: string): string | null {
   if (!raw || !raw.includes('data:')) return null;
@@ -719,6 +760,39 @@ export async function toggleAuthenticatedMessageReaction(
   }
 }
 
+/**
+ * Suggested follow-ups for an assistant message. The backend computes them
+ * shortly after a turn, so web polls at 1.5 s, 2.5 s and 3 s and stops at the
+ * first non-empty result. Any failure resolves to [].
+ */
+export async function pollQuickReplies(conversationId: string, messageId: string): Promise<string[]> {
+  for (const delayMs of [1_500, 2_500, 3_000]) {
+    await sleep(delayMs);
+    try {
+      const response = await apiClient.get<ApiResponse<{ quickReplies?: string[] }>>(
+        apiEndpoints.chat.quickReplies(conversationId, messageId),
+      );
+      const replies = (response.data?.data?.quickReplies ?? []).filter((item) => typeof item === 'string' && item.trim());
+      if (replies.length) return replies;
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function renameAuthenticatedConversation(conversationId: string, title: string) {
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error('Title cannot be empty.');
+  try {
+    await apiClient.patch(apiEndpoints.chat.detail(conversationId), { title: trimmed });
+    invalidateAuthenticatedChatCache(conversationId);
+    authListCache = null;
+  } catch (error) {
+    throw mapApiError(error);
+  }
+}
+
 export async function archiveAuthenticatedConversation(conversationId: string, isArchived = true) {
   try {
     await apiClient.patch(apiEndpoints.chat.archive(conversationId), { isArchived });
@@ -753,6 +827,7 @@ export async function sendAuthenticatedMessageStream(
   onDebug?: (event: AuthSendDebugEvent) => void,
   preClassifiedAs?: 'text' | 'search',
   onUploadProgress?: (percent: number) => void,
+  reference?: ChatMediaReference,
 ) {
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
@@ -775,9 +850,11 @@ export async function sendAuthenticatedMessageStream(
     receivedDeltaChars: number;
     lastAssistantMessageId?: string;
     lastRequestId?: string;
+    pendingSlowTool: string | null;
   } = {
     receivedDone: false,
     receivedDeltaChars: 0,
+    pendingSlowTool: null,
   };
   const selectedModelId =
     selectedModel === 'ultra' ? 'cafa_ultra' : selectedModel === 'smart' ? 'cafa_smart' : 'cafa_swift';
@@ -803,6 +880,7 @@ export async function sendAuthenticatedMessageStream(
     formData.append('selectedModel', selectedModelId);
     formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
     if (preClassifiedAs) formData.append('preClassifiedAs', preClassifiedAs);
+    appendReferenceFields(formData, reference);
     for (const file of attachments) {
       if (!file?.uri) continue;
       const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
@@ -835,8 +913,15 @@ export async function sendAuthenticatedMessageStream(
         streamState.lastRequestId = event.requestId;
       }
     }
+    if (event.type === 'tool_start' && SLOW_STREAM_TOOLS.has(event.tool)) {
+      streamState.pendingSlowTool = event.tool;
+    }
+    if (event.type === 'tool_end' && event.tool === streamState.pendingSlowTool) {
+      streamState.pendingSlowTool = null;
+    }
     if (event.type === 'done') {
       streamState.receivedDone = true;
+      streamState.pendingSlowTool = null;
       if (event.messageId) {
         streamState.lastAssistantMessageId = event.messageId;
       }
@@ -858,7 +943,15 @@ export async function sendAuthenticatedMessageStream(
   };
 
   const recoverFromPersistedAssistant = async (): Promise<boolean> => {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    // A dropped connection during a slow tool (document/video/website
+    // generation) doesn't mean the work failed server-side -- it's still
+    // running and will persist an assistant message once done. Give that
+    // realistic worst-case generation time (~2 minutes) instead of the ~6.5s
+    // budget that's fine for a plain dropped chat turn.
+    const isSlowToolRecovery = Boolean(streamState.pendingSlowTool);
+    const maxAttempts = isSlowToolRecovery ? 40 : 8;
+    const pollIntervalMs = isSlowToolRecovery ? 3_000 : undefined;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const detail = await getAuthenticatedConversation(conversationId, { force: true });
       const byId = streamState.lastAssistantMessageId
         ? detail.messages.find((item) => item.id === streamState.lastAssistantMessageId && item.role === 'assistant')
@@ -902,7 +995,7 @@ export async function sendAuthenticatedMessageStream(
         );
         return true;
       }
-      await sleep(180 * (attempt + 1));
+      await sleep(pollIntervalMs ?? 180 * (attempt + 1));
     }
     return false;
   };
@@ -1025,6 +1118,15 @@ export async function sendAuthenticatedMessageStream(
       let streamStarted = false;
       let emittedEventCount = 0;
       let pendingErrorTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastByteAt = Date.now();
+      let stallTimer: ReturnType<typeof setInterval> | null = null;
+
+      const clearStallTimer = () => {
+        if (stallTimer) {
+          clearInterval(stallTimer);
+          stallTimer = null;
+        }
+      };
 
       const rejectOnce = (error: unknown) => {
         if (settled) return;
@@ -1032,6 +1134,7 @@ export async function sendAuthenticatedMessageStream(
           clearTimeout(pendingErrorTimer);
           pendingErrorTimer = null;
         }
+        clearStallTimer();
         settled = true;
         reject(error);
       };
@@ -1042,6 +1145,7 @@ export async function sendAuthenticatedMessageStream(
           clearTimeout(pendingErrorTimer);
           pendingErrorTimer = null;
         }
+        clearStallTimer();
         settled = true;
         resolve();
       };
@@ -1062,6 +1166,7 @@ export async function sendAuthenticatedMessageStream(
         const next = xhr.responseText.slice(lastOffset);
         if (!next) return;
         streamStarted = true;
+        lastByteAt = Date.now();
         lastOffset = xhr.responseText.length;
         buffer += next;
         authStreamLog('xhr:progress', `chunkLen=${next.length} totalLen=${xhr.responseText.length}`);
@@ -1126,6 +1231,20 @@ export async function sendAuthenticatedMessageStream(
           }
           rejectOnce(new Error('Network request failed.'));
         }, 220);
+      };
+
+      // XHR has no built-in read-idle timeout, so a connection that goes
+      // silent (no error, no load, just nothing) would otherwise hang this
+      // promise forever. The stall watchdog below aborts it once we've
+      // waited far longer than the slowest known tool could plausibly take.
+      xhr.onabort = () => {
+        authStreamLog('xhr:stall-abort', `streamStarted=${streamStarted} pendingSlowTool=${streamState.pendingSlowTool ?? 'none'}`);
+        rejectOnce(
+          createAuthStreamTransportError(
+            'Authenticated stream stalled with no data and was cancelled.',
+            'AUTH_STREAM_DROPPED_AFTER_START',
+          ),
+        );
       };
 
       xhr.onload = async () => {
@@ -1272,6 +1391,28 @@ export async function sendAuthenticatedMessageStream(
         }
         resolveOnce();
       };
+
+      stallTimer = setInterval(() => {
+        if (settled) return;
+        const idleForMs = Date.now() - lastByteAt;
+        const limitMs = streamState.pendingSlowTool ? SLOW_TOOL_STALL_TIMEOUT_MS : STREAM_STALL_TIMEOUT_MS;
+        if (idleForMs < limitMs) return;
+        authStreamLog(
+          'xhr:stall-detected',
+          `idleForMs=${idleForMs} limitMs=${limitMs} pendingSlowTool=${streamState.pendingSlowTool ?? 'none'}`,
+        );
+        clearStallTimer();
+        try {
+          xhr.abort();
+        } catch {
+          rejectOnce(
+            createAuthStreamTransportError(
+              'Authenticated stream stalled with no data and was cancelled.',
+              'AUTH_STREAM_DROPPED_AFTER_START',
+            ),
+          );
+        }
+      }, STREAM_STALL_CHECK_INTERVAL_MS);
 
       xhr.send(buildFormData());
     });
@@ -1498,20 +1639,7 @@ export async function sendAuthenticatedMessageNonStream(
   formData.append('selectedModel', selectedModelId);
   formData.append('model', selectedModel === 'ultra' ? 'gpt-4o' : 'gpt-4o-mini');
   if (preClassifiedAs) formData.append('preClassifiedAs', preClassifiedAs);
-  if (reference?.url) {
-    const normalizedReference = {
-      kind: reference.kind,
-      url: reference.url,
-      id: reference.id,
-    };
-    // Send multiple shapes for backend compatibility across parsers/middleware.
-    formData.append('reference', JSON.stringify(normalizedReference));
-    formData.append('reference[kind]', reference.kind);
-    formData.append('reference[url]', reference.url);
-    if (reference.id) {
-      formData.append('reference[id]', reference.id);
-    }
-  }
+  appendReferenceFields(formData, reference);
   for (const file of attachments) {
     if (!file?.uri) continue;
     const normalizedName = file.fileName ?? `attachment-${Date.now()}`;
