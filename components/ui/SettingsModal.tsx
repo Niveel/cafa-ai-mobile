@@ -10,6 +10,7 @@ import { useAppContext } from '@/context';
 import { useI18n } from '@/hooks';
 import { clearDownloadsSafUri } from '@/services/storage';
 import { AppSwitch } from './AppSwitch';
+import { AppDropdown } from './AppDropdown';
 import type { AnimationLevel } from '@/services';
 import { PersonalizationSection } from './settings/PersonalizationSection';
 import { DataControlsSection } from './settings/DataControlsSection';
@@ -40,7 +41,6 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<SettingsTabKey>('general');
-  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [generalStatusText, setGeneralStatusText] = useState('');
   const overlayOpacity = useSharedValue(0);
   const sheetTranslate = useSharedValue(26);
@@ -179,7 +179,6 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                     accessibilityLabel={tabLabel}
                     accessibilityHint={selected ? t('settings.tabSelected', { tab: tabLabel }) : t('settings.tabOpen', { tab: tabLabel })}
                     onPress={() => {
-                      setLanguageMenuOpen(false);
                       setActiveTab(tab.key);
                     }}
                     className="mr-1.5 rounded-xl px-3 py-2"
@@ -226,54 +225,15 @@ export function SettingsModal({ visible, onClose, onChatsMutated }: SettingsModa
                   <View>
                     <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>{t('settings.general.language')}</Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }}>{t('settings.general.languageHint')}</Text>
-                    <View className="relative mt-2">
-                      <Pressable
-                        accessibilityRole="button"
+                    <View className="mt-2">
+                      <AppDropdown
+                        value={language}
+                        options={supportedLanguages.map((value) => ({ value, label: getLanguageLabel(value) }))}
+                        onChange={setLanguage}
+                        colors={colors}
+                        isDark={isDark}
                         accessibilityLabel={t('settings.language.menu')}
-                        accessibilityHint={t('settings.general.languageHint')}
-                        onPress={() => setLanguageMenuOpen((prev) => !prev)}
-                        className="h-10 flex-row items-center justify-between rounded-xl border px-3"
-                        style={{ borderColor: colors.primary, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
-                      >
-                        <Text style={{ color: colors.textPrimary, fontSize: 13 }}>{getLanguageLabel(language)}</Text>
-                        <Ionicons
-                          name={languageMenuOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
-                          size={16}
-                          color={colors.textSecondary}
-                        />
-                      </Pressable>
-
-                      {languageMenuOpen ? (
-                        <View
-                          className="absolute left-0 right-0 top-11 z-50 rounded-xl border p-1"
-                          style={{ borderColor: colors.border, backgroundColor: isDark ? '#101015' : '#FFFFFF' }}
-                        >
-                          {supportedLanguages.map((value) => {
-                            const selected = value === language;
-                            const label = getLanguageLabel(value);
-                            return (
-                              <Pressable
-                                key={value}
-                                accessibilityRole="button"
-                                accessibilityState={{ selected }}
-                                accessibilityLabel={t('settings.language.option', { language: label })}
-                                onPress={() => {
-                                  setLanguage(value);
-                                  setLanguageMenuOpen(false);
-                                }}
-                                className="rounded-lg px-3 py-2"
-                                style={{
-                                  backgroundColor: selected ? `${colors.primary}20` : 'transparent',
-                                }}
-                              >
-                                <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontSize: 13, fontWeight: selected ? '700' : '500' }}>
-                                  {label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      ) : null}
+                      />
                     </View>
                   </View>
 
