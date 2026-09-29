@@ -189,9 +189,11 @@ export function AccountSection({
     setStatusText('');
     setAvatarBusy(true);
     try {
+      // Real fix: see the matching change in avatar-video.tsx -- Android's
+      // native crop screen doesn't reliably expose a confirm button for
+      // every photo, which can leave the user stuck mid-upload.
       const pickedAsset = await pickSingleImageFromLibrary(ImagePicker, {
-        allowsEditing: true,
-        aspect: [1, 1],
+        allowsEditing: false,
         quality: 0.85,
       });
 
