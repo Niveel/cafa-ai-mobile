@@ -4,7 +4,7 @@ import { router, Stack, useNavigationContainerRef, usePathname, useSegments } fr
 import { isRunningInExpoGo } from 'expo';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { Animated, AppState, Easing, Image, Linking, Platform, Text, useColorScheme, View } from 'react-native';
+import { Animated, AppState, Easing, Image, Linking, Platform, Pressable, Text, useColorScheme, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import { StripeProvider } from '@stripe/stripe-react-native';
@@ -30,6 +30,7 @@ const FALLBACK_SENTRY_DSN = 'https://e12548e44ab1ad61ccc745d909996c23@o451082800
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || FALLBACK_SENTRY_DSN;
 const SPLASH_DARK_BACKGROUND = '#10264D';
 const SPLASH_LIGHT_BACKGROUND = '#ffffff';
+const CAFA_WEB_URL = 'https://cafaai.com';
 const IS_EXPO_GO = isRunningInExpoGo();
 const IS_DEV_RUNTIME = __DEV__;
 const MAINTENANCE_CONFIG = {
@@ -212,6 +213,41 @@ function MaintenanceScreen() {
           >
             Please check back shortly. Thank you for your patience and understanding.
           </Text>
+
+          <Text
+            style={{
+              color: colors.textSecondary,
+              fontSize: 14,
+              lineHeight: 21,
+              textAlign: 'center',
+              marginTop: 18,
+              maxWidth: 420,
+            }}
+          >
+            The app is currently down, but you can continue using Cafa AI on the web in the meantime.
+          </Text>
+
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Open cafaai.com in your browser"
+            onPress={() => void Linking.openURL(CAFA_WEB_URL)}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 14,
+              borderRadius: 12,
+              paddingHorizontal: 20,
+              paddingVertical: 12,
+              backgroundColor: colors.primary,
+              opacity: pressed ? 0.78 : 1,
+            })}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800' }}>
+              Open cafaai.com
+            </Text>
+            <Ionicons name="open-outline" size={17} color="#FFFFFF" />
+          </Pressable>
 
           <View
             style={{

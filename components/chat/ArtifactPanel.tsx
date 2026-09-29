@@ -4,6 +4,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Slider from '@react-native-community/slider';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '@/hooks';
 import { ImageGenerationPlaceholder } from './ImageGenerationPlaceholder';
 import { VideoGenerationPlaceholder } from './VideoGenerationPlaceholder';
@@ -21,6 +22,7 @@ type ArtifactPanelProps = {
   artifacts: UiArtifactItem[];
   onClose: () => void;
   onDownload: (artifact: UiArtifactItem) => void;
+  onOpenDocument: (artifact: UiArtifactItem) => void;
   onDelete: (artifact: UiArtifactItem) => Promise<void>;
   // Real parity port of web's handleSelectArtifact (ChatShell.tsx:651-668):
   // on the dedicated Edit Image / Image-to-Video screens, tapping an
@@ -28,6 +30,38 @@ type ArtifactPanelProps = {
   // for the next edit/animate request). Only passed on those screens.
   onSelect?: (artifact: UiArtifactItem) => void;
 };
+
+function documentIcon(artifact: UiArtifactItem): keyof typeof Ionicons.glyphMap {
+  const value = `${artifact.name ?? ''} ${artifact.mimeType ?? ''} ${artifact.url ?? ''}`.toLowerCase();
+  if (value.includes('.pdf') || value.includes('application/pdf')) return 'document-attach-outline';
+  if (
+    value.includes('.doc')
+    || value.includes('msword')
+    || value.includes('wordprocessingml')
+  ) return 'document-text-outline';
+  return 'document-outline';
+}
+
+function artifactDisplayName(artifact: UiArtifactItem) {
+  const explicitName = artifact.name?.trim();
+  if (explicitName) return explicitName;
+
+  if (artifact.url) {
+    try {
+      const pathName = artifact.url.split(/[?#]/, 1)[0];
+      const fileName = decodeURIComponent(pathName.split('/').pop() ?? '').trim();
+      if (fileName && /\.[a-z0-9]{2,8}$/i.test(fileName)) return fileName;
+    } catch {
+      // Fall through to a friendly type-based label for malformed URLs.
+    }
+  }
+
+  const value = `${artifact.mimeType ?? ''} ${artifact.url ?? ''}`.toLowerCase();
+  if (value.includes('pdf')) return 'Generated PDF';
+  if (value.includes('docx') || value.includes('wordprocessingml')) return 'Generated DOCX';
+  if (value.includes('.doc') || value.includes('msword')) return 'Generated DOC';
+  return artifact.kind === 'document' ? 'Generated document' : `Generated ${artifact.kind}`;
+}
 
 const ArtifactVideoView = ({ uri }: { uri: string }) => {
   const player = useVideoPlayer(uri, (instance) => {
@@ -75,8 +109,9 @@ const BeforeAfterSlider = ({ beforeUrl, afterUrl }: { beforeUrl: string; afterUr
   );
 };
 
-export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onDelete, onSelect }: ArtifactPanelProps) {
+export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onOpenDocument, onDelete, onSelect }: ArtifactPanelProps) {
   const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [deleting, setDeleting] = useState(false);
@@ -109,9 +144,24 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onDelet
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: isDark ? '#0B0B0D' : '#FFFFFF' }}>
-        <View style={[styles.header, { borderBottomColor: cardBorder }]}>
+        <View
+          style={[
+            styles.header,
+            {
+              minHeight: 56 + insets.top,
+              paddingTop: insets.top,
+              borderBottomColor: cardBorder,
+            },
+          ]}
+        >
           <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>Artifacts</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close artifacts panel">
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close artifacts panel"
+            hitSlop={10}
+            style={styles.closeButton}
+          >
             <Ionicons name="close" size={22} color={colors.textPrimary} />
           </Pressable>
         </View>
@@ -141,7 +191,52 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onDelet
                         This didn&rsquo;t generate successfully.
                       </Text>
                     </View>
-                  ) : !selected.url ? null : selected.kind === 'image' ? (
+                  ) : selected.kind === 'document' ? (
+                    <View style={{ flex: 1 }}>
+                      <View style={[styles.toolbar, { borderBottomColor: cardBorder, justifyContent: 'flex-end' }]}>
+                        <Pressable onPress={() => onDownload(selected)} style={[styles.toolbarButton, { borderColor: cardBorder }]}>
+                          <Ionicons name="download-outline" size={16} color={colors.textPrimary} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => confirmDelete(selected)}
+                          disabled={deleting}
+                          style={[styles.toolbarButton, { borderColor: cardBorder }]}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                        </Pressable>
+                      </View>
+                      <Pressable
+                        onPress={() => onOpenDocument(selected)}
+                        disabled={!selected.url}
+                        accessibilityRole="link"
+                        accessibilityLabel={`Open ${artifactDisplayName(selected)}`}
+                        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}
+                      >
+                        {selected.thumbnailUrl ? (
+                          <ExpoImage
+                            source={{ uri: selected.thumbnailUrl }}
+                            style={{ width: 220, height: 280, borderRadius: 12, backgroundColor: isDark ? '#1A1A1E' : '#EEE' }}
+                            contentFit="contain"
+                          />
+                        ) : (
+                          <View style={[styles.documentFallback, { backgroundColor: isDark ? '#1A1A1E' : '#F1F3F6', borderColor: cardBorder }]}>
+                            <Ionicons name={documentIcon(selected)} size={54} color={colors.primary} />
+                          </View>
+                        )}
+                        <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>
+                          {artifactDisplayName(selected)}
+                        </Text>
+                        <Text style={{ color: selected.url ? colors.primary : mutedText, fontSize: 12, fontWeight: '600' }}>
+                          {selected.url ? 'Tap to open document' : 'Document unavailable'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : !selected.url ? (
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 }}>
+                      <Ionicons name="alert-circle-outline" size={40} color={mutedText} />
+                      <Text style={{ color: mutedText, fontSize: 13, textAlign: 'center' }}>Preview unavailable.</Text>
+                    </View>
+                  ) : selected.kind === 'image' ? (
                     <View style={{ flex: 1 }}>
                       <View style={[styles.toolbar, { borderBottomColor: cardBorder }]}>
                         <Pressable
@@ -221,53 +316,76 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onDelet
                         </Text>
                       </View>
                     </View>
-                  ) : (
-                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}>
-                      <Ionicons name="document-text-outline" size={40} color={mutedText} />
-                      <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
-                        {selected.name || 'Generated file'}
-                      </Text>
-                      <Pressable
-                        onPress={() => onDownload(selected)}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#7C3AED', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }}
-                      >
-                        <Ionicons name="download-outline" size={16} color="#FFFFFF" />
-                        <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Download</Text>
-                      </Pressable>
-                    </View>
-                  )}
+                  ) : null}
                 </View>
               ) : null}
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.thumbStrip, { borderTopColor: cardBorder }]}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[
+                styles.thumbStrip,
+                {
+                  maxHeight: 94 + insets.bottom,
+                  borderTopColor: cardBorder,
+                },
+              ]}
+              contentContainerStyle={{
+                paddingHorizontal: 10,
+                paddingTop: 10,
+                paddingBottom: 10 + insets.bottom,
+              }}
+            >
               {artifacts.map((artifact) => (
                 <Pressable
                   key={artifact.id}
                   onPress={() => {
+                    if (artifact.kind === 'document') {
+                      onOpenDocument(artifact);
+                      return;
+                    }
                     setSelectedId(artifact.id);
                     setZoom(1);
                   }}
+                  accessibilityRole={artifact.kind === 'document' ? 'link' : 'button'}
+                  accessibilityLabel={artifact.kind === 'document' ? `Open ${artifactDisplayName(artifact)}` : `View ${artifact.kind}`}
                   style={[
-                    styles.thumb,
-                    { borderColor: artifact.id === selected?.id ? '#7C3AED' : 'transparent' },
+                    styles.thumbTile,
                   ]}
                 >
-                  {artifact.generating ? (
-                    <View style={[styles.thumbFallback, { backgroundColor: 'rgba(124,58,237,0.12)' }]}>
-                      <Ionicons name="hourglass-outline" size={18} color="#7C3AED" />
-                    </View>
-                  ) : artifact.kind === 'image' && artifact.url ? (
-                    <ExpoImage source={{ uri: artifact.url }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
-                  ) : artifact.kind === 'video' && artifact.url ? (
-                    <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
-                      <Ionicons name="videocam-outline" size={18} color={mutedText} />
-                    </View>
-                  ) : (
-                    <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
-                      <Ionicons name="document-outline" size={18} color={mutedText} />
-                    </View>
-                  )}
+                  <View
+                    style={[
+                      styles.thumb,
+                      { borderColor: artifact.id === selected?.id ? '#7C3AED' : 'transparent' },
+                    ]}
+                  >
+                    {artifact.generating ? (
+                      <View style={[styles.thumbFallback, { backgroundColor: 'rgba(124,58,237,0.12)' }]}>
+                        <Ionicons name="hourglass-outline" size={18} color="#7C3AED" />
+                      </View>
+                    ) : artifact.kind === 'image' && artifact.url ? (
+                      <ExpoImage source={{ uri: artifact.url }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                    ) : artifact.kind === 'video' && artifact.url ? (
+                      <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
+                        <Ionicons name="videocam-outline" size={18} color={mutedText} />
+                      </View>
+                    ) : artifact.kind === 'document' && artifact.thumbnailUrl ? (
+                      <ExpoImage source={{ uri: artifact.thumbnailUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                    ) : (
+                      <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
+                        <Ionicons name={documentIcon(artifact)} size={20} color={colors.primary} />
+                      </View>
+                    )}
+                  </View>
+                  {artifact.kind === 'document' ? (
+                    <Text
+                      numberOfLines={1}
+                      style={{ width: 78, marginTop: 4, color: colors.textSecondary, fontSize: 10, textAlign: 'center' }}
+                    >
+                      {artifactDisplayName(artifact)}
+                    </Text>
+                  ) : null}
                 </Pressable>
               ))}
             </ScrollView>
@@ -280,13 +398,18 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onDelet
 
 const styles = StyleSheet.create({
   header: {
-    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingTop: 4,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toolbar: {
     flexDirection: 'row',
@@ -305,9 +428,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   thumbStrip: {
-    maxHeight: 74,
     borderTopWidth: StyleSheet.hairlineWidth,
-    padding: 10,
   },
   thumb: {
     width: 54,
@@ -315,11 +436,23 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 2,
     overflow: 'hidden',
-    marginRight: 10,
+  },
+  thumbTile: {
+    width: 84,
+    alignItems: 'center',
+    marginRight: 6,
   },
   thumbFallback: {
     width: '100%',
     height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  documentFallback: {
+    width: 180,
+    height: 220,
+    borderRadius: 16,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
