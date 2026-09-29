@@ -138,6 +138,7 @@ export default function DrawerLayout() {
         name="cafa-life"
         options={{
           title: t('drawer.cafaLife'),
+          drawerItemStyle: { display: 'none' },
         }}
       />
       <Drawer.Screen
