@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, LayoutAnimation, Pressable, Text, TextInput, View } from 'react-native';
 import { DrawerContentComponentProps } from '@react-navigation/drawer';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
@@ -111,10 +111,16 @@ const ChatRow = memo(function ChatRow({
   const cardBg = active ? `${activeTint}1F` : 'transparent';
   const cardBorder = active || menuOpen ? activeTint : borderColor;
 
+  // Real fix: Ionicons' "pin"/"pin-outline" are map-marker teardrops (meant
+  // for locations), not the thumbtack shape users expect for a "pinned"
+  // indicator -- it read as an odd, off-brand glyph. MaterialIcons'
+  // "push-pin" is the actual thumbtack (matches Gmail/Slack/WhatsApp's own
+  // pin iconography), so just that one action uses a different icon family.
   const actions: {
     key: string;
     label: string;
     icon: keyof typeof Ionicons.glyphMap;
+    materialIcon?: keyof typeof MaterialIcons.glyphMap;
     danger?: boolean;
     onPress: () => void;
   }[] = [
@@ -122,7 +128,8 @@ const ChatRow = memo(function ChatRow({
     {
       key: 'pin',
       label: isPinned ? t('drawer.unpin') : t('drawer.pin'),
-      icon: isPinned ? 'pin-outline' : 'pin',
+      icon: 'pin',
+      materialIcon: 'push-pin',
       onPress: () => onPin(item.id),
     },
     ...(isAuthenticated
@@ -154,16 +161,26 @@ const ChatRow = memo(function ChatRow({
             style={{ backgroundColor: activeTint }}
           />
         ) : null}
+        {/* Real fix: the menu button used to be a normal flex sibling of this
+            Pressable (text flex:1, button fixed width) expecting Yoga to push
+            it flush against the row's right edge. On device that flex
+            distribution didn't resolve reliably inside this recycled FlatList
+            row -- the button could render with a large gap before the real
+            right edge instead of pinned to it. Positioning the button
+            `absolute` against this row (which is `position: relative`)
+            removes it from that flex calculation entirely, so it is always
+            flush right regardless. The fixed `paddingRight` here reserves its
+            width so long titles/previews still truncate before reaching it. */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('drawer.openChat', { title: item.title })}
           accessibilityHint={t('drawer.openChatHint')}
           onPress={() => onPress(item.id)}
           style={({ pressed }) => ({
-            width: '100%',
+            flex: 1,
             minWidth: 0,
             paddingLeft: active ? 8 : 2,
-            paddingRight: 56,
+            paddingRight: 40,
             paddingVertical: 4,
             opacity: pressed ? 0.9 : 1,
           })}
@@ -171,12 +188,12 @@ const ChatRow = memo(function ChatRow({
           <View style={{ minHeight: 40, justifyContent: 'center', width: '100%', maxWidth: '100%' }}>
             <View className="flex-row items-center" style={{ minWidth: 0 }}>
               {isPinned ? (
-                <Ionicons name="pin" size={11} color={activeTint} style={{ marginRight: 6 }} />
+                <MaterialIcons name="push-pin" size={12} color={activeTint} style={{ marginRight: 6 }} />
               ) : null}
               <Text
                 numberOfLines={1}
                 ellipsizeMode="tail"
-                style={{ color: textPrimary, fontWeight: '600', fontSize: 12, lineHeight: 16, flexShrink: 1, minWidth: 0 }}
+                style={{ color: textPrimary, fontWeight: '600', fontSize: 14, lineHeight: 18, flexShrink: 1, minWidth: 0 }}
               >
                 {item.title}
               </Text>
@@ -184,7 +201,7 @@ const ChatRow = memo(function ChatRow({
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              style={{ marginTop: 4, color: textSecondary, fontSize: 11, lineHeight: 14, minWidth: 0 }}
+              style={{ marginTop: 4, color: textSecondary, fontSize: 13, lineHeight: 17, flexShrink: 1, minWidth: 0 }}
             >
               {item.preview}
             </Text>
@@ -197,18 +214,18 @@ const ChatRow = memo(function ChatRow({
           accessibilityHint={t('drawer.chatMenuHint')}
           accessibilityState={{ expanded: menuOpen }}
           onPress={() => onToggleMenu(item.id)}
-          className="absolute items-center justify-center rounded-full"
+          className="items-center justify-center rounded-full"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{
-            right: 10,
+            position: 'absolute',
+            right: 8,
             top: '50%',
-            transform: [{ translateY: -16 }],
+            marginTop: -16,
             width: 32,
             height: 32,
             borderWidth: 1,
             borderColor: active ? activeTint : borderColor,
             backgroundColor: active ? activeTint : '#16161A',
-            zIndex: 2,
           }}
           android_ripple={{ color: `${activeTint}30`, borderless: false }}
         >
@@ -242,10 +259,14 @@ const ChatRow = memo(function ChatRow({
                 className="flex-1 items-center justify-center rounded-xl py-2"
                 style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
               >
-                <Ionicons name={action.icon} size={17} color={color} />
+                {action.materialIcon ? (
+                  <MaterialIcons name={action.materialIcon} size={17} color={color} />
+                ) : (
+                  <Ionicons name={action.icon} size={17} color={color} />
+                )}
                 <Text
                   numberOfLines={1}
-                  style={{ color, marginTop: 4, fontSize: 11, fontWeight: action.danger ? '600' : '500' }}
+                  style={{ color, marginTop: 4, fontSize: 12, fontWeight: action.danger ? '600' : '500' }}
                 >
                   {action.label}
                 </Text>
