@@ -26,7 +26,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, type Href } from 'expo-router';
 
-import { AppButton, AppPromptModal, AppScreen, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
+import { AppButton, AppPromptModal, AppScreen, AppSwitch, ChatVideoCard, RequireAuthRoute, VoiceCloneRecorderModal } from '@/components';
 import { pickRandomAvatarScriptPreset } from '@/features/avatar/data/avatarRandomScriptPool';
 import {
   cloneAvatarVoice,
@@ -1194,7 +1194,13 @@ export default function AvatarVideoScreen() {
     try {
       setIsUploadingAvatar(true);
       setErrorMessage('');
-      const picked = await pickSingleImageFromLibrary(ExpoImagePicker, { allowsEditing: true, quality: 0.9, aspect: [4, 5] });
+      // Real fix: Android's native crop screen (allowsEditing: true) doesn't
+      // reliably show its confirm button for every photo -- for some image
+      // dimensions the button renders off-screen or not at all, leaving the
+      // user stuck with no way to finish picking a photo. Chat's own image
+      // upload already avoids this (allowsEditing: false everywhere else in
+      // the app); this upload just hadn't been aligned yet.
+      const picked = await pickSingleImageFromLibrary(ExpoImagePicker, { allowsEditing: false, quality: 0.9 });
       if (!picked) return;
 
       const mimeType = picked.mimeType?.trim().toLowerCase() || 'image/jpeg';
@@ -1698,7 +1704,7 @@ export default function AvatarVideoScreen() {
 
   return (
     <RequireAuthRoute>
-      <AppScreen title={t('avatarVideo.title.avatarVideo')}>
+      <AppScreen title={t('avatarVideo.title.avatarVideo')} onBackPress={() => router.replace('/(drawer)/tools')}>
         <AppPromptModal
           visible={isCancelGenerationPromptVisible}
           title={t('avatarVideo.title.cancelAvatarVideo')}
@@ -2553,40 +2559,77 @@ export default function AvatarVideoScreen() {
               colors={colors}
               isDark={isDark}
             >
-            <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-              {' '}{t('avatarVideo.ui.filterVoices')}{' '}</Text>
-            <View className="mt-2 flex-row flex-wrap">
-              {VOICE_GENDER_FILTERS.map((entry) => (
-                <FilterChip
-                  key={entry.label}
-                  label={entry.label}
-                  selected={voiceGenderFilter === entry.value}
-                  onPress={() => setVoiceGenderFilter(entry.value)}
-                  colors={colors}
-                  isDark={isDark}
-                />
-              ))}
-            </View>
-            <View className="mt-1 flex-row flex-wrap">
-              {VOICE_CATEGORY_FILTERS.map((entry) => (
-                <FilterChip
-                  key={entry.label}
-                  label={entry.label}
-                  selected={voiceCategoryFilter === entry.value}
-                  onPress={() => setVoiceCategoryFilter(entry.value)}
-                  colors={colors}
-                  isDark={isDark}
-                />
-              ))}
-            </View>
-            <View className="mt-1 flex-row">
-              <FilterChip
-                label={t('avatarVideo.label.popularOnly')}
-                selected={popularOnly}
-                onPress={() => setPopularOnly((current) => !current)}
-                colors={colors}
-                isDark={isDark}
-              />
+            {/* Real fix: gender, category and "popular only" used to run
+                together as three unlabeled, minimally-spaced chip rows with
+                no visual grouping -- it wasn't clear what filtered what.
+                Grouped into one bordered "Filters" card with a labeled
+                sub-section per filter type and a one-tap reset, matching
+                how filter panels on web (e.g. marketplace/search filters)
+                separate facets. */}
+            <View
+              className="mt-2 rounded-2xl border p-3"
+              style={{ borderColor: colors.border, backgroundColor: isDark ? '#11151D' : '#F8FAFC' }}
+            >
+              <View className="flex-row items-center justify-between">
+                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                  {t('avatarVideo.ui.filterVoices')}
+                </Text>
+                {voiceGenderFilter || voiceCategoryFilter || popularOnly ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Reset voice filters"
+                    hitSlop={8}
+                    onPress={() => {
+                      setVoiceGenderFilter('');
+                      setVoiceCategoryFilter('');
+                      setPopularOnly(false);
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Reset</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '700', marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Gender
+              </Text>
+              <View className="mt-2 flex-row flex-wrap">
+                {VOICE_GENDER_FILTERS.map((entry) => (
+                  <FilterChip
+                    key={entry.label}
+                    label={entry.label}
+                    selected={voiceGenderFilter === entry.value}
+                    onPress={() => setVoiceGenderFilter(entry.value)}
+                    colors={colors}
+                    isDark={isDark}
+                  />
+                ))}
+              </View>
+
+              <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '700', marginTop: 8, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                Category
+              </Text>
+              <View className="mt-2 flex-row flex-wrap">
+                {VOICE_CATEGORY_FILTERS.map((entry) => (
+                  <FilterChip
+                    key={entry.label}
+                    label={entry.label}
+                    selected={voiceCategoryFilter === entry.value}
+                    onPress={() => setVoiceCategoryFilter(entry.value)}
+                    colors={colors}
+                    isDark={isDark}
+                  />
+                ))}
+              </View>
+
+              <View style={{ height: 1, backgroundColor: colors.border, opacity: 0.6, marginTop: 12, marginBottom: 10 }} />
+
+              <View className="flex-row items-center justify-between">
+                <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
+                  {t('avatarVideo.label.popularOnly')}
+                </Text>
+                <AppSwitch value={popularOnly} onValueChange={setPopularOnly} />
+              </View>
             </View>
 
             <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginTop: 10 }}>
@@ -2926,38 +2969,65 @@ export default function AvatarVideoScreen() {
           </View>
           </LinearGradient>
 
-          {activeJobMeta ? (
+          {/* Real fix: this used to render inline, below the Generate button
+              and the Back/Next toolbar -- on anything but a tall screen the
+              user had to scroll down to even notice their request was being
+              processed. A centered modal guarantees it's the first thing
+              visible the instant generation starts, on any screen size,
+              without touching the wizard's own layout underneath. It's
+              intentionally not dismissable by tapping outside or the
+              hardware back button -- only "Cancel Generation" ends it -- so
+              progress can't be lost by an accidental tap. */}
+          <Modal
+            visible={Boolean(activeJobMeta)}
+            transparent
+            animationType="fade"
+            statusBarTranslucent
+            onRequestClose={() => {}}
+          >
             <View
-              accessibilityViewIsModal
-              className="mb-4 rounded-[28px] border px-5 py-5"
               style={{
-                borderColor: colors.primary,
-                backgroundColor: isDark ? '#0B1320' : '#F8FAFF',
+                flex: 1,
+                justifyContent: 'center',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                backgroundColor: isDark ? 'rgba(4, 6, 12, 0.82)' : 'rgba(15, 23, 42, 0.5)',
               }}
             >
-              <AvatarGenerationLoader colors={colors} isDark={isDark} status={activeJobStatus?.status} />
-              <Text
-                className="mt-5 text-center"
-                style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}
+              <View
+                accessibilityViewIsModal
+                accessibilityRole="alert"
+                className="w-full rounded-[28px] border px-5 py-6"
+                style={{
+                  maxWidth: 420,
+                  borderColor: colors.primary,
+                  backgroundColor: isDark ? '#0B1320' : '#F8FAFF',
+                }}
               >
-                {' '}{t('avatarVideo.ui.generatingYourAvatarVideo')}{' '}</Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 10 }}>
-                {statusMessageForAvatarJob(activeJobStatus?.status)}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8 }}>
-                {' '}{t('avatarVideo.ui.thisProcessUsuallyTakes5To10')}{' '}</Text>
-              <View style={{ marginTop: 16 }}>
-                <AppButton
-                  label={isCancellingGeneration ? 'Cancelling...' : 'Cancel Generation'}
-                  iconName="close-circle-outline"
-                  compact
-                  variant="outline"
-                  loading={isCancellingGeneration}
-                  onPress={cancelGeneration}
-                />
+                <AvatarGenerationLoader colors={colors} isDark={isDark} status={activeJobStatus?.status} />
+                <Text
+                  className="mt-5 text-center"
+                  style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '800' }}
+                >
+                  {' '}{t('avatarVideo.ui.generatingYourAvatarVideo')}{' '}</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 10, textAlign: 'center' }}>
+                  {statusMessageForAvatarJob(activeJobStatus?.status)}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 8, textAlign: 'center' }}>
+                  {' '}{t('avatarVideo.ui.thisProcessUsuallyTakes5To10')}{' '}</Text>
+                <View style={{ marginTop: 16 }}>
+                  <AppButton
+                    label={isCancellingGeneration ? 'Cancelling...' : 'Cancel Generation'}
+                    iconName="close-circle-outline"
+                    compact
+                    variant="outline"
+                    loading={isCancellingGeneration}
+                    onPress={cancelGeneration}
+                  />
+                </View>
               </View>
             </View>
-          ) : null}
+          </Modal>
 
           {currentResult?.status.videoUrl ? (
             <SectionCard
