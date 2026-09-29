@@ -759,7 +759,7 @@ export default function VoiceScreen() {
 
   return (
     <RequireAuthRoute>
-      <AppScreen title={t('textToSpeech.title.textToSpeech')}>
+      <AppScreen title={t('textToSpeech.title.textToSpeech')} onBackPress={() => router.replace('/(drawer)/tools')}>
         <VoiceCloneRecorderModal
           visible={isCloneModalVisible}
           title={t('textToSpeech.title.cloneMyVoice')}

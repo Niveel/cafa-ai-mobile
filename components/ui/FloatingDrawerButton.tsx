@@ -111,7 +111,7 @@ export function FloatingDrawerButton() {
           shadowRadius: 4,
         })}
       >
-        <Ionicons name="menu" size={24} color={colors.textPrimary} />
+        <Ionicons name={isDrawerOpen ? 'close' : 'menu'} size={24} color={colors.textPrimary} />
       </Pressable>
     );
   }
@@ -154,7 +154,7 @@ export function FloatingDrawerButton() {
             importantForAccessibility="no-hide-descendants"
             className="absolute inset-0 rounded-full border border-white/35 bg-white/10"
           />
-          <FancyMenuGlyph />
+          {isDrawerOpen ? <Ionicons name="close" size={24} color="#FFFFFF" /> : <FancyMenuGlyph />}
           <View
             accessible={false}
             importantForAccessibility="no-hide-descendants"

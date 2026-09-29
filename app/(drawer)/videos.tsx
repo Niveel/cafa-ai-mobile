@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -639,7 +639,11 @@ export default function VideosScreen() {
           }}
         />
 
-        <SecondaryNav title={t('drawer.videos')} topOffset={Math.max(insets.top, 0)} />
+        <SecondaryNav
+          title={t('drawer.videos')}
+          topOffset={Math.max(insets.top, 0)}
+          onBackPress={() => router.replace('/(drawer)/repo')}
+        />
         <View className="mb-2 mt-1">
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.videosSubtitle')}

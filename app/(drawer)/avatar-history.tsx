@@ -141,7 +141,7 @@ export default function AvatarHistoryScreen() {
 
   return (
     <RequireAuthRoute>
-      <AppScreen title="Avatar History">
+      <AppScreen title="Avatar History" onBackPress={() => router.replace('/(drawer)/avatar-video')}>
         <ScrollView
           ref={historyScrollRef}
           showsVerticalScrollIndicator={false}

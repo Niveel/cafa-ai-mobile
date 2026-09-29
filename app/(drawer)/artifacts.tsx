@@ -436,7 +436,11 @@ export default function ArtifactsScreen() {
           }}
         />
 
-        <SecondaryNav title={t('drawer.artifacts')} topOffset={Math.max(insets.top, 0)} />
+        <SecondaryNav
+          title={t('drawer.artifacts')}
+          topOffset={Math.max(insets.top, 0)}
+          onBackPress={() => router.replace('/(drawer)/repo')}
+        />
         <View className="mb-2 mt-1">
           <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
             {t('screen.artifactsSubtitle')}

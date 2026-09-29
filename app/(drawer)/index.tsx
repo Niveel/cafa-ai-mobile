@@ -6604,6 +6604,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       showHeading={false}
       contentTopOffset={-12}
       topAuthRightContent={topBarModelSwitcher}
+      // Real fix: image-to-video and edit-image are dedicated "tool" entry
+      // points into this same chat screen (screenMode), reached from the
+      // Tools hub -- but this screen is also the drawer's default route
+      // (plain chat), so it can't unconditionally show a back button.
+      // Only the dedicated-tool modes get one, routed to Tools; plain chat
+      // keeps the drawer toggle.
+      onBackPress={isDedicatedMediaScreen ? () => router.replace('/(drawer)/tools') : undefined}
     >
       <Modal
         visible={uploadOptionModalVisible}
