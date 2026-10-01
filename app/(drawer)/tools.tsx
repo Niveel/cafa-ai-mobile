@@ -9,13 +9,21 @@ import { useAppTheme, useDailyInterstitialAd, useI18n } from '@/hooks';
 type ToolCard = {
   titleKey: string;
   descriptionKey: string;
-  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice';
+  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice' | '/(drawer)/cafa-life';
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
   eyebrowKey: string;
 };
 
 const TOOL_CARDS: ToolCard[] = [
+  {
+    titleKey: 'drawer.cafaLife',
+    descriptionKey: 'screen.cafaLifeSubtitle',
+    route: '/(drawer)/cafa-life',
+    icon: 'radio-outline',
+    accent: '#204079',
+    eyebrowKey: 'chat.cafaLive.short',
+  },
   {
     titleKey: 'tools.card.avatar.title',
     descriptionKey: 'tools.card.avatar.description',
