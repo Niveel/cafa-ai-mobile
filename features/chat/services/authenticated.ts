@@ -60,7 +60,7 @@ type AuthConversationDetailDto = {
       args?: Record<string, unknown>;
       ok: boolean;
       products?: { query: string; items: import('@/components/chat').UiMessageProduct[] };
-      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string; name?: string; fileName?: string; mimeType?: string; thumbnailUrl?: string };
       widget?: import('@/components/chat').UiWidgetSpec;
       label?: string;
     }[];
@@ -121,7 +121,7 @@ export type AuthConversationDetail = {
       args?: Record<string, unknown>;
       ok: boolean;
       products?: { query: string; items: import('@/components/chat').UiMessageProduct[] };
-      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string; name?: string; fileName?: string; mimeType?: string; thumbnailUrl?: string };
       widget?: import('@/components/chat').UiWidgetSpec;
       label?: string;
     }[];
@@ -160,7 +160,7 @@ export type AuthChatStreamEvent =
   | { type: 'products'; query?: string; items?: import('@/components/chat').UiMessageProduct[] }
   | { type: 'sandbox_session'; sessionId: string }
   | { type: 'upgrade_prompt'; reason: string; feature: string }
-  | { type: 'media'; kind: 'image' | 'video' | 'file'; url: string; name?: string; size?: number };
+  | { type: 'media'; kind: 'image' | 'video' | 'file'; url: string; name?: string; size?: number; mimeType?: string; thumbnailUrl?: string };
 type AuthSendDebugEvent =
   | { stage: 'start'; endpoint: string; idempotencyKey: string; platform: string; transport: 'xhr' | 'fetch-web' }
   | { stage: 'response'; endpoint: string; idempotencyKey: string; status: number; contentType: string | null; transport: string }

@@ -104,7 +104,7 @@ export async function saveMediaToCafaAlbum(localFileUri: string) {
   }
 }
 
-async function resolveCafaDownloadsFolderUri() {
+async function resolveCafaDownloadsFolderUri(forcePicker = false) {
   if (Platform.OS !== 'android') {
     throw new Error('Downloads folder save is available on Android only.');
   }
@@ -113,7 +113,7 @@ async function resolveCafaDownloadsFolderUri() {
   const rootDownloadsUri = StorageAccessFramework.getUriForDirectoryInRoot('Download');
 
   const cached = await getDownloadsSafUri();
-  if (cached) {
+  if (cached && !forcePicker) {
     try {
       await StorageAccessFramework.readDirectoryAsync(cached);
       return cached;
@@ -179,8 +179,6 @@ export async function changeDownloadsFolder() {
     throw new Error('Changing the download folder is supported on Android only.');
   }
 
-  // Remove the cached SAF permission first so the resolver must present the
-  // native directory picker instead of silently reusing the old location.
-  await clearDownloadsSafUri();
-  return resolveCafaDownloadsFolderUri();
+  // Replace the stored location only after a new selection succeeds.
+  return resolveCafaDownloadsFolderUri(true);
 }

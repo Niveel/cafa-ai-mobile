@@ -115,6 +115,7 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onOpenD
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [deleting, setDeleting] = useState(false);
+  const [failedPreviews, setFailedPreviews] = useState<Record<string, boolean>>({});
 
   const selected = artifacts.find((a) => a.id === selectedId) ?? artifacts[artifacts.length - 1] ?? null;
   const mutedText = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)';
@@ -212,11 +213,12 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onOpenD
                         accessibilityLabel={`Open ${artifactDisplayName(selected)}`}
                         style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}
                       >
-                        {selected.thumbnailUrl ? (
+                        {selected.thumbnailUrl && !failedPreviews[selected.thumbnailUrl] ? (
                           <ExpoImage
                             source={{ uri: selected.thumbnailUrl }}
                             style={{ width: 220, height: 280, borderRadius: 12, backgroundColor: isDark ? '#1A1A1E' : '#EEE' }}
                             contentFit="contain"
+                            onError={() => setFailedPreviews((previous) => ({ ...previous, [selected.thumbnailUrl!]: true }))}
                           />
                         ) : (
                           <View style={[styles.documentFallback, { backgroundColor: isDark ? '#1A1A1E' : '#F1F3F6', borderColor: cardBorder }]}>
@@ -341,7 +343,9 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onOpenD
                 <Pressable
                   key={artifact.id}
                   onPress={() => {
+                    setSelectedId(artifact.id);
                     if (artifact.kind === 'document') {
+                      if (artifact.generating || artifact.failed || !artifact.url) return;
                       onOpenDocument(artifact);
                       return;
                     }
@@ -370,8 +374,13 @@ export function ArtifactPanel({ visible, artifacts, onClose, onDownload, onOpenD
                       <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
                         <Ionicons name="videocam-outline" size={18} color={mutedText} />
                       </View>
-                    ) : artifact.kind === 'document' && artifact.thumbnailUrl ? (
-                      <ExpoImage source={{ uri: artifact.thumbnailUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                    ) : artifact.kind === 'document' && artifact.thumbnailUrl && !failedPreviews[artifact.thumbnailUrl] ? (
+                      <ExpoImage
+                        source={{ uri: artifact.thumbnailUrl }}
+                        style={{ width: '100%', height: '100%' }}
+                        contentFit="cover"
+                        onError={() => setFailedPreviews((previous) => ({ ...previous, [artifact.thumbnailUrl!]: true }))}
+                      />
                     ) : (
                       <View style={[styles.thumbFallback, { backgroundColor: isDark ? '#1A1A1E' : '#EEE' }]}>
                         <Ionicons name={documentIcon(artifact)} size={20} color={colors.primary} />
