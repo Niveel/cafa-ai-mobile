@@ -29,7 +29,7 @@ const ADMOB_IOS_APP_ID = validAdMobAppId(
 const config: ExpoConfig = {
   name: 'Cafa AI',
   slug: 'cafa-ai',
-  version: '2.4.6',
+  version: '2.4.5',
   platforms: ['android', 'ios'],
   orientation: 'portrait',
   icon: './assets/images/icon.png',
@@ -84,6 +84,7 @@ const config: ExpoConfig = {
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: 'com.shopwit.cafaai',
+    versionCode: 69,
     intentFilters: [
       {
         action: 'VIEW',
