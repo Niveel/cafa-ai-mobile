@@ -175,3 +175,20 @@ for repro: signed in as `karimnurudeen13@gmail.com`, conversation `6ab9f1cb68a91
 call with a working `mediaRef.url` that `GET /artifacts` still misses entirely.
 
 Writing Tools (AI detection, humanize) are hidden in the mobile UI for now, so they're not tracked here.
+
+## Stopping a chat turn does not cancel it server-side
+
+The mobile app has a Stop button (it aborts the SSE request, same as the web's Stop). For plain text
+that is fine, but for tool turns it is not a real cancel: when a user stops a `generate_image` /
+`generate_video` / `generate_document` turn, the backend keeps running the tool, saves the result
+on the message's `toolCalls[].mediaRef`, and charges the credits/daily allowance. Seen on device:
+stop "image of a nuclear family", the queued "image of an apple" starts, and after it finishes a
+conversation re-read returns both images.
+
+Mobile now hides the late result of a turn the user stopped (kept per assistant message id), so the
+chat stays consistent, but the image still exists in the account (Images/Repo screens) and the credit
+is still spent.
+
+Needs backend: treat a client disconnect during a tool call as a cancel (abort the provider call,
+don't persist the result, don't charge), or expose an explicit `POST /chat/:id/messages/:messageId/cancel`
+that mobile can call from Stop.
