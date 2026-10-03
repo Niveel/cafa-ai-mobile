@@ -35,15 +35,22 @@ export function TopAuthNav({ authenticatedRightContent }: TopAuthNavProps) {
         }}
         >
         <View className="flex-row items-center justify-between px-1">
-          <View className="flex-row items-center pr-2">
+          {/* The brand side gives way first on narrow screens (truncates), so the
+              controls on the right always stay inside the bar. */}
+          <View className="flex-row items-center pr-2" style={{ flexShrink: 1, minWidth: 0 }}>
             <View style={{ marginRight: 6 }}>
               <AppLogo size={20} compact showWordmark={false} />
             </View>
-            <Text numberOfLines={1} style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }} accessibilityRole="text">
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.1}
+              style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700', flexShrink: 1 }}
+              accessibilityRole="text"
+            >
               {t('app.name')}
             </Text>
           </View>
-          <View className="flex-row items-center gap-1">
+          <View className="flex-row items-center gap-1" style={{ flexShrink: 0 }}>
             {!isAuthenticated ? (
               <>
                 <AppButton

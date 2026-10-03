@@ -161,31 +161,22 @@ const ChatRow = memo(function ChatRow({
             style={{ backgroundColor: activeTint }}
           />
         ) : null}
-        {/* Real fix: the menu button used to be a normal flex sibling of this
-            Pressable (text flex:1, button fixed width) expecting Yoga to push
-            it flush against the row's right edge. On device that flex
-            distribution didn't resolve reliably inside this recycled FlatList
-            row -- the button could render with a large gap before the real
-            right edge instead of pinned to it. Positioning the button
-            `absolute` against this row (which is `position: relative`)
-            removes it from that flex calculation entirely, so it is always
-            flush right regardless. The fixed `paddingRight` here reserves its
-            width so long titles/previews still truncate before reaching it. */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('drawer.openChat', { title: item.title })}
-          accessibilityHint={t('drawer.openChatHint')}
-          onPress={() => onPress(item.id)}
-          style={({ pressed }) => ({
-            flex: 1,
-            minWidth: 0,
-            paddingLeft: active ? 8 : 2,
-            paddingRight: 40,
-            paddingVertical: 4,
-            opacity: pressed ? 0.9 : 1,
-          })}
-        >
-          <View style={{ minHeight: 40, justifyContent: 'center', width: '100%', maxWidth: '100%' }}>
+        {/* Two sibling columns. Column 1 (flex: 1, minWidth: 0) holds the title
+            and preview and truncates with "…"; column 2 is a fixed-width box
+            for the menu button, so the button can never sit on top of text.
+            Layout lives on plain Views on purpose: on device the function-form
+            `style={({ pressed }) => ...}` of a Pressable was not applied (no
+            flex, no padding), which is what made the earlier attempts overlap.
+            The Pressables only get static styles. */}
+        <View style={{ flex: 1, minWidth: 0, paddingLeft: active ? 8 : 2, paddingRight: 6, paddingVertical: 4 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('drawer.openChat', { title: item.title })}
+            accessibilityHint={t('drawer.openChatHint')}
+            onPress={() => onPress(item.id)}
+            android_ripple={{ color: `${activeTint}20`, borderless: false }}
+            style={{ minHeight: 40, justifyContent: 'center' }}
+          >
             <View className="flex-row items-center" style={{ minWidth: 0 }}>
               {isPinned ? (
                 <MaterialIcons name="push-pin" size={12} color={activeTint} style={{ marginRight: 6 }} />
@@ -201,40 +192,38 @@ const ChatRow = memo(function ChatRow({
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
-              style={{ marginTop: 4, color: textSecondary, fontSize: 13, lineHeight: 17, flexShrink: 1, minWidth: 0 }}
+              style={{ marginTop: 4, color: textSecondary, fontSize: 13, lineHeight: 17 }}
             >
-              {item.preview}
+              {item.preview?.trim()}
             </Text>
-          </View>
-        </Pressable>
+          </Pressable>
+        </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
-          accessibilityHint={t('drawer.chatMenuHint')}
-          accessibilityState={{ expanded: menuOpen }}
-          onPress={() => onToggleMenu(item.id)}
-          className="items-center justify-center rounded-full"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={{
-            position: 'absolute',
-            right: 8,
-            top: '50%',
-            marginTop: -16,
-            width: 32,
-            height: 32,
-            borderWidth: 1,
-            borderColor: active ? activeTint : borderColor,
-            backgroundColor: active ? activeTint : '#16161A',
-          }}
-          android_ripple={{ color: `${activeTint}30`, borderless: false }}
-        >
-          <Ionicons
-            name={menuOpen ? 'close' : 'ellipsis-vertical'}
-            size={16}
-            color={active ? '#FFFFFF' : textPrimary}
-          />
-        </Pressable>
+        <View style={{ width: 44, flexGrow: 0, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('drawer.chatMenu', { title: item.title })}
+            accessibilityHint={t('drawer.chatMenuHint')}
+            accessibilityState={{ expanded: menuOpen }}
+            onPress={() => onToggleMenu(item.id)}
+            className="items-center justify-center rounded-full"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={{
+              width: 32,
+              height: 32,
+              borderWidth: 1,
+              borderColor: active ? activeTint : borderColor,
+              backgroundColor: active ? activeTint : '#16161A',
+            }}
+            android_ripple={{ color: `${activeTint}30`, borderless: false }}
+          >
+            <Ionicons
+              name={menuOpen ? 'close' : 'ellipsis-vertical'}
+              size={16}
+              color={active ? '#FFFFFF' : textPrimary}
+            />
+          </Pressable>
+        </View>
       </View>
 
       {menuOpen ? (
