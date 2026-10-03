@@ -629,8 +629,7 @@ export default function ImagesScreen() {
   const openDownloadedZipPath = useCallback(async () => {
     if (Platform.OS !== 'android' || !zipProgress.fileUri) return;
     try {
-      const folderUri = await openDownloadsCafaFolder();
-      await Linking.openURL(folderUri);
+      await openDownloadsCafaFolder();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open ZIP path.';
       console.log(`[images-open-zip:error] path=${zipProgress.fileUri} message="${message}"`);

@@ -2,20 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Platform,
   Pressable,
-  Share,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { File, Paths } from 'expo-file-system';
 import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { AppPromptModal, RequireAuthRoute, SecondaryNav } from '@/components';
+import { FileCard } from '@/components/chat';
 import { getArtifactsPage } from '@/features';
 import { useAppTheme, useI18n } from '@/hooks';
 import { API_BASE_URL } from '@/lib/client/base-url';
@@ -23,7 +21,7 @@ import { apiEndpoints } from '@/services/api';
 import { getAccessToken } from '@/services/storage/session';
 import { getDocumentWizardHistory } from '@/services';
 import { ArtifactItem, DocumentWizardArtifact, DocumentWizardHistoryItem } from '@/types';
-import { hapticError, hapticSelection, hapticSuccess, saveFileToDownloadsCafaFolder } from '@/utils';
+import { downloadAndSaveFile, hapticError, hapticSelection, hapticSuccess } from '@/utils';
 
 const PAGE_SIZE = 20;
 type ArtifactListItem = ArtifactItem | DocumentWizardHistoryItem;
@@ -44,18 +42,8 @@ function formatSize(bytes?: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fileExtensionFromNameOrMime(fileName?: string, mimeType?: string) {
-  const lowerName = (fileName ?? '').toLowerCase();
-  const nameMatch = lowerName.match(/\.([a-z0-9]+)$/i);
-  if (nameMatch?.[1]) return nameMatch[1];
-  const mime = (mimeType ?? '').toLowerCase();
-  if (mime.includes('pdf')) return 'pdf';
-  if (mime.includes('markdown')) return 'md';
-  if (mime.includes('wordprocessingml') || mime.includes('msword')) return 'docx';
-  if (mime.includes('json')) return 'json';
-  if (mime.includes('csv')) return 'csv';
-  if (mime.includes('plain')) return 'txt';
-  return 'bin';
+function artifactDownloadUrl(artifactId: string) {
+  return `${API_BASE_URL}${apiEndpoints.artifacts.download(artifactId).replace(/^\/api\/v1/i, '')}`;
 }
 
 function fileIconForMime(mimeType?: string) {
@@ -69,23 +57,6 @@ function fileIconForMime(mimeType?: string) {
 
 function isDocumentHistoryItem(item: ArtifactListItem): item is DocumentWizardHistoryItem {
   return '_id' in item;
-}
-
-async function getSharingModule() {
-  try {
-    const loaded = await import('expo-sharing');
-    const candidate = (loaded as { default?: unknown })?.default ?? loaded;
-    const moduleLike = candidate as {
-      isAvailableAsync?: () => Promise<boolean>;
-      shareAsync?: (url: string, options?: { mimeType?: string; dialogTitle?: string }) => Promise<void>;
-    } | null | undefined;
-    if (moduleLike && moduleLike.isAvailableAsync && moduleLike.shareAsync) {
-      return moduleLike;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 export default function ArtifactsScreen() {
@@ -108,7 +79,6 @@ export default function ArtifactsScreen() {
   const [searchText, setSearchText] = useState('');
   const [debouncedSearchText, setDebouncedSearchText] = useState('');
   const [downloadingArtifactId, setDownloadingArtifactId] = useState<string | null>(null);
-  const [downloadingDocumentKey, setDownloadingDocumentKey] = useState<string | null>(null);
   const [activeDownloadArtifact, setActiveDownloadArtifact] = useState<ArtifactItem | null>(null);
   const hasBootstrappedRef = useRef(false);
   const hasDocumentsBootstrappedRef = useRef(false);
@@ -308,42 +278,17 @@ export default function ArtifactsScreen() {
     hapticSelection();
     setDownloadingArtifactId(artifact.artifactId);
     showNotice(t('artifacts.downloadStarting'));
-    const downloadEndpoint = `${API_BASE_URL}${apiEndpoints.artifacts.download(artifact.artifactId).replace(/^\/api\/v1/i, '')}`;
+    const downloadEndpoint = artifactDownloadUrl(artifact.artifactId);
 
     try {
-      const extension = fileExtensionFromNameOrMime(artifact.fileName, artifact.mimeType);
-      const suggestedName = (artifact.fileName?.trim() || `cafa-ai-artifact-${Date.now()}.${extension}`)
-        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-      const finalName = /\.[a-z0-9]+$/i.test(suggestedName) ? suggestedName : `${suggestedName}.${extension}`;
-      const target = new File(Paths.cache, finalName);
-      if (target.exists) target.delete();
-
       const accessToken = await getAccessToken();
-      const downloaded = await File.downloadFileAsync(downloadEndpoint, target, {
-        idempotent: true,
+      const saved = await downloadAndSaveFile({
+        url: downloadEndpoint,
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        fileName: artifact.fileName,
+        mimeType: artifact.mimeType,
       });
-
-      if (Platform.OS === 'android') {
-        const persisted = await saveFileToDownloadsCafaFolder({
-          localFileUri: downloaded.uri,
-          fileName: finalName,
-          mimeType: artifact.mimeType || 'application/octet-stream',
-        });
-        showNotice(`${t('artifacts.downloadSuccess')}: ${persisted.readableFilePath}`, 5000);
-      } else {
-        const Sharing = await getSharingModule();
-        if (Sharing && Sharing.isAvailableAsync && Sharing.shareAsync && await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(downloaded.uri, {
-            mimeType: artifact.mimeType || 'application/octet-stream',
-            dialogTitle: t('artifacts.iosShareTitle'),
-          });
-          showNotice(t('artifacts.downloadReady'));
-        } else {
-          await Share.share({ message: finalName, url: downloaded.uri });
-          showNotice(t('artifacts.downloadReady'));
-        }
-      }
+      showNotice(saved.persisted ? `${t('artifacts.downloadSuccess')}: ${saved.displayPath}` : t('artifacts.downloadReady'), 5000);
       hapticSuccess();
     } catch (error) {
       const message = error instanceof Error ? error.message : t('artifacts.downloadFailed');
@@ -355,63 +300,6 @@ export default function ArtifactsScreen() {
       setActiveDownloadArtifact(null);
     }
   }, [showNotice, t]);
-
-  const downloadDocumentArtifact = useCallback(async (documentId: string, artifact: DocumentWizardArtifact) => {
-    if (!artifact.url) {
-      showNotice('This document is missing a download link.', 5000);
-      hapticError();
-      return;
-    }
-
-    const downloadKey = `${documentId}:${artifact.fileName}`;
-    setDownloadingDocumentKey(downloadKey);
-    showNotice('Preparing your document download...');
-    hapticSelection();
-
-    try {
-      const extension = fileExtensionFromNameOrMime(artifact.fileName, artifact.mimeType);
-      const suggestedName = (artifact.fileName?.trim() || `cafa-ai-document-${Date.now()}.${extension}`)
-        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-      const finalName = /\.[a-z0-9]+$/i.test(suggestedName) ? suggestedName : `${suggestedName}.${extension}`;
-      const target = new File(Paths.cache, finalName);
-      if (target.exists) target.delete();
-
-      const accessToken = await getAccessToken();
-      const downloaded = await File.downloadFileAsync(artifact.url, target, {
-        idempotent: true,
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      });
-
-      if (Platform.OS === 'android') {
-        const persisted = await saveFileToDownloadsCafaFolder({
-          localFileUri: downloaded.uri,
-          fileName: finalName,
-          mimeType: artifact.mimeType || 'application/octet-stream',
-        });
-        showNotice(`Document saved: ${persisted.readableFilePath}`, 5000);
-      } else {
-        const Sharing = await getSharingModule();
-        if (Sharing && Sharing.isAvailableAsync && Sharing.shareAsync && await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(downloaded.uri, {
-            mimeType: artifact.mimeType || 'application/octet-stream',
-            dialogTitle: 'Save or share document',
-          });
-          showNotice('Document ready to share.');
-        } else {
-          await Share.share({ message: finalName, url: downloaded.uri });
-          showNotice('Document ready to share.');
-        }
-      }
-      hapticSuccess();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not download this document.';
-      console.log(`[documents-download:error] url=${artifact.url} message="${message}"`);
-      showNotice('Could not download this document.', 5000);
-      hapticError();
-    } finally {
-      setDownloadingDocumentKey((current) => (current === downloadKey ? null : current));
-    }
-  }, [showNotice]);
 
   const isShowingDocuments = activeCollection === 'documents';
   const listData: ArtifactListItem[] = isShowingDocuments ? filteredDocuments : artifacts;
@@ -512,8 +400,6 @@ export default function ArtifactsScreen() {
           renderItem={({ item }) => {
             if (isDocumentHistoryItem(item)) {
               const primaryArtifact = item.artifacts[0];
-              const documentKey = primaryArtifact ? `${item._id}:${primaryArtifact.fileName}` : null;
-              const isDownloading = documentKey ? downloadingDocumentKey === documentKey : false;
               return (
                 <View
                   accessible
@@ -525,19 +411,29 @@ export default function ArtifactsScreen() {
                     backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(32,64,121,0.05)',
                   }}
                 >
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name={fileIconForMime(primaryArtifact?.mimeType || item.format) as any}
-                      size={18}
-                      color={colors.primary}
+                  {primaryArtifact?.url ? (
+                    <FileCard
+                      url={primaryArtifact.url}
+                      name={primaryArtifact.fileName}
+                      mimeType={primaryArtifact.mimeType}
+                      sizeBytes={primaryArtifact.size_bytes}
+                      titleHint={item.title || item.documentType}
                     />
-                    <Text
-                      numberOfLines={1}
-                      style={{ marginLeft: 8, flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}
-                    >
-                      {item.title || item.documentType}
-                    </Text>
-                  </View>
+                  ) : (
+                    <View className="flex-row items-center">
+                      <Ionicons
+                        name={fileIconForMime(primaryArtifact?.mimeType || item.format) as any}
+                        size={18}
+                        color={colors.primary}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={{ marginLeft: 8, flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}
+                      >
+                        {item.title || item.documentType}
+                      </Text>
+                    </View>
+                  )}
                   <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
                     {item.documentType.toUpperCase()} - {item.format.toUpperCase()} - {item.source.toUpperCase()}
                   </Text>
@@ -548,29 +444,13 @@ export default function ArtifactsScreen() {
                   <Text style={{ marginTop: 6, color: colors.textSecondary, fontSize: 11 }}>
                     {primaryArtifact?.fileName || 'Generated document'}
                   </Text>
-                  <View className="mt-3 flex-row items-center">
-                    <Pressable
-                      onPress={() => {
-                        if (primaryArtifact) {
-                          void downloadDocumentArtifact(item._id, primaryArtifact);
-                        }
-                      }}
-                      disabled={!primaryArtifact || isDownloading}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Download ${item.title || item.documentType}`}
-                      className="self-start rounded-full px-3 py-2"
-                      style={{
-                        backgroundColor: isDark ? 'rgba(95,127,184,0.2)' : 'rgba(32,64,121,0.12)',
-                        borderWidth: 1,
-                        borderColor: isDark ? 'rgba(95,127,184,0.3)' : 'rgba(32,64,121,0.24)',
-                        opacity: !primaryArtifact || isDownloading ? 0.65 : 1,
-                      }}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>
-                        {isDownloading ? 'Downloading' : 'Download'}
+                  {!primaryArtifact?.url ? (
+                    <View className="mt-3 flex-row items-center">
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                        This document is missing a download link.
                       </Text>
-                    </Pressable>
-                  </View>
+                    </View>
+                  ) : null}
                 </View>
               );
             }
@@ -590,15 +470,24 @@ export default function ArtifactsScreen() {
                   backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(32,64,121,0.05)',
                 }}
               >
-                <View className="flex-row items-center">
-                  <Ionicons name={iconName as any} size={18} color={colors.primary} />
-                  <Text
-                    numberOfLines={1}
-                    style={{ marginLeft: 8, flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}
-                  >
-                    {title}
-                  </Text>
-                </View>
+                {isImageArtifact ? (
+                  <View className="flex-row items-center">
+                    <Ionicons name={iconName as any} size={18} color={colors.primary} />
+                    <Text
+                      numberOfLines={1}
+                      style={{ marginLeft: 8, flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}
+                    >
+                      {title}
+                    </Text>
+                  </View>
+                ) : (
+                  <FileCard
+                    url={artifactDownloadUrl(item.artifactId)}
+                    name={item.fileName}
+                    mimeType={item.mimeType}
+                    sizeBytes={item.size}
+                  />
+                )}
                 {isImageArtifact && item.url ? (
                   <View
                     className="mt-2 overflow-hidden rounded-xl border"
@@ -625,6 +514,7 @@ export default function ArtifactsScreen() {
                 </Text>
 
                 <View className="mt-3 flex-row items-center">
+                  {isImageArtifact ? (
                   <Pressable
                     onPress={() => setActiveDownloadArtifact(item)}
                     disabled={isDownloading}
@@ -643,6 +533,7 @@ export default function ArtifactsScreen() {
                       {isDownloading ? t('artifacts.downloading') : t('artifacts.downloadCta')}
                     </Text>
                   </Pressable>
+                  ) : null}
                   <Pressable
                     onPress={() => {
                       hapticSelection();
