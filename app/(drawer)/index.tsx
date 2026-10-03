@@ -1378,7 +1378,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       args?: Record<string, unknown>;
       ok: boolean;
       products?: { query: string; items: UiMessageProduct[] };
-      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string };
+      mediaRef?: { kind?: 'image' | 'video' | 'file'; url?: string; name?: string; fileName?: string; mimeType?: string; thumbnailUrl?: string };
       widget?: import('@/components/chat').UiWidgetSpec;
       label?: string;
     }[];
@@ -1526,7 +1526,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const kind: UiArtifactItem['kind'] =
           call.name === 'generate_video' || call.name === 'image_to_video'
             ? 'video'
-            : call.name === 'generate_document'
+            : call.name === 'generate_document' || call.mediaRef?.kind === 'file'
               ? 'document'
               : 'image';
         const rawSourceUrl = call.name === 'edit_image' ? String(call.args?.image_url ?? '').trim() : '';
@@ -1534,6 +1534,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           id: `${message.id}-artifact-${call.name}-${acc.length}`,
           kind,
           url: resolveBackendAssetUrl(rawUrl) ?? rawUrl,
+          name: call.mediaRef?.name ?? call.mediaRef?.fileName,
+          mimeType: call.mediaRef?.mimeType,
+          thumbnailUrl: resolveBackendAssetUrl(call.mediaRef?.thumbnailUrl) ?? undefined,
           sourceUrl: rawSourceUrl ? resolveBackendAssetUrl(rawSourceUrl) ?? rawSourceUrl : undefined,
           messageId: message.id,
           toolCallIndex,
@@ -4599,6 +4602,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     ...nextArtifacts[pendingIndex],
                     url: resolvedUrl,
                     name: event.name,
+                    mimeType: event.mimeType,
+                    thumbnailUrl: resolveBackendAssetUrl(event.thumbnailUrl) ?? undefined,
                     generating: false,
                   };
                   liveArtifacts = nextArtifacts;
