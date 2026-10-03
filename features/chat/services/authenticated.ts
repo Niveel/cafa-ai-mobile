@@ -828,7 +828,11 @@ export async function sendAuthenticatedMessageStream(
   preClassifiedAs?: 'text' | 'search',
   onUploadProgress?: (percent: number) => void,
   reference?: ChatMediaReference,
+  signal?: AbortSignal,
 ) {
+  if (signal?.aborted) {
+    throw createAuthStreamTransportError('The request was stopped.', 'AUTH_STREAM_ABORTED');
+  }
   invalidateAuthenticatedChatCache(conversationId);
   authListCache = null;
   const initialToken = await getAccessToken();
@@ -952,6 +956,9 @@ export async function sendAuthenticatedMessageStream(
     const maxAttempts = isSlowToolRecovery ? 40 : 8;
     const pollIntervalMs = isSlowToolRecovery ? 3_000 : undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (signal?.aborted) {
+        throw createAuthStreamTransportError('The request was stopped.', 'AUTH_STREAM_ABORTED');
+      }
       const detail = await getAuthenticatedConversation(conversationId, { force: true });
       const byId = streamState.lastAssistantMessageId
         ? detail.messages.find((item) => item.id === streamState.lastAssistantMessageId && item.role === 'assistant')
@@ -1126,6 +1133,7 @@ export async function sendAuthenticatedMessageStream(
           clearInterval(stallTimer);
           stallTimer = null;
         }
+        signal?.removeEventListener('abort', onCallerAbort);
       };
 
       const rejectOnce = (error: unknown) => {
@@ -1150,10 +1158,21 @@ export async function sendAuthenticatedMessageStream(
         resolve();
       };
 
+      let abortedByCaller = false;
+      const onCallerAbort = () => {
+        abortedByCaller = true;
+        try {
+          xhr.abort();
+        } catch {
+          rejectOnce(createAuthStreamTransportError('The request was stopped.', 'AUTH_STREAM_ABORTED'));
+        }
+      };
+
       xhr.open('POST', endpoint);
       xhr.setRequestHeader('Accept', 'text/event-stream');
       xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
       xhr.setRequestHeader('Idempotency-Key', idempotencyKey);
+      signal?.addEventListener('abort', onCallerAbort);
 
       if (onUploadProgress && xhr.upload) {
         xhr.upload.onprogress = (event) => {
@@ -1238,6 +1257,11 @@ export async function sendAuthenticatedMessageStream(
       // promise forever. The stall watchdog below aborts it once we've
       // waited far longer than the slowest known tool could plausibly take.
       xhr.onabort = () => {
+        signal?.removeEventListener('abort', onCallerAbort);
+        if (abortedByCaller) {
+          rejectOnce(createAuthStreamTransportError('The request was stopped.', 'AUTH_STREAM_ABORTED'));
+          return;
+        }
         authStreamLog('xhr:stall-abort', `streamStarted=${streamStarted} pendingSlowTool=${streamState.pendingSlowTool ?? 'none'}`);
         rejectOnce(
           createAuthStreamTransportError(
@@ -1550,6 +1574,12 @@ export async function sendAuthenticatedMessageStream(
     } catch (error) {
       const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
       const status = (error as { status?: number } | undefined)?.status;
+      if (code === 'AUTH_STREAM_ABORTED' || signal?.aborted) {
+        // The caller stopped this turn on purpose: no recovery polling and
+        // above all no JSON replay, which would re-send the message.
+        if (code === 'AUTH_STREAM_ABORTED') throw error;
+        throw createAuthStreamTransportError('The request was stopped.', 'AUTH_STREAM_ABORTED');
+      }
       if (typeof status === 'number' && status >= 400) {
         authStreamLog('native:xhr-http-error-no-replay', `status=${status} code=${code || 'unknown'}`);
         onDebug?.({
