@@ -1,10 +1,12 @@
 import { Platform } from 'react-native';
-import * as LegacyFileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 
-import { clearDownloadsSafUri, getDownloadsSafUri, setDownloadsSafUri } from '@/services/storage';
+import CafaDownloads from '@/modules/cafa-downloads';
+import { headersForAssetUrl } from './assetAuth';
+import { resolveFileIdentity, type FileKind } from './fileType';
+import { rememberSavedFile } from './savedFiles';
 
 const CAFA_MEDIA_ALBUM = 'Cafa AI';
-const CAFA_DOWNLOADS_FOLDER = 'Cafa AI';
 
 let mediaLibraryModulePromise: Promise<typeof import('expo-media-library')> | null = null;
 
@@ -23,59 +25,159 @@ async function getMediaLibraryModule() {
   }
 }
 
-function sanitizeFileName(name: string) {
-  return name.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim() || `cafa-${Date.now()}`;
-}
-
-function splitNameAndExtension(name: string) {
-  const safe = sanitizeFileName(name);
-  const match = safe.match(/^(.*)\.([^.]+)$/);
-  if (!match) return { baseName: safe, extension: null };
-  return { baseName: match[1], extension: match[2] };
-}
-
 function inferFileNameFromUri(localFileUri: string) {
   const raw = decodeURIComponent(localFileUri.split('?')[0] || '');
-  const segment = raw.split('/').filter(Boolean).pop() || `cafa-${Date.now()}`;
-  return sanitizeFileName(segment);
+  const segment = raw.split('/').filter(Boolean).pop() || '';
+  return segment.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
 }
 
-function inferMimeTypeFromFileName(fileName: string) {
-  const ext = splitNameAndExtension(fileName).extension?.toLowerCase();
-  switch (ext) {
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg';
-    case 'png':
-      return 'image/png';
-    case 'webp':
-      return 'image/webp';
-    case 'gif':
-      return 'image/gif';
-    case 'heic':
-      return 'image/heic';
-    case 'mp4':
-      return 'video/mp4';
-    case 'mov':
-      return 'video/quicktime';
-    case 'm4v':
-      return 'video/x-m4v';
-    case 'webm':
-      return 'video/webm';
-    default:
-      return 'application/octet-stream';
+/** A file that has been saved to the device. */
+export type SavedFile = {
+  /** content:// URI (Android) so the file can be reopened; null if it was only shared. */
+  contentUri: string | null;
+  fileName: string;
+  mimeType: string;
+  kind: FileKind;
+  /** Where it ended up, e.g. "Downloads/Cafa AI/Report.pdf". */
+  displayPath: string;
+  /** True when it was saved to a folder; false when the share sheet was used. */
+  persisted: boolean;
+};
+
+async function shareLocalFile(localUri: string, mimeType: string) {
+  const Sharing = await import('expo-sharing');
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(localUri, { mimeType, dialogTitle: 'Save or share file' });
+    return;
+  }
+  throw new Error('Saving files is not available on this device.');
+}
+
+/**
+ * Saves a local file to the device the way the platform expects:
+ *  - Android: Gallery (images/video), Music (audio) or Downloads (everything
+ *    else) through MediaStore, no permission picker, plus a tappable
+ *    "Download complete" notification.
+ *  - iOS (and old Android): the system share sheet ("Save to Files" etc.).
+ * The real file type is detected from the content, so a document that arrives
+ * as "file.bin" is still saved as a proper .pdf/.docx/...
+ */
+export async function saveFileToDevice(options: {
+  localFileUri: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+  titleHint?: string | null;
+  notify?: boolean;
+}): Promise<SavedFile> {
+  const identity = resolveFileIdentity({
+    localUri: options.localFileUri,
+    fileName: options.fileName,
+    mimeType: options.mimeType,
+    titleHint: options.titleHint,
+  });
+
+  if (Platform.OS === 'android' && CafaDownloads) {
+    try {
+      const result = await CafaDownloads.saveFile(
+        options.localFileUri,
+        identity.fileName,
+        identity.mimeType,
+        options.notify ?? true,
+      );
+      return {
+        contentUri: result.contentUri,
+        fileName: result.fileName,
+        mimeType: identity.mimeType,
+        kind: identity.kind,
+        displayPath: result.displayPath.replace(/^Download\//, 'Downloads/'),
+        persisted: true,
+      };
+    } catch (error) {
+      const code = (error as { code?: string } | undefined)?.code;
+      if (code !== 'ERR_UNSUPPORTED') throw error;
+      // Android 9 and older: fall through to the share sheet.
+    }
+  }
+
+  await shareLocalFile(options.localFileUri, identity.mimeType);
+  return {
+    contentUri: null,
+    fileName: identity.fileName,
+    mimeType: identity.mimeType,
+    kind: identity.kind,
+    displayPath: identity.fileName,
+    persisted: false,
+  };
+}
+
+/** Opens a saved file in an installed app. Returns false if nothing can open it. */
+export async function openSavedFile(saved: { contentUri: string | null; mimeType: string }): Promise<boolean> {
+  if (Platform.OS !== 'android' || !CafaDownloads || !saved.contentUri) return false;
+  return CafaDownloads.openFile(saved.contentUri, saved.mimeType);
+}
+
+/** Whether a previously saved file is still on the device. */
+export async function savedFileStillExists(contentUri: string | null | undefined): Promise<boolean> {
+  if (Platform.OS !== 'android' || !CafaDownloads || !contentUri) return false;
+  return CafaDownloads.fileExists(contentUri);
+}
+
+/**
+ * Downloads a remote file to the app cache, then saves it to the device and
+ * remembers where it went (so the UI can offer "Open" afterwards).
+ */
+export async function downloadAndSaveFile(options: {
+  url: string;
+  headers?: Record<string, string>;
+  fileName?: string | null;
+  mimeType?: string | null;
+  titleHint?: string | null;
+  /** Key the saved file is remembered under; defaults to the URL. */
+  registryKey?: string;
+  notify?: boolean;
+}): Promise<SavedFile> {
+  const target = new File(Paths.cache, `cafa-download-${Date.now()}.tmp`);
+  try {
+    if (target.exists) target.delete();
+    const downloaded = await File.downloadFileAsync(options.url, target, {
+      idempotent: true,
+      headers: headersForAssetUrl(options.url, options.headers),
+    });
+    const saved = await saveFileToDevice({
+      localFileUri: downloaded.uri,
+      fileName: options.fileName,
+      mimeType: options.mimeType,
+      titleHint: options.titleHint,
+      notify: options.notify,
+    });
+    if (saved.contentUri) {
+      await rememberSavedFile(options.registryKey ?? options.url, {
+        contentUri: saved.contentUri,
+        fileName: saved.fileName,
+        mimeType: saved.mimeType,
+        displayPath: saved.displayPath,
+        kind: saved.kind,
+      });
+    }
+    return saved;
+  } finally {
+    try {
+      if (target.exists) target.delete();
+    } catch {
+      // cache cleanup is best effort
+    }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Existing entry points. They keep their names/shapes so every screen that
+// downloads (chat, Artifacts, Images, Videos, Avatar, Voice) gets the new
+// behaviour without being rewritten.
+// ---------------------------------------------------------------------------
+
 export async function saveMediaToCafaAlbum(localFileUri: string) {
   if (Platform.OS === 'android') {
-    const fileName = inferFileNameFromUri(localFileUri);
-    const mimeType = inferMimeTypeFromFileName(fileName);
-    await saveFileToDownloadsCafaFolder({
-      localFileUri,
-      fileName,
-      mimeType,
-    });
+    await saveFileToDevice({ localFileUri, fileName: inferFileNameFromUri(localFileUri) });
     return;
   }
 
@@ -104,83 +206,39 @@ export async function saveMediaToCafaAlbum(localFileUri: string) {
   }
 }
 
-async function resolveCafaDownloadsFolderUri() {
-  if (Platform.OS !== 'android') {
-    throw new Error('Downloads folder save is available on Android only.');
-  }
-
-  const { StorageAccessFramework } = LegacyFileSystem;
-  const rootDownloadsUri = StorageAccessFramework.getUriForDirectoryInRoot('Download');
-
-  const cached = await getDownloadsSafUri();
-  if (cached) {
-    try {
-      await StorageAccessFramework.readDirectoryAsync(cached);
-      return cached;
-    } catch {
-      await clearDownloadsSafUri();
-    }
-  }
-
-  const permission = await StorageAccessFramework.requestDirectoryPermissionsAsync(rootDownloadsUri);
-  if (!permission.granted || !permission.directoryUri) {
-    throw new Error('Downloads folder permission is required to save ZIP files.');
-  }
-
-  let downloadsUri = permission.directoryUri;
-  const children = await StorageAccessFramework.readDirectoryAsync(downloadsUri);
-  const existing = children.find((uri) => decodeURIComponent(uri).endsWith(`/${CAFA_DOWNLOADS_FOLDER}`));
-  if (existing) {
-    downloadsUri = existing;
-  } else {
-    downloadsUri = await StorageAccessFramework.makeDirectoryAsync(downloadsUri, CAFA_DOWNLOADS_FOLDER);
-  }
-
-  await setDownloadsSafUri(downloadsUri);
-  return downloadsUri;
-}
-
 export async function saveFileToDownloadsCafaFolder(options: {
   localFileUri: string;
   fileName: string;
   mimeType: string;
 }) {
-  if (Platform.OS !== 'android') {
-    throw new Error('Downloads folder save is available on Android only.');
-  }
-
-  const { StorageAccessFramework, EncodingType } = LegacyFileSystem;
-  const folderUri = await resolveCafaDownloadsFolderUri();
-  const safeFileName = sanitizeFileName(options.fileName);
-  const mime = options.mimeType || 'application/octet-stream';
-  const createdFileUri = await StorageAccessFramework.createFileAsync(folderUri, safeFileName, mime);
-  const base64 = await LegacyFileSystem.readAsStringAsync(options.localFileUri, {
-    encoding: EncodingType.Base64,
+  const saved = await saveFileToDevice({
+    localFileUri: options.localFileUri,
+    fileName: options.fileName,
+    mimeType: options.mimeType,
   });
-  await StorageAccessFramework.writeAsStringAsync(createdFileUri, base64, {
-    encoding: EncodingType.Base64,
-  });
-
+  const folder = saved.displayPath.includes('/')
+    ? saved.displayPath.slice(0, saved.displayPath.lastIndexOf('/'))
+    : saved.displayPath;
   return {
-    safFileUri: createdFileUri,
-    folderUri,
-    readableFolderPath: '/Internal storage/Download/Cafa AI',
-    readableFilePath: `/Internal storage/Download/Cafa AI/${safeFileName}`,
+    safFileUri: saved.contentUri ?? '',
+    folderUri: folder,
+    readableFolderPath: folder,
+    readableFilePath: saved.displayPath,
+    saved,
   };
 }
 
+/** Opens the system Downloads screen (Android). */
 export async function openDownloadsCafaFolder() {
-  const folderUri = await resolveCafaDownloadsFolderUri();
-  return folderUri;
+  if (Platform.OS !== 'android' || !CafaDownloads) {
+    throw new Error('Opening the downloads folder is available on Android only.');
+  }
+  if (!CafaDownloads.openDownloadsFolder()) {
+    throw new Error('Could not open the downloads folder.');
+  }
 }
 
+/** Kept for the Settings button: there is no folder to pick any more, so it opens Downloads. */
 export async function changeDownloadsFolder() {
-  if (Platform.OS !== 'android') {
-    throw new Error('Changing the download folder is supported on Android only.');
-  }
-
-  // Remove the cached SAF permission first so the resolver must present the
-  // native directory picker instead of silently reusing the old location.
-  await clearDownloadsSafUri();
-  return resolveCafaDownloadsFolderUri();
+  await openDownloadsCafaFolder();
 }
