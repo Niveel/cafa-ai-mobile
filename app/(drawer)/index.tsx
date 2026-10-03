@@ -30,6 +30,7 @@ import * as ExpoDocumentPicker from 'expo-document-picker';
 import * as ExpoImagePicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
 import { File, Paths } from 'expo-file-system';
+import CafaPaste, { type PastedItem } from '@/modules/cafa-paste';
 import { Image as ExpoImage } from 'expo-image';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -82,6 +83,10 @@ import {
   type UiMessageToolCall,
   type UiMessageProduct,
   type UiArtifactItem,
+  ShimmerText,
+  FileCard,
+  sanitizeModelText,
+  stripFileDownloadLinks,
   ToolStatusChips,
   TypingIndicator,
   ProductCards,
@@ -156,8 +161,13 @@ import {
   hapticSelection,
   hapticSuccess,
   resolveNotificationRoute,
-  saveFileToDownloadsCafaFolder,
+  copyAssetToClipboard,
+  downloadAndSaveFile,
+  extensionOf,
+  identityFromExtension,
+  identityFromMime,
   saveMediaToCafaAlbum,
+  shareAssetFile,
 } from '@/utils';
 
 // hi
@@ -448,6 +458,217 @@ async function getWebBrowserModule() {
   }
 }
 
+// The backend often sends a generated document without a file name. Its title is
+// usually in the tool call's arguments, or quoted in the reply ("a PDF titled
+// \"Cybersecurity Fundamentals\""), and is used to name the saved file.
+function documentTitleFromArgs(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const record = args as Record<string, unknown>;
+  for (const key of ['title', 'filename', 'file_name', 'fileName', 'name', 'document_title']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  for (const key of ['content', 'markdown', 'html', 'body', 'text']) {
+    const fromContent = titleFromContentArg(record[key]);
+    if (fromContent) return fromContent;
+  }
+  return undefined;
+}
+
+// First heading of generated markdown/HTML content, e.g. "# Lions of the Savanna".
+function titleFromContentArg(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const heading =
+    value.match(/^\s{0,3}#{1,2}\s+(.{3,100}?)\s*#*\s*$/m)?.[1]
+    ?? value.match(/<h1[^>]*>([^<]{3,100})<\/h1>/i)?.[1];
+  return heading?.replace(/[*_`]/g, '').trim() || undefined;
+}
+
+// A clean document title from the user's own request, for when nothing else names the
+// file: "Create a PDF about lions with five lines" -> "Lions".
+function titleFromPrompt(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined;
+  const cleaned = prompt
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(
+      /^(?:please\s+|can you\s+|could you\s+|let'?s\s+)?(?:create|generate|make|write|build|prepare|draft|produce)\s+(?:me\s+)?(?:an?\s+|the\s+|some\s+)?(?:(?:pdf|word|docx?|powerpoint|ppt|pptx|slides?|presentation|document|file|report)\s+(?:file\s+)?){0,2}(?:of|about|on|for|covering)?\s*/i,
+      '',
+    )
+    .replace(/\b(?:as|in|into)\s+(?:an?\s+)?(?:pdf|word|docx?|powerpoint|ppt|pptx)\b.*$/i, '')
+    .replace(/\bwith\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:lines?|pages?|slides?|points?|paragraphs?).*$/i, '')
+    .replace(/^(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:lines?|pages?|slides?|points?|paragraphs?)\s+(?:of|about|on)\s+/i, '')
+    .replace(/\s+(?:and|then)\s+(?:rewrite|convert|summari[sz]e|translate|turn|make|write)\b.*$/i, '')
+    .replace(/[.?!:,;]+$/, '')
+    .trim();
+  const words = cleaned.split(' ').filter(Boolean).slice(0, 7);
+  if (!words.length) return undefined;
+  const small = new Set(['a', 'an', 'and', 'of', 'the', 'in', 'on', 'for', 'to', 'at', 'by', 'or']);
+  return words
+    .map((word, index) => (index > 0 && small.has(word.toLowerCase()) ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
+}
+
+function documentFormatFromArgs(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const record = args as Record<string, unknown>;
+  for (const key of ['format', 'file_format', 'fileFormat', 'file_type', 'fileType', 'type']) {
+    const value = record[key];
+    if (typeof value === 'string' && /^[a-z0-9]{2,5}$/i.test(value.trim())) return value.trim().toLowerCase();
+  }
+  return undefined;
+}
+
+function extractQuotedTitle(content: string | undefined): string | undefined {
+  const match = (content ?? '').match(/titled\s+[“"'‘]([^”"'’\n]{3,100})[”"'’]/i);
+  return match?.[1]?.trim() || undefined;
+}
+
+const STOPPED_ASSISTANT_IDS_KEY = 'cafa.stoppedAssistantIds';
+const MAX_STORED_STOPPED_IDS = 200;
+
+// The backend has no cancel for a chat turn: pressing Stop only disconnects the
+// app, and the server may still finish and save the reply (e.g. an image). When
+// that saved copy is loaded later it must not resurrect a turn the user stopped,
+// so a stopped assistant message keeps only what had streamed locally.
+function maskStoppedMessage(message: UiMessage, stoppedIds: Set<string>, localContent?: string): UiMessage {
+  if (message.role !== 'assistant' || !stoppedIds.has(message.id)) return message;
+  return {
+    ...message,
+    content: localContent ?? '',
+    imageUrl: undefined,
+    imagePrompt: undefined,
+    imageId: undefined,
+    videoUrl: undefined,
+    videoPrompt: undefined,
+    videoId: undefined,
+    attachments: undefined,
+    artifacts: undefined,
+    tools: undefined,
+    products: undefined,
+    widget: undefined,
+    quickReplies: undefined,
+    isImageGenerating: false,
+    isVideoGenerating: false,
+    isArtifactGenerating: false,
+    stopped: true,
+  };
+}
+
+// A stopped turn cannot be cancelled on the server, so the reply may still be
+// saved later, and not necessarily next to its own prompt (a tool result is
+// often saved as a separate message at the END of the chat, after newer turns).
+// The ledger therefore identifies a stopped turn in three id-independent ways:
+//  - the user's prompt: `text` + `occurrence` (how many earlier user messages in
+//    the chat had the same text, so retrying the same prompt is not hidden);
+//  - the tool that was running (`tool` + `toolOccurrence`: how many assistant
+//    messages with that tool existed before it), which finds the late result;
+//  - the assistant message id, when it is known.
+type StoppedTurn = {
+  conversationId: string;
+  text: string;
+  occurrence: number;
+  tool?: string;
+  toolOccurrence?: number;
+};
+const STOPPED_TURNS_KEY = 'cafa.stoppedTurns';
+const MAX_STORED_STOPPED_TURNS = 100;
+
+function applyStoppedTurns(
+  list: UiMessage[],
+  conversationId: string | null | undefined,
+  stoppedIds: Set<string>,
+  turns: StoppedTurn[],
+  localContentById?: Map<string, string>,
+): UiMessage[] {
+  const convTurns = conversationId ? turns.filter((turn) => turn.conversationId === conversationId) : [];
+  if (!convTurns.length && !stoppedIds.size) return list;
+
+  const maskIds = new Set<string>(); // stays where it is, shown as "stopped"
+  const dropIds = new Set<string>(); // a late result saved somewhere else: hidden
+  const insertAfter = new Map<number, UiMessage>();
+
+  // 1. By the prompt: the reply right after it is the stopped one; if the
+  // server saved nothing there, show a "stopped" placeholder in its place.
+  const seenText = new Map<string, number>();
+  list.forEach((message, index) => {
+    if (message.role !== 'user') return;
+    const text = message.content.trim();
+    const occurrence = seenText.get(text) ?? 0;
+    seenText.set(text, occurrence + 1);
+    if (!convTurns.some((turn) => turn.text === text && turn.occurrence === occurrence)) return;
+    const next = list[index + 1];
+    if (next && next.role === 'assistant') {
+      maskIds.add(next.id);
+    } else {
+      insertAfter.set(index, {
+        id: `stopped-turn-${index}-${occurrence}`,
+        role: 'assistant',
+        content: '',
+        createdAt: message.createdAt + 1,
+        stopped: true,
+      });
+    }
+  });
+
+  // 2. By the tool that was running: that tool's result is the late arrival.
+  const toolSeen = new Map<string, number>();
+  list.forEach((message) => {
+    if (message.role !== 'assistant') return;
+    new Set((message.tools ?? []).map((tool) => tool.tool)).forEach((name) => {
+      const index = toolSeen.get(name) ?? 0;
+      toolSeen.set(name, index + 1);
+      if (convTurns.some((turn) => turn.tool === name && turn.toolOccurrence === index) && !maskIds.has(message.id)) {
+        dropIds.add(message.id);
+      }
+    });
+  });
+
+  // 3. By id.
+  list.forEach((message) => {
+    if (!stoppedIds.has(message.id) || maskIds.has(message.id)) return;
+    if (convTurns.length) dropIds.add(message.id);
+    else maskIds.add(message.id);
+  });
+
+  const out: UiMessage[] = [];
+  list.forEach((message, index) => {
+    if (dropIds.has(message.id)) return;
+    out.push(
+      maskIds.has(message.id)
+        ? maskStoppedMessage(message, new Set([message.id]), localContentById?.get(message.id))
+        : message,
+    );
+    const placeholder = insertAfter.get(index);
+    if (placeholder) out.push(placeholder);
+  });
+  return out;
+}
+
+// The backend keeps the stopped prompt in the conversation history, so the next
+// turn's model sees an unanswered request and happily does it too (seen on
+// device: stop a PDF, ask for "kiwi", get a kiwi reply AND the PDF). There is no
+// endpoint to delete a message, so the next message after a Stop carries a short
+// context line telling the model that request was cancelled. The line is only
+// for the model: it is stripped again whenever messages are shown in the app.
+const CANCELLATION_NOTE_END = '". Do not do it. Answer only the message below.]';
+const buildCancellationNote = (cancelledPrompt: string) =>
+  `[Context: the user cancelled their previous request "${cancelledPrompt.replace(/\s+/g, ' ').slice(0, 200)}${CANCELLATION_NOTE_END}`;
+const CANCELLATION_NOTES_PATTERN =
+  /^(\[Context: the user cancelled their previous request "[\s\S]*?"\. Do not do it\. Answer only the message below\.\]\n)+\n/;
+const stripCancellationNote = (content: string) => content.replace(CANCELLATION_NOTES_PATTERN, '');
+
+type QueuedSend = { id: string; text: string; attachments: AttachedAsset[] };
+type ActiveSendRun = {
+  id: number;
+  controller: AbortController;
+  stoppedByUser: boolean;
+  detached: boolean;
+  lastTool?: string;
+};
+const MAX_QUEUED_SENDS = 5;
+const DETACHED_RUN_RESUME_WINDOW_MS = 10 * 60 * 1000;
+
 export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatScreenMode } = {}) {
   const COMPOSER_MIN_HEIGHT = 56;
   const COMPOSER_MAX_HEIGHT = 180;
@@ -534,6 +755,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const params = useLocalSearchParams<{ conversationId?: string; newChat?: string; messageId?: string }>();
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [sendQueue, setSendQueue] = useState<QueuedSend[]>([]);
+  const [isResumingRun, setIsResumingRun] = useState(false);
+  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [uploadProgressPercent, setUploadProgressPercent] = useState<number | null>(null);
   const [isUnderstandingPrompt, setIsUnderstandingPrompt] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -641,7 +865,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const documentDraftHydratedRef = useRef(false);
   const conversationHydrationRequestRef = useRef(0);
   const routedConversationIdRef = useRef('');
+  const currentConversationIdRef = useRef<string | null>(null);
   routedConversationIdRef.current = typeof params.conversationId === 'string' ? params.conversationId : '';
+  currentConversationIdRef.current = (isAuthenticated ? authConversationId : guestConversationId) ?? null;
   const uploadTriggerButtonRef = useRef<View | null>(null);
   const uploadImageOptionRef = useRef<View | null>(null);
   const uploadDocumentOptionRef = useRef<View | null>(null);
@@ -678,6 +904,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const documentPickerInFlightRef = useRef(false);
   const lastVideoGenerationStartAtRef = useRef(0);
   const isSendRunInFlightRef = useRef(false);
+  const activeRunRef = useRef<ActiveSendRun | null>(null);
+  const runSeqRef = useRef(0);
+  const detachedRunsRef = useRef<Map<string, number>>(new Map());
+  const stoppedAssistantIdsRef = useRef<Set<string>>(new Set());
+  const stoppedTurnsRef = useRef<StoppedTurn[]>([]);
+  const cancelledPromptsRef = useRef<Map<string, string[]>>(new Map());
   const lastSendAttemptAtRef = useRef(0);
   const sendAttemptSeqRef = useRef(0);
   const lastHandledNewChatTokenRef = useRef<string | null>(null);
@@ -715,9 +947,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const composerPlaceholder = useMemo(() => screenConfig.placeholder, [screenConfig.placeholder]);
   const useCompactComposerPlaceholder = screenMode === 'image-to-video' || screenMode === 'edit-image';
   const isWelcomeMessage = useCallback((message: UiMessage) => message.id === 'welcome-1', []);
-  const isSendDisabled = (!input.trim() && attachedAssets.length === 0)
-    || isSending
-    || isUnderstandingPrompt
+  const hasComposerDraft = Boolean(input.trim()) || attachedAssets.length > 0;
+  const canQueueWhileSending = screenMode === 'chat' && isAuthenticated && !isDedicatedMediaScreen;
+  const showStopButton = isSending && !hasComposerDraft;
+  const isSendDisabled = (!hasComposerDraft && !showStopButton)
+    || (isSending && hasComposerDraft && !canQueueWhileSending)
+    || (isUnderstandingPrompt && !showStopButton)
     || (!isAuthenticated && (!guestAllowanceHydrated || guestModeLocked));
   const clearDedicatedMediaValidationMessages = useCallback((options: { clearPromptRequired?: boolean; clearImageRequired?: boolean }) => {
     if (!options.clearPromptRequired && !options.clearImageRequired) return;
@@ -1007,12 +1242,6 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return null;
   }, [resolveBackendAssetUrl]);
 
-  const isMarkdownAttachment = useCallback((attachment: UiMessageAttachment) => {
-    const mime = (attachment.mimeType ?? '').toLowerCase();
-    const name = (attachment.originalName ?? '').toLowerCase();
-    return mime.includes('text/markdown') || name.endsWith('.md') || name.endsWith('.markdown');
-  }, []);
-
   const isVideoAttachment = useCallback((attachment: UiMessageAttachment) => {
     const mime = (attachment.mimeType ?? '').toLowerCase();
     const type = (attachment.fileType ?? '').toLowerCase();
@@ -1111,7 +1340,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     };
   }, [assetAccessToken, assetUrlRequiresAuth]);
 
-  const mapAuthMessageToUiMessage = useCallback((message: {
+  const mapAuthMessageToUiMessage = useCallback((rawMessage: {
     id: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
@@ -1154,6 +1383,9 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       label?: string;
     }[];
   }): UiMessage => {
+    const message = rawMessage.role === 'user'
+      ? { ...rawMessage, content: stripCancellationNote(rawMessage.content) }
+      : { ...rawMessage, content: sanitizeModelText(rawMessage.content) };
     const role = message.role === 'assistant' ? 'assistant' : 'user';
     const createdAtMs = new Date(message.createdAt).getTime();
     let referencedMedia: ComposerMediaReference | undefined;
@@ -1306,6 +1538,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           messageId: message.id,
           toolCallIndex,
           createdAt: createdAtMs,
+          titleHint: call.name === 'generate_document' ? documentTitleFromArgs(call.args) : undefined,
+          formatHint: call.name === 'generate_document' ? documentFormatFromArgs(call.args) : undefined,
         });
         return acc;
       },
@@ -1755,6 +1989,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         let changed = false;
         const next = prev.map((message) => {
           if (message.role !== 'assistant') return message;
+          if (message.stopped) return message;
           if ((message.attachments?.length ?? 0) > 0) return message;
           const attachments = byMessageId.get(message.id);
           if (!attachments?.length) return message;
@@ -1779,7 +2014,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     const mapped = detail.messages.map(mapAuthMessageToUiMessage);
     setMessages((prev) => {
       const previousById = new Map(prev.map((message) => [message.id, message] as const));
-      const merged = mapped.map((message) => {
+      const mergedRaw = mapped.map((message) => {
         if (message.role !== 'assistant') return message;
         const prior = previousById.get(message.id);
         if (!prior) {
@@ -1820,6 +2055,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           videoId: message.videoId ?? prior.videoId,
         };
       });
+      const merged = applyStoppedTurns(
+        mergedRaw,
+        detail.id,
+        stoppedAssistantIdsRef.current,
+        stoppedTurnsRef.current,
+        new Map(prev.map((message) => [message.id, message.content] as const)),
+      );
       const mappedIds = new Set(merged.map((message) => message.id));
       const endsWithUser = merged.length > 0 && merged[merged.length - 1]?.role === 'user';
       const lastMappedUserCreatedAt = [...merged]
@@ -2691,10 +2933,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     return item.role;
   }, []);
 
-  const handleSend = (options?: { skipDocumentFormWarning?: boolean }) => {
+  const handleSend = (options?: { skipDocumentFormWarning?: boolean; fromQueue?: QueuedSend }) => {
       const run = async () => {
-        const trimmed = inputValueRef.current.trim();
-        const attachmentsForSend = [...attachedAssets];
+        const trimmed = options?.fromQueue ? options.fromQueue.text.trim() : inputValueRef.current.trim();
+        const attachmentsForSend = options?.fromQueue ? [...options.fromQueue.attachments] : [...attachedAssets];
         clearPromptSuggestions();
         ++sendAttemptSeqRef.current;
         const now = Date.now();
@@ -2756,17 +2998,47 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
 
-        if (sinceLastAttemptMs < SEND_DEBOUNCE_MS) {
+        if (!options?.fromQueue && sinceLastAttemptMs < SEND_DEBOUNCE_MS) {
           return;
         }
 
         if (isSendRunInFlightRef.current || isSending || isUnderstandingPrompt) {
+          if (options?.fromQueue) {
+            setSendQueue((prev) => [options.fromQueue!, ...prev]);
+            return;
+          }
+          // Another reply is still generating: line this message up behind it
+          // instead of dropping it (same idea as Claude/ChatGPT follow-ups).
+          if (screenMode === 'chat' && isAuthenticated && !isDedicatedMediaScreen) {
+            if (sendQueue.length >= MAX_QUEUED_SENDS) {
+              showTransientNotice(t('chat.queue.full'));
+              return;
+            }
+            lastSendAttemptAtRef.current = now;
+            setSendQueue((prev) => [
+              ...prev,
+              { id: `queued-${now}-${prev.length}`, text: trimmed, attachments: attachmentsForSend },
+            ]);
+            inputValueRef.current = '';
+            setInput('');
+            setIsEditingPrompt(false);
+            if (attachmentsForSend.length) setAttachedAssets([]);
+            hapticSelection();
+          }
           return;
         }
         lastSendAttemptAtRef.current = now;
         isSendRunInFlightRef.current = true;
         setIsSending(true);
+        setIsEditingPrompt(false);
         setStatusNotice('');
+        const runHandle: ActiveSendRun = {
+          id: ++runSeqRef.current,
+          controller: new AbortController(),
+          stoppedByUser: false,
+          detached: false,
+        };
+        activeRunRef.current = runHandle;
 
         const shouldShowPromptUnderstanding =
           (screenMode === 'image-to-video' || screenMode === 'edit-image') && trimmed.length > 0;
@@ -2981,11 +3253,13 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             };
             setAttachmentMenuOpen(false);
             setModelMenuOpen(false);
-            if (attachmentsForSend.length) {
-              setAttachedAssets([]);
+            if (!options?.fromQueue) {
+              if (attachmentsForSend.length) {
+                setAttachedAssets([]);
+              }
+              inputValueRef.current = '';
+              setInput('');
             }
-            inputValueRef.current = '';
-            setInput('');
             setMessages((prev) => {
               const withoutSyntheticWelcome = prev.filter((message) => !isWelcomeMessage(message));
               return [...withoutSyntheticWelcome, userMessage, assistantMessage];
@@ -3021,10 +3295,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             analyzedAssistantId = `assistant-${Date.now()}`;
             setAttachmentMenuOpen(false);
             setModelMenuOpen(false);
-            if (attachmentsForSend.length) setAttachedAssets([]);
-            Keyboard.dismiss();
-            inputValueRef.current = '';
-            setInput('');
+            if (!options?.fromQueue) {
+              if (attachmentsForSend.length) setAttachedAssets([]);
+              Keyboard.dismiss();
+              inputValueRef.current = '';
+              setInput('');
+            }
             setMessages((prev) => [
               ...prev.filter((message) => !isWelcomeMessage(message)),
               analyzedUserMessage!,
@@ -4113,6 +4389,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
             uri: asset.uri,
           })),
         });
+        const cancelledPrompts = cancelledPromptsRef.current.get(conversationId) ?? [];
+        cancelledPromptsRef.current.delete(conversationId);
+        const messageForServer = cancelledPrompts.length
+          ? `${cancelledPrompts.map((prompt) => `${buildCancellationNote(prompt)}\n`).join('')}\n${trimmed}`
+          : trimmed;
         let toolCalls: UiMessageToolCall[] = [];
         let reasoningText = '';
         let reasoningStartedAt = 0;
@@ -4120,9 +4401,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         let artifactCounter = 0;
         await sendAuthenticatedMessageStream(
           conversationId,
-          trimmed,
+          messageForServer,
           attachmentsForSend,
           (event) => {
+              if (runHandle.detached || runHandle.stoppedByUser) return;
               if (event.type === 'meta') {
                 setStreamingModelLabel(
                   resolveModelBadgeLabel(event.model, activeModel),
@@ -4210,6 +4492,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               }
 
               if (event.type === 'tool_start') {
+                runHandle.lastTool = event.tool;
                 toolCalls = [...toolCalls, { tool: event.tool, label: event.label, running: true }];
                 const artifactKind = event.tool === 'generate_image' || event.tool === 'edit_image'
                   ? 'image' as const
@@ -4232,6 +4515,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       messageId: activeAssistantId,
                       createdAt: Date.now(),
                       generating: true,
+                      titleHint: artifactKind === 'document' ? documentTitleFromArgs(event.args) : undefined,
+                      formatHint: artifactKind === 'document' ? documentFormatFromArgs(event.args) : undefined,
                     },
                   ];
                 }
@@ -4421,6 +4706,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               }
             : undefined,
           composerMediaReference ?? undefined,
+          runHandle.controller.signal,
         );
         // Quick replies (web parity): find the saved assistant message's real
         // id, poll its quick-replies, and attach them to the reply on screen.
@@ -4461,12 +4747,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                     && new Date(item.createdAt).getTime() >= responseRecoveryStartAt
                   ));
                 if (recoveredAssistant) {
+                  // A queued/next turn may already be running. The server snapshot
+                  // doesn't contain its local bubbles yet, so applying it now would
+                  // wipe them and leave only the status label on screen.
+                  if (activeRunRef.current && activeRunRef.current !== runHandle) return;
                   applyAuthConversationDetail(detail);
                   break;
                 }
               } catch {
                 // keep trying
               }
+              if (activeRunRef.current && activeRunRef.current !== runHandle) return;
               await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
             }
           })();
@@ -4483,6 +4774,57 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         const message = error instanceof Error ? error.message : t('chat.sendFailed');
         const friendlyMessage = getFriendlyErrorMessage(error, requestKind);
         const code = ((error as { code?: string } | undefined)?.code ?? '').toUpperCase();
+        if (code === 'AUTH_STREAM_ABORTED' || runHandle.detached || runHandle.stoppedByUser) {
+          // The user left this chat: its UI state was already reset, and the
+          // server keeps the turn. Nothing to show here.
+          if (runHandle.detached) return;
+          // The user pressed Stop: keep what streamed so far, drop the spinners
+          // and mark the turn so it can be retried.
+          const stoppedIds = [activeAssistantId, assistantId].filter(Boolean);
+          rememberStoppedAssistantIds(stoppedIds);
+          const stoppedConversationId = activeAuthConversationId ?? currentConversationIdRef.current;
+          if (stoppedConversationId && trimmed) {
+            cancelledPromptsRef.current.set(stoppedConversationId, [
+              ...(cancelledPromptsRef.current.get(stoppedConversationId) ?? []),
+              trimmed,
+            ]);
+            const stoppedTool = runHandle.lastTool;
+            rememberStoppedTurn({
+              conversationId: stoppedConversationId,
+              text: trimmed,
+              occurrence: messages.filter((item) => item.role === 'user' && item.content.trim() === trimmed).length,
+              ...(stoppedTool
+                ? {
+                    tool: stoppedTool,
+                    // Earlier assistant messages that used this tool: still on screen,
+                    // plus earlier stopped turns whose result is hidden by the ledger.
+                    toolOccurrence:
+                      messages.filter((item) => item.role === 'assistant' && item.tools?.some((tool) => tool.tool === stoppedTool)).length
+                      + stoppedTurnsRef.current.filter(
+                        (turn) => turn.conversationId === stoppedConversationId && turn.tool === stoppedTool,
+                      ).length,
+                  }
+                : {}),
+            });
+          }
+          setMessages((prev) =>
+            prev.map((item) =>
+              stoppedIds.includes(item.id)
+                ? {
+                    ...item,
+                    isAnalyzing: false,
+                    isImageGenerating: false,
+                    isVideoGenerating: false,
+                    isArtifactGenerating: false,
+                    tools: item.tools?.filter((tool) => !tool.running),
+                    artifacts: item.artifacts?.filter((artifact) => !artifact.generating),
+                    stopped: true,
+                  }
+                : item,
+            ),
+          );
+          return;
+        }
         const status = (error as { status?: number } | undefined)?.status;
         const rawErrorMessage = (error as { message?: string } | undefined)?.message ?? '';
         const normalizedErrorMessage = rawErrorMessage.toLowerCase();
@@ -4849,6 +5191,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
           return;
         }
         if (isLimitError) {
+          setSendQueue([]);
           preserveLimitNotice = true;
           setUpgradeNoticeIsCredits(
             ((error as { code?: string } | undefined)?.code ?? '').toUpperCase() === 'CREDIT_LIMIT_EXCEEDED',
@@ -4927,19 +5270,26 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         );
         didMutateChats = true;
         } finally {
-          flushPendingAssistantDelta();
-          if (deltaFlushTimerRef.current) {
-            clearTimeout(deltaFlushTimerRef.current);
-            deltaFlushTimerRef.current = null;
+          // A run the user navigated away from was already cleaned up by
+          // detachActiveRun(); touching shared state now could clobber the
+          // chat they moved to.
+          if (!runHandle.detached) {
+            flushPendingAssistantDelta();
+            if (deltaFlushTimerRef.current) {
+              clearTimeout(deltaFlushTimerRef.current);
+              deltaFlushTimerRef.current = null;
+            }
+            setIsUnderstandingPrompt(false);
+            setStreamingModelLabel(null);
+            settleInterruptedTools([activeAssistantId, assistantId]);
+            if (!preserveLimitNotice) {
+              setStatusNotice('');
+            }
+            setIsSending(false);
+            setUploadProgressPercent(null);
+            isSendRunInFlightRef.current = false;
+            if (activeRunRef.current === runHandle) activeRunRef.current = null;
           }
-          setIsUnderstandingPrompt(false);
-          setStreamingModelLabel(null);
-          if (!preserveLimitNotice) {
-            setStatusNotice('');
-          }
-          setIsSending(false);
-          setUploadProgressPercent(null);
-          isSendRunInFlightRef.current = false;
           if (didMutateChats) {
             emitChatMutated();
           }
@@ -4960,6 +5310,139 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     setInput(line);
     handleSend({ skipDocumentFormWarning: true });
   };
+
+  // A turn can end (dropped connection, recovery gave up) while a tool chip is
+  // still marked running. Nothing else clears it, so it would spin forever.
+  // Settle whatever is left as interrupted so the UI shows a failure + retry.
+  const settleInterruptedTools = (messageIds: string[]) => {
+    const ids = messageIds.filter(Boolean);
+    if (!ids.length) return;
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (!ids.includes(message.id)) return message;
+        const hasRunningTool = message.tools?.some((tool) => tool.running);
+        const hasPendingArtifact = message.artifacts?.some((artifact) => artifact.generating);
+        if (!hasRunningTool && !hasPendingArtifact) return message;
+        return {
+          ...message,
+          tools: message.tools?.map((tool) =>
+            tool.running ? { ...tool, running: false, ok: false, interrupted: true } : tool,
+          ),
+          artifacts: message.artifacts?.map((artifact) =>
+            artifact.generating ? { ...artifact, generating: false, failed: true } : artifact,
+          ),
+        };
+      }),
+    );
+  };
+
+  const retryFromAssistantMessage = (assistantMessageId: string) => {
+    const index = messages.findIndex((message) => message.id === assistantMessageId);
+    if (index < 0) return;
+    const previousPrompt = [...messages.slice(0, index)].reverse().find(
+      (message) => message.role === 'user' && message.content.trim(),
+    );
+    if (!previousPrompt) return;
+    hapticSelection();
+    handleWidgetSubmit(previousPrompt.content.trim());
+  };
+
+  useEffect(() => {
+    void AsyncStorage.getItem(STOPPED_ASSISTANT_IDS_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id) => {
+            if (typeof id === 'string') stoppedAssistantIdsRef.current.add(id);
+          });
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    void AsyncStorage.getItem(STOPPED_TURNS_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          stoppedTurnsRef.current = [
+            ...parsed.filter(
+              (turn): turn is StoppedTurn =>
+                Boolean(turn) && typeof turn.conversationId === 'string' && typeof turn.text === 'string'
+                && typeof turn.occurrence === 'number',
+            ),
+            ...stoppedTurnsRef.current,
+          ];
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const rememberStoppedTurn = (turn: StoppedTurn) => {
+    stoppedTurnsRef.current = [...stoppedTurnsRef.current, turn].slice(-MAX_STORED_STOPPED_TURNS);
+    void AsyncStorage.setItem(STOPPED_TURNS_KEY, JSON.stringify(stoppedTurnsRef.current)).catch(() => undefined);
+  };
+
+  const rememberStoppedAssistantIds = (ids: string[]) => {
+    ids.filter(Boolean).forEach((id) => stoppedAssistantIdsRef.current.add(id));
+    const stored = [...stoppedAssistantIdsRef.current].slice(-MAX_STORED_STOPPED_IDS);
+    void AsyncStorage.setItem(STOPPED_ASSISTANT_IDS_KEY, JSON.stringify(stored)).catch(() => undefined);
+  };
+
+  // Stop button: abort the live request and keep the partial reply. Queued
+  // messages stay put: once this turn winds down, the queue effect starts the
+  // next one automatically.
+  const handleStopGeneration = () => {
+    const run = activeRunRef.current;
+    if (!run || run.stoppedByUser) return;
+    hapticSelection();
+    run.stoppedByUser = true;
+    run.controller.abort();
+  };
+
+  // Leaving a chat mid-reply: stop tracking it here so its spinner, status pill
+  // and queue don't follow the user into another conversation. The server keeps
+  // generating and saves the reply, which is loaded when they come back.
+  const detachActiveRun = () => {
+    setSendQueue([]);
+    const run = activeRunRef.current;
+    if (!run) return;
+    run.detached = true;
+    activeRunRef.current = null;
+    const conversationId = currentConversationIdRef.current;
+    if (conversationId) detachedRunsRef.current.set(conversationId, Date.now());
+    run.controller.abort();
+    pendingDeltaRef.current = '';
+    if (deltaFlushTimerRef.current) {
+      clearTimeout(deltaFlushTimerRef.current);
+      deltaFlushTimerRef.current = null;
+    }
+    isSendRunInFlightRef.current = false;
+    setIsSending(false);
+    setIsUnderstandingPrompt(false);
+    setStreamingModelLabel(null);
+    setUploadProgressPercent(null);
+    setStatusNotice('');
+  };
+
+  const removeQueuedSend = (id: string) => {
+    hapticSelection();
+    setSendQueue((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Start the next queued message as soon as the current turn is finished. Runs
+  // as an effect so it always uses this render's conversation id (a brand-new
+  // chat gets its id during the first turn).
+  useEffect(() => {
+    if (!sendQueue.length) return;
+    if (isSending || isUnderstandingPrompt || isHydratingAuthChat || isSendRunInFlightRef.current) return;
+    const [next, ...rest] = sendQueue;
+    setSendQueue(rest);
+    handleSend({ skipDocumentFormWarning: true, fromQueue: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendQueue, isSending, isUnderstandingPrompt, isHydratingAuthChat]);
 
   const insertStarterPrompt = (prompt: string) => {
     hapticSelection();
@@ -5682,59 +6165,19 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     showTransientNotice('Downloading file...');
 
     try {
-      const isMarkdown = isMarkdownAttachment(attachment);
-      const inferredExtension = (() => {
-        const lowerName = (attachment.originalName ?? '').toLowerCase();
-        const nameMatch = lowerName.match(/\.([a-z0-9]+)$/i);
-        if (nameMatch?.[1]) return nameMatch[1];
-        const mime = (attachment.mimeType ?? '').toLowerCase();
-        if (mime.includes('pdf')) return 'pdf';
-        if (mime.includes('markdown')) return 'md';
-        if (mime.includes('wordprocessingml') || mime.includes('msword')) return 'docx';
-        if (mime.includes('json')) return 'json';
-        if (mime.includes('csv')) return 'csv';
-        if (mime.includes('plain')) return 'txt';
-        return 'bin';
-      })();
-      const suggestedName = (attachment.originalName?.trim() || `cafa-ai-file-${Date.now()}.${inferredExtension}`)
-        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-      const finalName = /\.[a-z0-9]+$/i.test(suggestedName)
-        ? suggestedName
-        : `${suggestedName}.${inferredExtension}`;
-      const target = new File(Paths.cache, finalName);
-      if (target.exists) {
-        target.delete();
-      }
-
+      // One shared pipeline for every download: detects the real file type from
+      // the content, names it properly, saves it to Downloads (or the Gallery for
+      // media), posts a tappable "Download complete" notification and remembers
+      // the saved copy so file cards can say "Open".
       const accessToken = await getAccessToken();
-      const downloaded = await File.downloadFileAsync(resolvedUrl, target, {
-        idempotent: true,
+      const saved = await downloadAndSaveFile({
+        url: resolvedUrl,
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        fileName: attachment.originalName,
+        mimeType: attachment.mimeType,
+        registryKey: resolvedUrl,
       });
-
-      if (Platform.OS === 'android') {
-        const persisted = await saveFileToDownloadsCafaFolder({
-          localFileUri: downloaded.uri,
-          fileName: finalName,
-          mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/octet-stream'),
-        });
-        showDownloadToast(`Saved to ${persisted.readableFilePath}`);
-      } else {
-        const Sharing = await getSharingModule();
-        if (Sharing && await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(downloaded.uri, {
-            mimeType: attachment.mimeType || (isMarkdown ? 'text/markdown' : 'application/octet-stream'),
-            dialogTitle: 'Save or share file',
-          });
-          showDownloadToast('File ready to save or share.');
-        } else {
-          await Share.share({
-            message: finalName,
-            url: downloaded.uri,
-          });
-          showDownloadToast('File ready to share.');
-        }
-      }
+      showDownloadToast(saved.persisted ? `Saved to ${saved.displayPath}` : 'File ready to save or share.');
       hapticSuccess();
     } catch (error) {
       const messageText = error instanceof Error ? error.message : 'Unknown file download failure';
@@ -5746,9 +6189,141 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
     }
   };
 
+  // Native paste: long-press > Paste (or the keyboard's clipboard suggestion) hands
+  // pasted images and files to the app. React Native's Android text box turns every
+  // paste into plain text and drops anything else, so a small native module registers
+  // a content listener on the underlying input.
+  const attachPasteSupport = useCallback(() => {
+    if (Platform.OS !== 'android' || !CafaPaste) return;
+    const tag = findNodeHandle(composerInputRef.current);
+    if (tag) void CafaPaste.enablePaste(tag).catch(() => undefined);
+  }, []);
+
+  const handlePastedItems = (items: PastedItem[]) => {
+    let attached = 0;
+    for (const pasted of items) {
+      const identity = identityFromMime(pasted.mimeType) ?? identityFromExtension(extensionOf(pasted.fileName));
+      const lowerName = pasted.fileName.toLowerCase();
+      const isImage = identity?.kind === 'image' || pasted.mimeType.startsWith('image/');
+      if (!isImage) {
+        const isAllowedDocument = lowerName.endsWith('.pdf') || lowerName.endsWith('.docx') || lowerName.endsWith('.txt');
+        if (!isAllowedDocument) {
+          showTransientNotice(t('chat.paste.unsupportedFile'));
+          continue;
+        }
+        if (!canAttachDocuments) {
+          showTransientNotice('Document upload is available on paid plans only.');
+          continue;
+        }
+      }
+      setAttachedAssets((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label: pasted.fileName,
+          uri: pasted.uri,
+          fileName: pasted.fileName,
+          mimeType: pasted.mimeType,
+        },
+      ]);
+      attached += 1;
+    }
+    if (attached > 0) {
+      hapticSuccess();
+      focusComposerInputSoon();
+    }
+  };
+  // iPhone has no content listener on the text box, and on Android this is a fallback if
+  // the long-press Paste is not offered: an explicit "Paste image" row in the attach menu.
+  const pasteImageFromClipboard = async () => {
+    setAttachmentMenuOpen(false);
+    try {
+      if (!(await Clipboard.hasImageAsync())) {
+        showTransientNotice(t('chat.paste.noImage'));
+        return;
+      }
+      const image = await Clipboard.getImageAsync({ format: 'png' });
+      if (!image?.data) throw new Error('The clipboard image was empty.');
+      const file = new File(Paths.cache, `pasted-image-${Date.now()}.png`);
+      file.write(image.data.replace(/^data:[^;]+;base64,/, ''), { encoding: 'base64' });
+      setAttachedAssets((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          label: 'image.png',
+          uri: file.uri,
+          fileName: `image-${Date.now()}.png`,
+          mimeType: 'image/png',
+        },
+      ]);
+      hapticSuccess();
+      focusComposerInputSoon();
+    } catch (error) {
+      console.log(`[clipboard-image:error] ${error instanceof Error ? error.message : 'unknown'}`);
+      showTransientNotice(t('chat.paste.failed'));
+    }
+  };
+
+  const pasteHandlerRef = useRef(handlePastedItems);
+  pasteHandlerRef.current = handlePastedItems;
+
+  useEffect(() => {
+    if (!isAuthenticated || Platform.OS !== 'android' || !CafaPaste) return undefined;
+    const subscription = CafaPaste.addListener('onPaste', ({ items }) => pasteHandlerRef.current(items));
+    const timer = setTimeout(attachPasteSupport, 500);
+    return () => {
+      subscription.remove();
+      clearTimeout(timer);
+    };
+  }, [isAuthenticated, attachPasteSupport]);
+
+  // Copy / share the ASSET (image, video, document), not text about it.
+  type AssetRef = { url?: string | null; name?: string | null; mimeType?: string | null; titleHint?: string | null };
+
+  const assetRequestOptions = async (asset: AssetRef) => {
+    const resolved = resolveBackendAssetUrl(asset.url ?? undefined);
+    if (!resolved) return null;
+    const accessToken = await getAccessToken();
+    return {
+      url: resolved,
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      fileName: asset.name,
+      mimeType: asset.mimeType,
+      titleHint: asset.titleHint,
+    };
+  };
+
+  const copyAssetMessage = async (asset: AssetRef) => {
+    hapticSelection();
+    try {
+      const options = await assetRequestOptions(asset);
+      if (!options) throw new Error('Asset is not available.');
+      const result = await copyAssetToClipboard(options);
+      showTransientNotice(t(result === 'image' ? 'chat.assetCopied.image' : result === 'file' ? 'chat.assetCopied.file' : 'chat.assetCopied.shared'));
+      if (result !== 'shared') hapticSuccess();
+    } catch (error) {
+      console.log(`[asset-copy:error] ${error instanceof Error ? error.message : 'unknown'}`);
+      showTransientNotice(t('chat.assetCopyFailed'));
+      hapticError();
+    }
+  };
+
+  const shareAssetMessage = async (asset: AssetRef) => {
+    hapticSelection();
+    try {
+      const options = await assetRequestOptions(asset);
+      if (!options) throw new Error('Asset is not available.');
+      await shareAssetFile(options);
+    } catch (error) {
+      console.log(`[asset-share:error] ${error instanceof Error ? error.message : 'unknown'}`);
+      showTransientNotice(t('chat.assetCopyFailed'));
+      hapticError();
+    }
+  };
+
   const copyMessage = async (content: string) => {
     if (!content.trim()) return;
-    await Clipboard.setStringAsync(content);
+    await Clipboard.setStringAsync(sanitizeModelText(content));
     showTransientNotice(t('chat.copied'));
     hapticSuccess();
   };
@@ -5756,12 +6331,37 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const editPrompt = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed) return;
+    if (activeRunRef.current) handleStopGeneration();
     inputValueRef.current = trimmed;
     setInput(trimmed);
+    setIsEditingPrompt(true);
     hapticSelection();
     requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
+  };
+
+  const renderSendButton = (className: string) => (
+    <Pressable
+      onPress={() => (showStopButton ? handleStopGeneration() : handleSend())}
+      onLongPress={(event) => showTooltip(showStopButton ? t('chat.stop') : t('chat.send'), event)}
+      disabled={isSendDisabled}
+      accessibilityRole="button"
+      accessibilityLabel={showStopButton ? t('chat.stop') : t('chat.send')}
+      accessibilityHint={showStopButton ? t('chat.stopHint') : t('chat.sendHint')}
+      className={className}
+      style={{
+        backgroundColor: isSendDisabled ? '#5F7FB8' : colors.primary,
+      }}
+    >
+      <Ionicons name={showStopButton ? 'stop' : 'send'} size={showStopButton ? 16 : 15} color="#FFFFFF" />
+    </Pressable>
+  );
+
+  const cancelEditingPrompt = () => {
+    inputValueRef.current = '';
+    setInput('');
+    setIsEditingPrompt(false);
   };
 
   const shareMessage = async (content: string) => {
@@ -6282,9 +6882,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       && newChatToken !== initialNewChatTokenRef.current
       && newChatToken !== lastHandledNewChatTokenRef.current;
     if (shouldStartNewChat) {
+      detachActiveRun();
       conversationHydrationRequestRef.current += 1;
       lastHandledNewChatTokenRef.current = newChatToken;
       setIsHydratingAuthChat(false);
+      setIsResumingRun(false);
       setAuthConversationId(null);
       setGuestConversationId(null);
       setInput('');
@@ -6304,6 +6906,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
       return;
     }
 
+    if (targetConversationId !== currentConversationIdRef.current) {
+      detachActiveRun();
+      setIsResumingRun(false);
+    }
     const requestId = conversationHydrationRequestRef.current + 1;
     conversationHydrationRequestRef.current = requestId;
     let cancelled = false;
@@ -6327,7 +6933,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         if (isAuthenticated) {
           const detail = await getAuthenticatedConversation(targetConversationId, { force: true });
           if (!isCurrentRequest()) return;
-          const mappedMessages = applyDescriptiveAttachmentNames(detail.messages.map(mapAuthMessageToUiMessage));
+          const mappedMessages = applyDescriptiveAttachmentNames(
+            applyStoppedTurns(
+              detail.messages.map(mapAuthMessageToUiMessage),
+              targetConversationId,
+              stoppedAssistantIdsRef.current,
+              stoppedTurnsRef.current,
+            ),
+          );
           const localDrafts = await getDocumentWizardDraftMessages(getDocumentWizardDraftKey(targetConversationId));
           if (!isCurrentRequest()) return;
           const mergedMessages = applyWidgetSubmissionState(mergeDocumentWizardDraftMessages(mappedMessages, localDrafts));
@@ -6349,6 +6962,41 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               return acc;
             }, {}),
           );
+          // This chat was left mid-reply: the server is still working, so wait
+          // for its answer instead of leaving a question with no reply.
+          const detachedAt = detachedRunsRef.current.get(targetConversationId);
+          const lastMessage = detail.messages[detail.messages.length - 1];
+          if (
+            detachedAt
+            && Date.now() - detachedAt < DETACHED_RUN_RESUME_WINDOW_MS
+            && lastMessage?.role === 'user'
+          ) {
+            setIsResumingRun(true);
+            for (let attempt = 0; attempt < 60 && isCurrentRequest(); attempt += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+              if (!isCurrentRequest()) return;
+              try {
+                const latest = await getAuthenticatedConversation(targetConversationId, { force: true });
+                const latestMessage = latest.messages[latest.messages.length - 1];
+                if (latestMessage?.role === 'assistant' && (latestMessage.content.trim() || latestMessage.toolCalls?.length)) {
+                  if (!isCurrentRequest()) return;
+                  setMessages(applyWidgetSubmissionState(applyDescriptiveAttachmentNames(
+                    applyStoppedTurns(
+                      latest.messages.map(mapAuthMessageToUiMessage),
+                      targetConversationId,
+                      stoppedAssistantIdsRef.current,
+                      stoppedTurnsRef.current,
+                    ),
+                  )));
+                  break;
+                }
+              } catch {
+                // keep waiting
+              }
+            }
+            detachedRunsRef.current.delete(targetConversationId);
+            if (isCurrentRequest()) setIsResumingRun(false);
+          }
           return;
         }
 
@@ -6528,22 +7176,20 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
   const topBarModelSwitcher = isAuthenticated ? (
     <View className="flex-row items-center" style={{ gap: 8 }}>
       <NotificationBell isDark={isDark} onNavigate={(link) => router.push(resolveNotificationRoute(link) as never)} />
-      <View style={{ width: 32, height: 32 }}>
-        {allArtifacts.length ? (
-          <Pressable
-            onPress={() => {
-              hapticSelection();
-              setArtifactsPanelOpen(true);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Artifacts"
-            className="h-8 w-8 items-center justify-center rounded-full border"
-            style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
-          >
-            <Ionicons name="images-outline" size={16} color={colors.primary} />
-          </Pressable>
-        ) : null}
-      </View>
+      {allArtifacts.length ? (
+        <Pressable
+          onPress={() => {
+            hapticSelection();
+            setArtifactsPanelOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Artifacts"
+          className="h-8 w-8 items-center justify-center rounded-full border"
+          style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
+        >
+          <Ionicons name="images-outline" size={16} color={colors.primary} />
+        </Pressable>
+      ) : null}
     <View
       className="relative rounded-full border px-1.5 py-1"
       style={{
@@ -6563,7 +7209,11 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
         className="h-8 flex-row items-center rounded-full border px-3"
         style={{ borderColor: colors.primary, backgroundColor: isDark ? '#0A0A0A' : '#FFFFFF' }}
       >
-        <Text style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}>
+        <Text
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.1}
+          style={{ color: colors.textPrimary, fontSize: 12, fontWeight: '600' }}
+        >
           {t(`chat.model.label.${activeModel}`)}
         </Text>
         <Ionicons
@@ -6884,6 +7534,25 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               </Text>
             </Pressable>
 
+            <Pressable
+              focusable
+              onPress={() => {
+                void pasteImageFromClipboard();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('chat.paste.menuLabel')}
+              className="flex-row items-center rounded-xl border px-4 py-3.5 mb-3"
+              style={{
+                backgroundColor: isDark ? '#141416' : '#F9FAFB',
+                borderColor: colors.border,
+              }}
+            >
+              <Ionicons name="clipboard-outline" size={18} color={colors.textPrimary} />
+              <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '600', marginLeft: 12 }}>
+                {t('chat.paste.menuLabel')}
+              </Text>
+            </Pressable>
+
             {allowDocumentAttachment ? (
               <Pressable
                 ref={uploadDocumentOptionRef}
@@ -7131,42 +7800,24 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 </View>
               </Animated.View>
             ) : null}
-            {isUnderstandingPrompt ? (
+            {isUnderstandingPrompt || !!streamingModelLabel || isResumingRun ? (
               <Animated.View
                 entering={FadeInDown.duration(MOTION.duration.quick)}
                 exiting={FadeOutDown.duration(MOTION.duration.quick)}
-                accessibilityRole="progressbar"
-                accessibilityLabel={t('chat.status.understanding')}
-                accessibilityHint="Cafa AI is interpreting your request before sending it."
-                accessibilityState={{ busy: true }}
-                className="mb-2 self-start rounded-full border px-3 py-1.5"
-                style={{ borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }}
+                className="mb-2 self-start"
+                accessibilityHint={isUnderstandingPrompt ? 'Cafa AI is interpreting your request before sending it.' : undefined}
               >
-                <View className="flex-row items-center">
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Ionicons name="search-outline" size={13} color={colors.primary} style={{ marginLeft: 6 }} />
-                  <Text
-                    accessibilityLiveRegion="polite"
-                    style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginLeft: 6 }}
-                  >
-                    {t('chat.status.understanding')}
-                  </Text>
-                </View>
-              </Animated.View>
-            ) : null}
-            {!!streamingModelLabel ? (
-              <Animated.View
-                entering={FadeInDown.duration(MOTION.duration.quick)}
-                exiting={FadeOutDown.duration(MOTION.duration.quick)}
-                className="mb-2 self-start rounded-full border px-3 py-1.5"
-                style={{ borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}14` }}
-              >
-                <View className="flex-row items-center">
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '600', marginLeft: 6 }}>
-                    {streamingModelLabel}
-                  </Text>
-                </View>
+                <ShimmerText
+                  text={
+                    isUnderstandingPrompt
+                      ? `${t('chat.status.understanding')}…`
+                      : streamingModelLabel
+                        ? `${streamingModelLabel}…`
+                        : `${t('chat.status.resuming')}…`
+                  }
+                  color={isDark ? '#9A9A9A' : '#6B6B6B'}
+                  fontSize={14}
+                />
               </Animated.View>
             ) : null}
 
@@ -7290,6 +7941,42 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                   && hasAttachmentPreviews
                   && !isImageMessage
                   && !isVideoMessage;
+                // The file card is the download, so the model's own "Download: [x.pdf](url)"
+                // line (or a pasted file URL) is removed from the text shown under it.
+                const generatedFileUrls = isUser
+                  ? []
+                  : [
+                      ...(item.artifacts ?? [])
+                        .filter((artifact) => artifact.kind === 'document' && artifact.url)
+                        .map((artifact) => artifact.url as string),
+                      ...fileAttachments
+                        .filter((attachment) => isGeneratedDownloadableFileAttachment(attachment))
+                        .map((attachment) => attachment.url as string),
+                    ];
+                const promptTitle = !isUser && generatedFileUrls.length
+                  ? titleFromPrompt(
+                      [...messages.slice(0, Math.max(0, messages.findIndex((message) => message.id === item.id)))]
+                        .reverse()
+                        .find((message) => message.role === 'user' && message.content.trim())?.content,
+                    )
+                  : undefined;
+                const generatedDocument = isUser
+                  ? undefined
+                  : (item.artifacts ?? []).find((artifact) => artifact.kind === 'document' && artifact.url);
+                const generatedAttachment = isUser
+                  ? undefined
+                  : fileAttachments.find((attachment) => isGeneratedDownloadableFileAttachment(attachment));
+                const generatedFileAsset = {
+                  url: generatedDocument?.url ?? generatedAttachment?.url,
+                  name: generatedDocument?.name ?? generatedAttachment?.originalName,
+                  mimeType: generatedDocument?.mimeType ?? generatedAttachment?.mimeType,
+                  titleHint: generatedDocument?.titleHint ?? extractQuotedTitle(item.content) ?? promptTitle,
+                };
+                const isLiveReply = isSending && !isUser && item.id === messages[messages.length - 1]?.id;
+                const cleanedReplyText = isUser ? item.content : sanitizeModelText(item.content, isLiveReply);
+                const displayContent = generatedFileUrls.length
+                  ? stripFileDownloadLinks(cleanedReplyText, generatedFileUrls, isLiveReply)
+                  : cleanedReplyText;
                 return (
                   <Animated.View entering={FadeInUp.duration(MOTION.duration.normal)} className={`flex-row ${isUser ? 'justify-end' : 'justify-start'}`}>
                     <View
@@ -7355,50 +8042,14 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           .reverse()
                           .find((artifact) => artifact.kind === 'document' && !artifact.generating && artifact.url);
                         if (!readyDoc) return null;
-                        // Real fix: this card used to Linking.openURL() the raw file
-                        // URL, which just handed a PDF/DOCX off to Chrome instead of
-                        // downloading it in-app. Route both the card body and the
-                        // download icon through the same in-app file download +
-                        // native share/save flow every other generated file
-                        // attachment already uses.
-                        const openDocument = () => {
-                          void downloadGeneratedFileAttachment(
-                            { id: readyDoc.id, url: readyDoc.url, originalName: readyDoc.name },
-                            readyDoc.messageId,
-                          );
-                        };
                         return (
-                          <View
-                            className="mb-2 flex-row items-center rounded-2xl border px-3 py-3"
-                            style={{ borderColor: colors.border, backgroundColor: isDark ? '#101010' : '#F5F5F5', width: 236 }}
-                          >
-                            <Pressable
-                              onPress={openDocument}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Download document ${readyDoc.name ?? 'file'}`}
-                              className="flex-row items-center"
-                              style={{ flex: 1 }}
-                            >
-                              <Ionicons name="document-text-outline" size={22} color={colors.primary} />
-                              <View style={{ marginLeft: 10, flex: 1 }}>
-                                <Text numberOfLines={2} style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
-                                  {readyDoc.name || 'Generated document'}
-                                </Text>
-                                <Text style={{ color: colors.primary, fontSize: 11, marginTop: 2 }}>
-                                  Tap to download
-                                </Text>
-                              </View>
-                            </Pressable>
-                            <Pressable
-                              onPress={openDocument}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityLabel="Download document"
-                              style={{ padding: 6, marginLeft: 6 }}
-                            >
-                              <Ionicons name="download-outline" size={20} color={colors.primary} />
-                            </Pressable>
-                          </View>
+                          <FileCard
+                            url={resolveBackendAssetUrl(readyDoc.url) ?? (readyDoc.url as string)}
+                            name={readyDoc.name}
+                            mimeType={readyDoc.mimeType}
+                            titleHint={readyDoc.titleHint ?? extractQuotedTitle(item.content) ?? promptTitle}
+                            formatHint={readyDoc.formatHint}
+                          />
                         );
                       })() : null}
 
@@ -7607,6 +8258,17 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             const attachmentId = attachment.id ?? `${item.id}-${fileName}`;
                             const isDownloadingAttachment = downloadingAttachmentId === attachmentId;
                             const showDownloadAction = !isUser && isGeneratedDownloadableFileAttachment(attachment);
+                            if (showDownloadAction) {
+                              return (
+                                <FileCard
+                                  key={`${item.id}-file-${attachment.id ?? index}`}
+                                  url={resolveBackendAssetUrl(attachment.url) ?? (attachment.url as string)}
+                                  name={attachment.originalName}
+                                  mimeType={attachment.mimeType}
+                                  titleHint={extractQuotedTitle(item.content) ?? promptTitle}
+                                />
+                              );
+                            }
                             const iconName = isPdf
                               ? 'document-attach-outline'
                               : isMarkdown
@@ -7667,7 +8329,37 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                       ) : null}
 
                       {!isUser && item.tools?.length ? (
-                        <ToolStatusChips tools={item.tools} isDark={isDark} />
+                        <ToolStatusChips
+                          tools={item.tools}
+                          isDark={isDark}
+                          onRetry={!isSending ? () => retryFromAssistantMessage(item.id) : undefined}
+                        />
+                      ) : null}
+
+                      {!isUser && item.stopped ? (
+                        <View className="mb-1 mt-1 self-start">
+                          <View className="flex-row items-center">
+                            <Ionicons name="stop-circle-outline" size={16} color={colors.textSecondary} style={{ marginRight: 6 }} />
+                            <Text style={{ color: colors.textSecondary, fontSize: 14, lineHeight: 20 }}>
+                              {t('chat.stopped')}
+                            </Text>
+                          </View>
+                          {!isSending ? (
+                            <Pressable
+                              onPress={() => retryFromAssistantMessage(item.id)}
+                              accessibilityRole="button"
+                              accessibilityLabel={t('chat.tool.retry')}
+                              hitSlop={8}
+                              className="mt-1 flex-row items-center self-start rounded-full border px-3 py-1"
+                              style={{ borderColor: colors.border }}
+                            >
+                              <Ionicons name="refresh" size={13} color={colors.textPrimary} />
+                              <Text style={{ marginLeft: 6, color: colors.textPrimary, fontSize: 13, fontWeight: '600' }}>
+                                {t('chat.tool.retry')}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
                       ) : null}
 
                       {!isUser && item.upgradePrompt ? (
@@ -7693,7 +8385,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         <PushNudgeBanner isDark={isDark} />
                       ) : null}
 
-                      {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (item.content.trim() || !hasAttachmentPreviews) && (item.content || isUser || !item.tools?.length) ? (
+                      {!isAnalyzing && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageGenerating && !isVideoGenerating && !isArtifactGenerating && (shouldRenderMixedAttachmentMessage || (!isImageMessage && !isVideoMessage)) && (displayContent.trim() || !hasAttachmentPreviews) && (displayContent || isUser || !item.tools?.length) && !(item.stopped && !item.content.trim()) ? (
                         <View>
                           {isUser && item.referencedMedia ? (
                             <Pressable
@@ -7720,16 +8412,16 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                               backgroundColor: isUser ? colors.primary : isDark ? '#111111' : '#F5F5F5',
                             }}
                           >
-                            {!item.content && isSending && !isUser ? (
+                            {!displayContent && isSending && !isUser ? (
                               <TypingIndicator
                                 color={isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)'}
                                 accessibilityLabel={t('chat.status.thinking')}
                               />
                             ) : (() => {
-                              const visibleContent = item.content;
                               const isLiveStreamingMessage = isSending
                                 && !isUser
                                 && item.id === messages[messages.length - 1]?.id;
+                              const visibleContent = displayContent;
                               return (
                                 <StreamingMarkdown
                                   content={visibleContent}
@@ -7787,7 +8479,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           iconColor={colors.textSecondary}
                           showReference={screenMode === 'chat'}
                           onCopyPrompt={() => {
-                            void copyMessage(item.imagePrompt || item.content);
+                            void copyAssetMessage({ url: item.imageUrl });
                           }}
                           onLike={() => {
                             toggleLocalReaction(item.id, 'like');
@@ -7807,8 +8499,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           isShareBusy={sharingMediaMessageId === item.id}
                           onTooltip={showTooltip}
                           labels={{
-                            copy: t('chat.tooltip.copyPrompt'),
-                            copyHint: t('chat.tooltip.copyPrompt'),
+                            copy: t('chat.tooltip.copyImage'),
+                            copyHint: t('chat.tooltip.copyImage'),
                             like: t('chat.tooltip.like'),
                             likeHint: t('chat.tooltip.like'),
                             unlike: t('chat.tooltip.unlike'),
@@ -7831,7 +8523,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           iconColor={colors.textSecondary}
                           showReference={screenMode === 'chat'}
                           onCopyPrompt={() => {
-                            void copyMessage(item.videoPrompt || item.content);
+                            void copyAssetMessage({ url: item.videoUrl });
                           }}
                           onLike={() => {
                             toggleLocalReaction(item.id, 'like');
@@ -7851,8 +8543,8 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           isShareBusy={sharingMediaMessageId === item.id}
                           onTooltip={showTooltip}
                           labels={{
-                            copy: t('chat.tooltip.copyPrompt'),
-                            copyHint: t('chat.tooltip.copyPrompt'),
+                            copy: t('chat.tooltip.copyVideo'),
+                            copyHint: t('chat.tooltip.copyVideo'),
                             like: t('chat.tooltip.like'),
                             likeHint: t('chat.tooltip.like'),
                             unlike: t('chat.tooltip.unlike'),
@@ -7867,7 +8559,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                         />
                       ) : null}
 
-                      {!isUser && !isWelcomeMessage(item) && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageMessage && !isVideoMessage && item.content.trim() ? (
+                      {!isUser && !isWelcomeMessage(item) && !isScreenHandoffMessage && !isImageRequirementMessage && !isDocumentWizardMessage && !isImageMessage && !isVideoMessage && (displayContent.trim() || generatedFileUrls.length > 0) ? (
                         <MessageActionsRow
                           isReading={isReading}
                           isReadingPaused={isReading && isReadAloudPaused}
@@ -7876,7 +8568,12 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                           borderColor={colors.border}
                           iconColor={colors.textSecondary}
                           onCopy={() => {
-                            void copyMessage(item.content);
+                            // A message with a generated file copies the FILE; plain replies copy their text.
+                            if (generatedFileUrls.length) {
+                              void copyAssetMessage(generatedFileAsset);
+                              return;
+                            }
+                            void copyMessage(displayContent);
                           }}
                           onLike={() => {
                             void toggleReaction(item.id, 'like');
@@ -7885,17 +8582,21 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                             void toggleReaction(item.id, 'dislike');
                           }}
                           onShare={() => {
-                            void shareMessage(item.content);
+                            if (generatedFileUrls.length) {
+                              void shareAssetMessage(generatedFileAsset);
+                              return;
+                            }
+                            void shareMessage(displayContent);
                           }}
-                          onReadAloud={() => toggleReadAloud(item.id, item.content)}
+                          onReadAloud={() => toggleReadAloud(item.id, displayContent || item.content)}
                           onStopReadAloud={() => {
                             activeReadAloudRequestRef.current += 1;
                             stopReadAloudPlayback();
                           }}
                           onTooltip={showTooltip}
                           labels={{
-                            copy: t('chat.tooltip.copyResponse'),
-                            copyHint: t('chat.tooltip.copyResponse'),
+                            copy: generatedFileUrls.length ? t('chat.tooltip.copyFile') : t('chat.tooltip.copyResponse'),
+                            copyHint: generatedFileUrls.length ? t('chat.tooltip.copyFile') : t('chat.tooltip.copyResponse'),
                             like: t('chat.tooltip.like'),
                             likeHint: t('chat.tooltip.like'),
                             dislike: t('chat.tooltip.dislike'),
@@ -7992,6 +8693,53 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
               </Animated.View>
             ) : null}
 
+            {sendQueue.length > 0 || isEditingPrompt ? (
+              <View className="mt-2" style={{ gap: 6 }}>
+                {isEditingPrompt ? (
+                  <View
+                    className="flex-row items-center rounded-xl border px-3 py-2"
+                    style={{ borderColor: colors.border, backgroundColor: isDark ? '#111111' : '#F5F5F5' }}
+                  >
+                    <Ionicons name="create-outline" size={15} color={colors.textSecondary} />
+                    <Text numberOfLines={1} style={{ flex: 1, marginLeft: 8, color: colors.textSecondary, fontSize: 13 }}>
+                      {t('chat.edit.banner')}
+                    </Text>
+                    <Pressable
+                      onPress={cancelEditingPrompt}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('chat.edit.cancel')}
+                    >
+                      <Ionicons name="close" size={18} color={colors.textSecondary} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                {sendQueue.map((queued, index) => (
+                  <View
+                    key={queued.id}
+                    className="flex-row items-center rounded-xl border px-3 py-2"
+                    style={{ borderColor: colors.border, backgroundColor: isDark ? '#111111' : '#F5F5F5' }}
+                  >
+                    <Ionicons name="time-outline" size={15} color={colors.textSecondary} />
+                    <Text numberOfLines={1} style={{ flex: 1, marginLeft: 8, color: colors.textPrimary, fontSize: 13 }}>
+                      {queued.text || t('chat.queue.attachmentOnly')}
+                    </Text>
+                    <Text style={{ marginHorizontal: 8, color: colors.textSecondary, fontSize: 11 }}>
+                      {index === 0 ? t('chat.queue.next') : t('chat.queue.queued')}
+                    </Text>
+                    <Pressable
+                      onPress={() => removeQueuedSend(queued.id)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('chat.queue.remove')}
+                    >
+                      <Ionicons name="close" size={18} color={colors.textSecondary} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             <Animated.View
           layout={Platform.OS === 'ios' ? undefined : LinearTransition.springify().damping(24).stiffness(300).mass(0.72)}
           className="relative mt-2 rounded-[28px] border p-1.5"
@@ -8022,6 +8770,7 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
 
           <TextInput
             ref={composerInputRef}
+            onFocus={attachPasteSupport}
             value={input}
             onChangeText={(text) => {
               inputValueRef.current = text;
@@ -8325,36 +9074,10 @@ export default function ChatScreen({ screenMode = 'chat' }: { screenMode?: ChatS
                 ) : null}
               </View>
 
-              <Pressable
-                onPress={() => handleSend()}
-                onLongPress={(event) => showTooltip(t('chat.send'), event)}
-                disabled={isSendDisabled}
-                accessibilityRole="button"
-                accessibilityLabel={t('chat.send')}
-                accessibilityHint={t('chat.sendHint')}
-                className="h-10 w-10 items-center justify-center rounded-full"
-                style={{
-                  backgroundColor: isSendDisabled ? '#5F7FB8' : colors.primary,
-                }}
-              >
-                <Ionicons name="send" size={15} color="#FFFFFF" />
-              </Pressable>
+              {renderSendButton('h-10 w-10 items-center justify-center rounded-full')}
             </View>
           ) : (
-            <Pressable
-              onPress={() => handleSend()}
-              onLongPress={(event) => showTooltip(t('chat.send'), event)}
-              disabled={isSendDisabled}
-              accessibilityRole="button"
-                accessibilityLabel={t('chat.send')}
-                accessibilityHint={t('chat.sendHint')}
-                className="absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full"
-                style={{
-                  backgroundColor: isSendDisabled ? '#5F7FB8' : colors.primary,
-                }}
-              >
-              <Ionicons name="send" size={15} color="#FFFFFF" />
-            </Pressable>
+            renderSendButton('absolute bottom-2 right-2 h-10 w-10 items-center justify-center rounded-full')
           )}
 
           {isRecording ? (
