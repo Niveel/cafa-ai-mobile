@@ -29,6 +29,8 @@ export type UiMessageToolCall = {
   ok?: boolean;
   ms?: number;
   running: boolean;
+  /** The stream ended (dropped, timed out) before this tool reported a result. */
+  interrupted?: boolean;
 };
 
 // Real, matches web's ProductResult (types/chat.types.ts) -- backed by the
@@ -67,6 +69,10 @@ export type UiArtifactItem = {
   mimeType?: string;
   sourceUrl?: string;
   name?: string;
+  /** Document title from the tool call; used to name the saved file when the backend sends no name. */
+  titleHint?: string;
+  /** File format from the tool call (e.g. "pdf", "docx"), used for the icon when the backend sends no name. */
+  formatHint?: string;
   messageId: string;
   toolCallIndex?: number;
   createdAt: number;
@@ -119,6 +125,8 @@ export type UiMessage = {
   isVideoGenerating?: boolean;
   isArtifactGenerating?: boolean;
   isAnalyzing?: boolean;
+  /** The user pressed Stop while this reply was generating. */
+  stopped?: boolean;
   screenHandoff?: UiMessageScreenHandoff;
   imageRequirement?: UiMessageImageRequirement;
   documentWizard?: UiMessageDocumentWizard;
