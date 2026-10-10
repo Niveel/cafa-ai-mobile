@@ -9,7 +9,7 @@ import { useAppTheme, useDailyInterstitialAd, useI18n } from '@/hooks';
 type ToolCard = {
   titleKey: string;
   descriptionKey: string;
-  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice' | '/(drawer)/cafa-life';
+  route: '/(drawer)/avatar-video' | '/(drawer)/image-to-video' | '/(drawer)/edit-image' | '/(drawer)/writing-tools' | '/(drawer)/voice' | '/(drawer)/cafa-life' | '/(drawer)/studio';
   icon: keyof typeof Ionicons.glyphMap;
   accent: string;
   eyebrowKey: string;
@@ -47,6 +47,14 @@ const TOOL_CARDS: ToolCard[] = [
     icon: 'color-wand-outline',
     accent: '#A44A1A',
     eyebrowKey: 'tools.card.editImage.eyebrow',
+  },
+  {
+    titleKey: 'tools.card.studio.title',
+    descriptionKey: 'tools.card.studio.description',
+    route: '/(drawer)/studio',
+    icon: 'film-outline',
+    accent: '#6D28D9',
+    eyebrowKey: 'tools.card.studio.eyebrow',
   },
   // Writing Tools is temporarily hidden from the Tools hub.
   // {

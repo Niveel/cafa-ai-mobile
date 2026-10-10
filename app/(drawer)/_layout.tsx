@@ -19,6 +19,8 @@ const drawerIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   voice: 'mic-outline',
   'cafa-life': 'radio-outline',
   'writing-tools': 'create-outline',
+  studio: 'film-outline',
+  'studio-project': 'film-outline',
   plans: 'card-outline',
   help: 'help-circle-outline',
   'privacy-policy': 'shield-checkmark-outline',
@@ -148,6 +150,8 @@ export default function DrawerLayout() {
           drawerItemStyle: { display: 'none' },
         }}
       />
+      <Drawer.Screen name="studio" options={{ title: t('drawer.studio'), drawerItemStyle: { display: 'none' } }} />
+      <Drawer.Screen name="studio-project" options={{ title: t('drawer.studio'), drawerItemStyle: { display: 'none' } }} />
       <Drawer.Screen name="plans" options={{ title: t('drawer.userMenu.upgrade') }} />
       <Drawer.Screen
         name="help"
