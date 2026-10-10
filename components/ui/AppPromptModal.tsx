@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   Animated,
   Modal,
@@ -25,6 +25,10 @@ type AppPromptModalProps = {
   onDismiss?: () => void;
   confirmTone?: 'primary' | 'danger';
   iconName?: keyof typeof Ionicons.glyphMap;
+  /** Custom icon element; replaces the Ionicons glyph (used by Movie Studio for Lucide icons). */
+  icon?: ReactNode;
+  /** Tint behind a custom icon; defaults to the theme primary. */
+  iconBackground?: string;
 };
 
 export function AppPromptModal({
@@ -40,6 +44,8 @@ export function AppPromptModal({
   onDismiss,
   confirmTone = 'primary',
   iconName = 'help-circle-outline',
+  icon,
+  iconBackground,
 }: AppPromptModalProps) {
   const { colors, isDark } = useAppTheme();
   const { t } = useI18n();
@@ -117,9 +123,9 @@ export function AppPromptModal({
           <View className="mb-3 flex-row items-center">
             <View
               className="mr-3 h-10 w-10 items-center justify-center rounded-full"
-              style={{ backgroundColor: `${colors.primary}24` }}
+              style={{ backgroundColor: iconBackground ?? `${colors.primary}24` }}
             >
-              <Ionicons name={iconName} size={20} color={colors.primary} />
+              {icon ?? <Ionicons name={iconName} size={20} color={colors.primary} />}
             </View>
             <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '700', flex: 1 }}>
               {title}

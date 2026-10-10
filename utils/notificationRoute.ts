@@ -18,6 +18,8 @@ const KNOWN_ROUTES = new Set([
   '/repo',
   '/tools',
   '/help',
+  '/studio',
+  '/studio-project',
   '/billing/credits',
   '/billing/payment-method',
 ]);
@@ -64,6 +66,13 @@ export function resolveNotificationTarget(notification: {
     const id = readId(metadata, 'avatarVideoId', 'videoId', 'id');
     if (id) return `/avatar-history?focusId=${encodeURIComponent(id)}`;
   }
+  if (typeof type === 'string' && type.startsWith('movie_studio')) {
+    // The exact type names and metadata keys are not documented: accept any movie_studio_* type, take the project id
+    // from the metadata or, failing that, from the link. Clip/shot notifications land on Scenes, the rest on Export.
+    const id = readId(metadata, 'projectId', 'project_id', 'movieStudioProjectId', 'id') ?? /[a-f0-9]{24}/i.exec(notification.link ?? '')?.[0] ?? null;
+    const stage = /clip|shot|scene/i.test(type) ? 'scenes' : 'export';
+    return id ? `/studio-project?id=${encodeURIComponent(id)}&stage=${stage}` : '/studio';
+  }
   return resolveNotificationRoute(notification.link);
 }
 
@@ -72,6 +81,10 @@ export function resolveNotificationRoute(link?: string | null): string {
   const path = rawPath.split('#')[0].replace(/\/+$/, '') || '/';
   const mapped = WEB_ALIASES[path] ?? path;
   if (KNOWN_ROUTES.has(mapped)) return query ? `${mapped}?${query}` : mapped;
+  // Web Movie Studio links: /movie-studio/... or /studio/... with a project id.
+  const studioMatch = /^\/(?:movie-studio|studio)(?:\/projects)?\/([a-f0-9]{24})/i.exec(path);
+  if (studioMatch) return `/studio-project?id=${studioMatch[1]}&stage=export`;
+  if (path === '/movie-studio') return '/studio';
   const chatMatch = /^\/c\/([a-f0-9]{24})$/i.exec(path);
   if (chatMatch) return `/?conversationId=${chatMatch[1]}`;
   return '/';
